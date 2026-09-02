@@ -10,7 +10,7 @@ Every new session must restore project context before planning or editing. Read,
 4. `docs/arch/code-map.md`
 5. `docs/specs/metric-development-order.md`
 
-Then read only the current task's relevant specification, plan, tests, and metric section. Read `mcp_tool_manual.json` only when tool names, parameters, or schemas are needed. Inspect `git status` before editing, preserve unrelated user changes, and update `docs/PROJECT_STATUS.md` after a verified batch changes the milestone, next action, blockers, or verification baseline.
+Then read only the current task's relevant specification, tests, and metric section. Read `mcp_tool_manual.json` only when tool names, parameters, or schemas are needed. Inspect `git status` before editing, preserve unrelated user changes, and update `docs/PROJECT_STATUS.md` after a verified batch changes the milestone, next action, blockers, or verification baseline.
 
 ## Project Structure & Module Organization
 
@@ -42,7 +42,7 @@ Use `.agents/skills/creed-lite/SKILL.md` for documentation, feature, test, debug
 
 - **Route S:** docs, comments, config, or formatting; implement directly and self-check.
 - **Route A:** small, clear feature without dependency, schema, persistence, concurrency, or security changes; plan inline, use TDD, and review the diff.
-- **Route B:** cross-file feature, new module, unclear requirement, or sensitive architectural change; resolve design choices, create `docs/creed/plans/YYYY-MM-DD-<feature>.md`, use TDD, and perform strict review.
+- **Route B:** cross-file feature, new module, unclear requirement, or sensitive architectural change; resolve design choices, state the implementation plan inline, use TDD, and perform strict review.
 
 For bugs, establish an evidenced root cause and failing regression test first. Approval covers the declared files and behavior; request renewed approval for dependencies or expanded scope.
 

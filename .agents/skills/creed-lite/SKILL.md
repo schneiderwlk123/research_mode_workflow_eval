@@ -18,7 +18,7 @@ Announce `Using creed-lite, route: <row>` first, then follow only that row's cha
 | Docs, comments, config, or formatting only (Route S) | implement directly → self-check |
 | Bug, test/CI failure, or unexpected behavior | debug → TDD → review → delivery |
 | Small feature with clear requirements (Route A) | inline plan → TDD → review → delivery |
-| Cross-file feature or unclear requirements (Route B) | explore if needed → design Q&A → plan file → TDD → review → delivery |
+| Cross-file feature or unclear requirements (Route B) | explore if needed → design Q&A → inline plan → TDD → review → delivery |
 
 ## Stage Rules
 
@@ -26,7 +26,7 @@ Announce `Using creed-lite, route: <row>` first, then follow only that row's cha
 
 **Design Q&A:** Ask only unresolved judgment questions. Batch them in one message with lettered choices, exactly one recommendation, and the outcome, mechanism, and cost of each option. Do not ask the user for facts available in the repository. Wait for design approval before coding when choices materially change behavior.
 
-**Plan:** Before coding, list exact files, reused components, tests, risks, and scope. Create `docs/creed/plans/YYYY-MM-DD-<feature>.md` for Route B or work containing at least three implementation tasks. Each task must identify its files and RED→GREEN steps. If executable code exists, include any required `docs/arch/code-map.md` update in the same slice.
+**Plan:** Before coding, state exact files, reused components, tests, risks, and scope in the conversation. Each implementation task must identify its files and RED→GREEN steps. Do not create a separate plan file. If executable code exists, include any required `docs/arch/code-map.md` update in the same slice.
 
 **TDD:** Run a behavior-focused test and observe the expected failure before writing production code. Add the smallest implementation that makes it pass, then refactor while green. Cover normal, boundary, invalid-input, and partial-failure behavior as applicable. Mock only external boundaries and prefer small fakes.
 
