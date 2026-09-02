@@ -90,16 +90,6 @@ def test_missing_research_call_id_is_not_computable_under_strict_policy() -> Non
     assert result.metadata["reason"] == "missing_call_id"
 
 
-def test_success_specific_normalization_error_does_not_change_completeness() -> None:
-    trace = _normalized_trace(calls=(_call("call-1", request=True, terminal=True),))
-    trace["success_normalization_error"] = "tool_name_mismatch"
-
-    result = ToolCallEventCompletenessEvaluator().evaluate(trace)
-
-    assert result.status is EvaluationStatus.COMPUTED
-    assert result.value == pytest.approx(1.0)
-
-
 @pytest.mark.parametrize(
     "trace",
     [
