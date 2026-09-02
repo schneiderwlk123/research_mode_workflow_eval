@@ -10,6 +10,8 @@
   输出完全重复调用聚合计数，不保留原始正文或摘要。
 - `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录，
   统计聊天/研究调用的 Schema 覆盖和非空必填参数；输出聚合计数，不输出参数值或摘要。
+- `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
+  Schema，按调用输出合法/非法与违规类别聚合计数；额外字段仅诊断，不使调用非法。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -17,6 +19,8 @@
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
 - `src/evaluators/required_parameter_completeness.py`：在 Schema 已覆盖范围内计算必填参数
   微平均完整率，并同时报告 Schema 覆盖率和手册版本。
+- `src/evaluators/tool_argument_schema_validity.py`：在 Schema 已覆盖调用上计算参数类型、
+  枚举和嵌套结构合法率，并报告覆盖率与安全诊断。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/`：原始数据和评测产物访问；尚待实现。
@@ -27,12 +31,16 @@
   缺失字段和敏感正文隔离测试。
 - `tests/collectors/test_required_parameters.py`：必填参数目录解析、聊天/研究参数计数、
   占位值、未知 Schema、零必填参数、调用去重和缺失 ID 测试。
+- `tests/collectors/test_tool_argument_schema.py`：Schema 类型、数组元素、枚举、嵌套必填、
+  额外字段、未知工具、参数解析和研究调用去重测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
   规范化错误和非法计数测试。
 - `tests/evaluators/test_required_parameter_completeness.py`：必填参数完整率、Schema 覆盖率、
   零分母、规范化错误和非法聚合计数测试。
+- `tests/evaluators/test_tool_argument_schema_validity.py`：Schema 合法率、覆盖率、零分母、
+  规范化错误和非法聚合计数测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
 - `tests/`：测试包根目录；子目录结构与 `src/` 对应。
 - `configs/evaluation.example.toml`：提交安全的评测配置样例。

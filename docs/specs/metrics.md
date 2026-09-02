@@ -177,3 +177,76 @@ Schema 覆盖率 = 4 ÷ 5 = 0.8
 真实日志微平均验算：聊天模式 `696 / 832 ≈ 0.83654`，Schema 覆盖
 `643 / 907 ≈ 0.70893`；研究模式 `10 / 11 ≈ 0.90909`，Schema 覆盖
 `5 / 30 ≈ 0.16667`。
+
+## 4. Schema 合法率
+
+### 指标定义
+
+稳定指标名：`tool_argument_schema_validity_rate`
+
+```text
+Schema 合法率 =
+  参数结构通过对应版本 Schema 校验的唯一调用数
+  ÷ Schema 已覆盖的唯一调用数
+```
+
+- 顶层必填参数缺失不在本指标重复扣分，由 `required_parameter_completeness_rate` 负责。
+- 已出现字段必须符合手册声明的类型；`integer` 和数值数组元素不接受布尔值，`number`
+  及其数组元素必须是有限数值。
+- 标量枚举值必须位于 `enum` 中；数组参数的每个元素都必须位于对应枚举中。
+- `object` 与 `object[]` 按 `nested` 递归校验；父对象存在时，嵌套必填字段必须存在。
+- 手册未声明 `additionalProperties: false`，因此额外字段不使调用非法，但记录
+  `undeclared_argument_call_count`。
+- 描述文本中的日期格式、数值范围和业务约束不是机器可执行 Schema，本指标不解析；
+  这些规则由后续参数值准确率评测。
+- 未知工具 Schema 不进入分子或分母；结果同时报告 Schema 覆盖率。
+- 结果保留 `manual_version`，并只输出调用级聚合计数和违规类别，不输出参数值。
+
+### 字段映射
+
+Schema：
+
+- 工具名：`mcp_tool_manual.json` 的 `tools[].name`。
+- 参数结构：递归读取 `parameters[]` 与 `nested[]` 的 `name`、`type`、`required` 和
+  `enum`。
+- 支持类型：`string`、`integer`、`number`、`boolean`、`object`、`array`、
+  `string[]`、`integer[]`、`number[]`、`object[]`。
+- 手册版本：`manual_version`。
+
+聊天模式：
+
+- 会话标识：`traceId`。
+- 唯一调用：`tool_call_queue` 中每个 `event_type == "tool_call"` 的对象。
+- 工具名称：`tool_request_args.toolName`。
+- 参数：`tool_request_args.arguments`。
+
+研究模式：
+
+- 会话标识：`sessionID + userMessageID`。
+- 唯一调用：`result.toolCalls[].toolCallId`，按 `toolCallId` 去重。
+- 工具名称和参数：`result.toolCalls[].toolName/input`。
+- 缺少调用 ID 返回 `NOT_COMPUTABLE / missing_call_id`；相同 ID 定义冲突返回
+  `NOT_COMPUTABLE / conflicting_call_definition`。
+
+参数无法解析为对象时，该 Schema 已覆盖调用计为非法并记录
+`malformed_arguments_call_count`。没有调用或没有 Schema 覆盖调用时分别返回
+`NOT_COMPUTABLE / no_tool_calls` 和 `NOT_COMPUTABLE / no_schema_covered_calls`。
+
+### 模拟计算
+
+```text
+全部唯一调用数 = 5
+Schema 覆盖调用数 = 4
+
+结构合法调用数 = 2
+类型非法调用数 = 1
+嵌套必填字段缺失调用数 = 1
+未知 Schema 调用数 = 1
+
+Schema 覆盖率 = 4 ÷ 5 = 0.8
+Schema 合法率 = 2 ÷ 4 = 0.5
+```
+
+真实日志微平均验算：聊天模式 `642 / 643 ≈ 0.99844`，其中 1 个调用类型不合法，
+13 个调用携带额外字段但按当前口径仍合法；研究模式 `5 / 5 = 1.0`。Schema 覆盖率
+分别为 `643 / 907 ≈ 0.70893` 和 `5 / 30 ≈ 0.16667`。
