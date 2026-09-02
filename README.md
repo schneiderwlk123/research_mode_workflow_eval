@@ -4,6 +4,8 @@
 
 当前仓库已建立评测器公共契约与开发工具链，具体指标将按确认后的顺序逐项引入。
 
+新会话开始时先阅读 [Start Here](docs/START_HERE.md) 和 [Project Status](docs/PROJECT_STATUS.md)，再进入具体任务。
+
 ## 项目结构
 
 ```text

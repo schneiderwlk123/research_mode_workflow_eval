@@ -1,5 +1,17 @@
 # Repository Guidelines
 
+## Session Startup
+
+Every new session must restore project context before planning or editing. Read, in order:
+
+1. `AGENTS.md`
+2. `docs/START_HERE.md`
+3. `docs/PROJECT_STATUS.md`
+4. `docs/arch/code-map.md`
+5. `docs/specs/metric-development-order.md`
+
+Then read only the current task's relevant specification, plan, tests, and metric section. Read `mcp_tool_manual.json` only when tool names, parameters, or schemas are needed. Inspect `git status` before editing, preserve unrelated user changes, and update `docs/PROJECT_STATUS.md` after a verified batch changes the milestone, next action, blockers, or verification baseline.
+
 ## Project Structure & Module Organization
 
 The evaluation pipeline is `ingestion -> normalization -> evaluation -> aggregation -> reporting`. Keep raw traces immutable and evaluations reproducible.
