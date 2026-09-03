@@ -20,6 +20,9 @@ from evaluators.openai_compatible_parameter_judge import (
     load_judge_settings,
 )
 from evaluators.openai_compatible_routing_judge import OpenAICompatibleRoutingJudge
+from evaluators.openai_compatible_statement_support_judge import (
+    OpenAICompatibleStatementSupportJudge,
+)
 from evaluators.openai_compatible_time_range_judge import OpenAICompatibleTimeRangeJudge
 from evaluators.parameter_value_accuracy import (
     ParameterValueAccuracyEvaluator,
@@ -36,6 +39,11 @@ from evaluators.routing import (
     RoutingPrecisionEvaluator,
     RoutingRecallEvaluator,
     build_routing_assessment,
+)
+from evaluators.statement_support import (
+    StatementSupportEvaluator,
+    StatementSupportJudge,
+    StatementSupportJudgeRequest,
 )
 from evaluators.subtask_redundancy import SubtaskRedundancyEvaluator
 from evaluators.time_range_accuracy import (
@@ -62,6 +70,7 @@ __all__ = [
     "OpenAICompatibleEvidenceRelevanceJudge",
     "OpenAICompatibleIntentRecognitionJudge",
     "OpenAICompatibleRoutingJudge",
+    "OpenAICompatibleStatementSupportJudge",
     "OpenAICompatibleTimeRangeJudge",
     "ParameterValueAccuracyEvaluator",
     "ParameterValueJudge",
@@ -75,6 +84,9 @@ __all__ = [
     "RoutingPrecisionEvaluator",
     "RoutingRecallEvaluator",
     "SubtaskRedundancyEvaluator",
+    "StatementSupportEvaluator",
+    "StatementSupportJudge",
+    "StatementSupportJudgeRequest",
     "TimeRangeAccuracyEvaluator",
     "TimeRangeJudge",
     "TimeRangeJudgeRequest",

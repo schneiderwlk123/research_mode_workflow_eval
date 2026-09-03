@@ -6,13 +6,13 @@
 
 评测框架基础骨架、调用事件完整率、完全重复调用率、必填参数完整率、Schema 合法率、
 参数值准确率核心、路由 Precision、路由 Recall、子任务冗余率和意图识别准确率已经实现。
-时间范围提取准确率和证据查准率已验收。
+时间范围提取准确率和证据查准率已验收，陈述支持率已完成实现并等待验收。
 
 已完成：
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十一个指标行为测试，共 198 项；最近一次验证全部通过。
+- 公共契约及十二个指标行为测试，共 215 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 33 项逐指标开发顺序；时延、Token 消耗及成本类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -43,7 +43,10 @@
 - 显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存证据去重；
   `evidence_precision_rate` 版本为 `1.0.0`，不可拆分文本不估算，query、证据正文、摘要和
   Judge 原始响应不落盘；显式证据工具范围生成稳定 `evidence_scope_version`。
-- 集中式指标规格 `docs/specs/metrics.md`，当前记录十一个已实现指标。
+- 聊天最终回答和研究模式 `turn.end` 前最后一个 assistant 文本提取、空证据零分入口、严格
+  原子陈述 Judge 契约及 OpenAI-compatible 适配器；`statement_support_rate` 版本为 `1.0.0`，
+  query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
+- 集中式指标规格 `docs/specs/metrics.md`，当前记录十二个已实现指标。
 
 ## 当前状态
 
@@ -52,9 +55,9 @@
   实体映射准确率；相关实现、测试和专用规格已删除。
 - 已删除指标：证据查全率、证据时效合格率和证据可追溯率；这些指标不再保留在开发顺序和
   原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
-- 进行中的具体指标：无。
-- 下一指标：陈述支持率。
-- 下一动作：展示陈述支持率设计并等待编码前确认。
+- 进行中的具体指标：陈述支持率验收。
+- 下一指标：无依据陈述率（陈述支持率验收后开始）。
+- 下一动作：分别报告聊天/研究模式验证结果，请求陈述支持率验收。
 
 ## 已知缺口
 
@@ -69,7 +72,7 @@
 ## 验证基线
 
 ```text
-pytest: 198 passed
+pytest: 215 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -120,4 +123,11 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 证据查准率真实单会话冒烟: 聊天模式 20 个稳定证据单元，Judge 判定 relevant 20、
   irrelevant 0、not_assessable 0，结果 20/20 = 1.0, computed；Judge 模型 qwen-plus，
   prompt 版本 1.0.0，证据范围版本 evidence-scope-623429fd8dffba76
+陈述支持率测试: 17 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+陈述支持率聊天模式: 顶层 query/answer 可形成 Judge 候选；没有证据或明确空结果仍可得到
+  0 分，固定服务失败、缺少回答、证据缺终态和部分响应不可拆分均返回稳定安全原因码
+陈述支持率研究模式: 通过 assistant message ID 选择 turn.end 前最后一个非空文本；成功产物
+  无最终正文返回 missing_final_artifact_content，缺少证据终态和不完整拆分不估算
+陈述支持率模拟计算: 2 个可验证原子陈述中 1 个 supported、1 个 unsupported，另有 1 个
+  excluded 建议，结果 1/2 = 0.5, computed；聊天与研究 evaluator 路径均通过
 ```

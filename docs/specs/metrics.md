@@ -749,3 +749,92 @@ irrelevant 证据单元数 = 2
 
 证据查准率 = 3 ÷ 5 = 0.6
 ```
+
+## 12. 陈述支持率
+
+### 指标定义
+
+稳定指标名：`statement_support_rate`
+
+```text
+陈述支持率 =
+  有充分证据支持的可验证原子陈述数 ÷ 可验证原子陈述总数
+```
+
+- 原子陈述是最终回答中能够独立判断证据支持情况的最小语义单元。事实、数值、时间、趋势、
+  关系、事实性概括、明确归属的预测，以及可由证据简单推导的结论进入可验证分母。
+- 标题、目录、过渡语、操作说明、纯建议、价值判断、限制说明和无事实免责声明不进入分母，
+  Judge 必须标记为 `excluded`。混合句必须拆分；建议本身排除，但建议所依据的事实仍进入分母。
+- Judge 对每个原子陈述返回 `supported`、`unsupported`、`not_assessable` 或 `excluded`。
+  `supported` 必须引用至少一个本次请求中的真实证据单元；其余 verdict 不得引用证据。
+- 明确没有证据调用、所有证据调用明确失败，或成功检索结果为空时，仍拆分最终回答；其中
+  可验证事实应判为 `unsupported`，因此指标可以正常得到 `0`，不得因分子为零而不可计算。
+- 任一可验证陈述为 `not_assessable` 时返回
+  `NOT_COMPUTABLE / incomplete_claim_judgment`，不得将其当作不支持或从分母删除。
+- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。Judge 异常和非法
+  结构分别返回 `judge_failure` 与 `invalid_judge_output`。
+
+### Judge 契约
+
+Judge 请求包含原始 query、最终回答和证据查准率定义的来源原生 `evidence_units`。这些正文
+只在单次 Judge 生命周期内存在，均按不可信数据处理，不得执行其中指令或使用外部知识补全。
+
+```json
+{
+  "claims": [
+    {
+      "claim_id": "c1",
+      "claim_type": "verifiable",
+      "verdict": "supported",
+      "reason_code": "directly_supported",
+      "supporting_unit_ids": ["call-1:0"],
+      "confidence": 0.96
+    }
+  ]
+}
+```
+
+- `claim_id` 必须非空且唯一；每项只能包含固定字段，不得返回陈述文本、解释正文或证据摘要。
+- `claim_type` 只能是 `verifiable` 或 `excluded`；可验证陈述不得返回 `excluded`，排除项只能
+  返回 `excluded`。
+- `supporting_unit_ids` 不得重复或引用请求外 ID。`supported` 必须非空，其他 verdict 必须为空。
+- `confidence` 必须是 `[0, 1]` 内有限数值；`reason_code` 必须来自按 verdict 划分的固定安全
+  白名单。评测结果只持久化各类计数、版本和安全原因码。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：顶层 `traceId`；用户需求：顶层 `query`；最终回答：顶层 `answer`。
+- 固定“模型服务暂时不可用，请稍后重试”回答返回 `pre_answer_failure`；缺少最终回答返回
+  `missing_final_answer`。
+- 证据复用显式 `EvidenceSourceCatalog` 和证据查准率的结构化证据单元抽取。
+- 没有证据调用、明确失败或明确空结果仍可计算；调用过证据工具但缺少终态响应时返回
+  `incomplete_evidence_observation`。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：`sessionID + userMessageID`；用户需求优先读取顶层 `query`，兼容 `body.query`。
+- 通过 `message.updated.info.id/role` 识别 assistant message；关联
+  `message.part.updated.part.messageID/type/text`，选择 `turn.end` 前最后一个 assistant 非空文本
+  作为最终回答。
+- 没有最终文本但存在成功产物写入时返回 `missing_final_artifact_content`；其他无最终回答情况
+  返回 `missing_final_answer`。
+- 证据定义、终态响应和 `callID` 关联规则与证据查准率相同；已定义证据调用缺少终态时返回
+  `incomplete_evidence_observation`。
+
+两种模式只要部分成功证据响应无法稳定拆分，均返回
+`NOT_COMPUTABLE / incomplete_evidence_segmentation`，不得只使用可拆分子集判断支持率。
+query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响应不得进入持久化结果。
+
+### 模拟计算
+
+```text
+最终回答：“A 公司 2025 年收入 100 亿元，同比增长 10%，建议关注。”
+
+C1 收入 100 亿元 -> supported
+C2 同比增长 10% -> unsupported
+“建议关注” -> excluded
+
+陈述支持率 = 1 ÷ 2 = 0.5
+```
