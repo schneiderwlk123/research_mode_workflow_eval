@@ -116,4 +116,7 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 证据查准率研究日志结构验算: 5 个已登记证据调用中抽取 7 个稳定证据单元，但另有 3 个
   成功响应无稳定来源边界，因此返回 incomplete_evidence_segmentation，不缩小分母；未调用
   真实 Judge，未生成语义分数
+证据查准率真实单会话冒烟: 聊天模式 20 个稳定证据单元，Judge 判定 relevant 20、
+  irrelevant 0、not_assessable 0，结果 20/20 = 1.0, computed；Judge 模型 qwen-plus，
+  prompt 版本 1.0.0，证据范围版本 evidence-scope-623429fd8dffba76
 ```
