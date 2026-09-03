@@ -250,3 +250,123 @@ Schema 合法率 = 2 ÷ 4 = 0.5
 真实日志微平均验算：聊天模式 `642 / 643 ≈ 0.99844`，其中 1 个调用类型不合法，
 13 个调用携带额外字段但按当前口径仍合法；研究模式 `5 / 5 = 1.0`。Schema 覆盖率
 分别为 `643 / 907 ≈ 0.70893` 和 `5 / 30 ≈ 0.16667`。
+
+## 5. 参数值准确率
+
+### 指标定义
+
+稳定指标名：`parameter_value_accuracy_rate`
+
+```text
+参数值准确率 =
+  Judge 判定为 correct 的字段数
+  ÷ Judge 可判定字段数
+
+Judge 可判定字段数 = correct 字段数 + incorrect 字段数
+```
+
+同时报告：
+
+```text
+调用参数语义完全匹配率 =
+  没有 incorrect 字段的可判定调用数
+  ÷ 至少包含一个可判定字段的调用数
+
+Judge 可判定覆盖率 =
+  Judge 可判定字段数
+  ÷ Judge 返回的全部候选字段数
+```
+
+- Pydantic 与 `tool_argument_schema_validity_rate` 负责类型、枚举和结构合法性；本指标
+  不重复判断输入格式，只判断参数值是否忠实于用户 query。
+- Judge 对一个调用整体判断一次，但必须返回逐字段结构化结果。字段状态只能是
+  `correct`、`incorrect` 或 `not_assessable`。
+- query 明确约束且工具字段能够承载的遗漏参数可由 Judge 追加为
+  `incorrect / missing_query_required`；追加路径必须存在于对应工具 Schema。
+- 实际出现的每个参数叶子字段都必须得到 Judge 判定。非空对象递归展开为点分路径；数组
+  作为一个整体字段判断，避免元素级计数放大长数组权重。
+- query 未约束、无法从安全上下文证明的默认值或运行参数标记为 `not_assessable`，不进入
+  准确率分母，但进入 Judge 可判定覆盖率分母。
+- 工具选择错误由后续路由指标负责，不得因为 Judge 认为工具不合适而把全部参数自动判错。
+- 若参数依赖前序工具结果而原始 query 不足以判断，第一版必须返回 `not_assessable`，不得
+  猜测；后续可增加经过脱敏且版本化的调用意图上下文。
+
+### Judge 契约
+
+每个 Judge 请求包含：
+
+- `trace_id`、`mode`、稳定 `call_id`；这些字段仅用于调用关联，不作为语义证据。
+- 原始用户 `query`。
+- 工具名称、工具描述，以及 MCP 手册中的参数路径与描述。
+- 当前调用的实际参数。
+
+Judge 适配器必须声明稳定的 `judge_name`、`judge_version` 和 `prompt_version`，并返回：
+
+```json
+{
+  "fields": [
+    {
+      "field_path": "start_date",
+      "verdict": "correct",
+      "reason_code": "normalized_equivalent",
+      "confidence": 0.98
+    }
+  ]
+}
+```
+
+评测器重新校验 Judge 输出：字段路径不得重复，置信度必须为 `[0, 1]` 内有限数值，实际
+参数字段不得遗漏；实际参数之外的路径必须属于工具 Schema，且只能用于
+`incorrect / missing_query_required`。`reason_code` 必须来自按 verdict 划分的固定安全
+白名单，防止 Judge 把 query 或参数正文写入持久化诊断。非法输出按单调用 Judge 失败隔离。
+
+### 字段映射
+
+MCP 手册：
+
+- 工具名称和用途：`mcp_tool_manual.json` 的 `tools[].name/description`。
+- 参数语义：递归读取 `parameters[]/nested[]` 的 `name` 和 `description`。
+- 手册版本：`manual_version`。
+
+聊天模式：
+
+- 用户需求：`query`。
+- 会话标识：`traceId`。
+- 调用标识：`tool_call_queue[].tool_request_args.toolId`。
+- 工具名称和参数：`tool_request_args.toolName/arguments`。
+
+研究模式：
+
+- 用户需求：优先读取事件顶层 `query`，兼容首个请求事件的 `body.query`。
+- 会话标识：`sessionID + userMessageID`。
+- 调用标识：`result.toolCalls[].toolCallId`，按相同定义去重。
+- 工具名称和参数：`result.toolCalls[].toolName/input`。
+
+缺少 query、调用 ID 或调用定义冲突时分别返回 `NOT_COMPUTABLE / missing_query`、
+`missing_call_id` 或 `conflicting_call_definition`。没有调用、没有手册覆盖调用或没有可判定
+字段时分别返回 `no_tool_calls`、`no_schema_covered_calls` 或 `no_assessable_fields`。
+
+单个 Judge 超时、异常或返回非法结构时增加 `judge_failed_call_count`，其他调用继续计算；
+全部候选调用失败时返回 `ERROR / judge_failure`。结果只保留聚合计数、原因类别及版本，不得
+持久化 query、参数值、Judge 原始响应或模型推导出的标准答案。
+
+### 模拟计算
+
+```text
+Schema 已覆盖且提交 Judge 的调用数 = 3
+Judge 成功调用数 = 2
+Judge 失败调用数 = 1
+
+correct 字段数 = 2
+incorrect 字段数 = 2
+not_assessable 字段数 = 1
+至少含一个可判定字段的调用数 = 2
+没有 incorrect 字段的可判定调用数 = 1
+
+参数值准确率 = 2 ÷ (2 + 2) = 0.5
+调用参数语义完全匹配率 = 1 ÷ 2 = 0.5
+Judge 可判定覆盖率 = 4 ÷ (2 + 2 + 1) = 0.8
+```
+
+当前仓库尚未配置生产 Judge 模型适配器，真实日志不得伪造参数值准确率；接入固定模型、
+版本化 prompt 与安全调用边界后再建立真实日志验算基线。
