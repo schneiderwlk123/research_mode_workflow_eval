@@ -1,12 +1,18 @@
 """评测器及其公共契约。"""
 
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.evidence_precision import (
+    EvidencePrecisionEvaluator,
+    EvidenceRelevanceJudge,
+    EvidenceRelevanceJudgeRequest,
+)
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudge,
     IntentRecognitionJudgeRequest,
 )
+from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_parameter_judge import (
     JudgeSettings,
@@ -44,12 +50,16 @@ __all__ = [
     "BaseEvaluator",
     "EvaluationResult",
     "EvaluationStatus",
+    "EvidencePrecisionEvaluator",
+    "EvidenceRelevanceJudge",
+    "EvidenceRelevanceJudgeRequest",
     "ExactDuplicateToolCallEvaluator",
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
+    "OpenAICompatibleEvidenceRelevanceJudge",
     "OpenAICompatibleIntentRecognitionJudge",
     "OpenAICompatibleRoutingJudge",
     "OpenAICompatibleTimeRangeJudge",

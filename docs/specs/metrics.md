@@ -667,3 +667,85 @@ incorrect = 1
 错误字段数 = 1
 时间范围提取准确率 = 6 ÷ 7 ≈ 0.85714
 ```
+
+## 11. 证据查准率
+
+### 指标定义
+
+稳定指标名：`evidence_precision_rate`
+
+```text
+证据查准率 =
+  Judge 判定为 relevant 的唯一证据单元数 ÷ 实际取得的唯一证据单元总数
+```
+
+- `evidence_unit` 是 Agent 从外部数据源成功取得、具有稳定来源边界、包含可验证事实，且能
+  独立参与相关性判断的最小来源记录。RAG Chunk、单条搜索结果、数据库行、行情或财务
+  记录、带来源定位的网页/报告片段均可属于证据。
+- 用户 query、规划、推理、最终回答、工具参数、错误消息、框架工具输出，以及 Excel、代码
+  或公式生成的派生结果不属于本指标的证据。证据工具必须通过版本化 MCP 手册和显式工具
+  名单共同登记，避免把计算或写作工具误计为外部来源。
+- 显式工具名单和别名映射生成稳定 `evidence_scope_version`；它与 MCP 手册版本一同进入
+  结果，工具范围改变时不会与旧口径混合聚合。
+- JSON 数组及明确的 `data/items/results/documents/chunks/records` 容器按原生元素拆分；单条
+  结构化记录作为一个单元；字符串化 JSON 先解析。没有原生边界的长文本不按标点或长度
+  猜测切分。
+- 只有记录自带 `chunk_id/record_id/row_id/source_id/document_id/doc_id/url/link` 等稳定
+  来源标识，且来源标识与规范化内容都相同时才在会话内去重。缺少来源标识时保留每次实际
+  返回，避免合并不同来源的相同事实；SHA-256 摘要仅用于内存去重，不进入结果。重复调用
+  成本仍由 `exact_duplicate_tool_call_rate` 评估。
+- Judge 必须为每个单元返回一次 `relevant`、`irrelevant` 或 `not_assessable`。只要存在
+  `not_assessable`，完整分母就无法可靠判断，返回
+  `NOT_COMPUTABLE / incomplete_relevance_judgment`，不得将其当作无关或从分母删除。
+- Judge 异常和非法结构分别返回 `NOT_COMPUTABLE / judge_failure` 与
+  `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为 `1.0.0`，Judge 名称、模型、
+  prompt 和 MCP 手册版本进入安全元数据。
+
+### 相关性口径
+
+- `relevant`：证据直接回应用户需求，支持或反驳必要事实，为必要计算提供输入，或约束必要
+  的主体、时间和范围。
+- `irrelevant`：证据仅主题相似、与需求无关、属于不必要背景，或不包含事实内容。
+- `not_assessable`：单元内容不足、用户需求含糊，或当前 Judge 不支持该证据格式。
+- 最终答案不进入 Judge 请求，防止用生成结果反向合理化检索结果。Judge 不得使用外部知识
+  补全证据，只能比较本次 query 和实际取得的证据单元。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：`traceId`；用户需求：顶层 `query`，缺失时返回 `missing_query`。
+- 调用候选：`tool_call_queue[]` 中 `event_type == "tool_call"` 的事件；工具名称来自
+  `tool_request_args.toolName`，只有显式证据工具目录中的 MCP 工具进入范围。
+- 调用标识优先使用 `tool_request_args.toolId`，其次使用 `tool_response_result.toolId`；均
+  缺失时使用会话内数组位置生成稳定标识。
+- 响应优先使用 `tool_response_result.result`，为空时使用 `rawResult`；失败状态、空响应和
+  范围外工具不产生证据单元。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：`sessionID + userMessageID`；用户需求优先读取顶层 `query`，兼容
+  `body.query`。
+- 工具定义来自 `result.toolCalls[].toolCallId/toolName`；响应来自相同 `callID` 的
+  `part.type == "tool"` 且 `part.state.status == "completed"` 的事件，正文优先读取
+  `part.state.output`，其次读取 `part.state.raw`。
+- 调用按 `callID` 去重；缺少 ID 返回 `missing_call_id`，同 ID 不同工具返回
+  `conflicting_call_definition`。重复终态只读取第一次成功响应。
+
+两种模式没有证据工具、没有成功证据响应或所有响应均无稳定边界时，分别返回
+`no_evidence_calls`、`no_successful_evidence_responses` 和 `no_stable_evidence_units`。
+成功响应具有明确结构但结果集合为空时返回 `no_evidence_units`。
+部分成功响应可以拆分、部分不能拆分时返回 `incomplete_evidence_segmentation`，不得只用
+已拆分子集计算并静默缩小分母。
+query、证据正文、内容摘要与 Judge 原始响应只存在于内存中；最终结果仅保留单位数量、
+相关性计数、安全诊断和版本标识。
+
+### 模拟计算
+
+```text
+实际取得并去重的证据单元数 = 5
+relevant 证据单元数 = 3
+irrelevant 证据单元数 = 2
+
+证据查准率 = 3 ÷ 5 = 0.6
+```

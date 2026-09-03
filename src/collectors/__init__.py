@@ -1,5 +1,15 @@
 """Trace 输入读取与格式适配。"""
 
+from collectors.evidence_quality import (
+    EvidenceDiagnostics,
+    EvidencePrecisionCandidate,
+    EvidenceSourceCatalog,
+    EvidenceUnit,
+    NormalizedEvidenceTrace,
+    build_evidence_source_catalog,
+    normalize_chat_evidence,
+    normalize_research_evidence,
+)
 from collectors.exact_duplicate_calls import (
     ExactDuplicateDiagnostics,
     NormalizedExactDuplicateTrace,
@@ -74,6 +84,10 @@ from collectors.tool_call_events import (
 
 __all__ = [
     "ExactDuplicateDiagnostics",
+    "EvidenceDiagnostics",
+    "EvidencePrecisionCandidate",
+    "EvidenceSourceCatalog",
+    "EvidenceUnit",
     "IntentEvidenceFragment",
     "IntentRecognitionCandidate",
     "IntentRecognitionDiagnostics",
@@ -84,6 +98,7 @@ __all__ = [
     "NormalizedToolCallTrace",
     "NormalizedToolArgumentSchemaTrace",
     "NormalizedExactDuplicateTrace",
+    "NormalizedEvidenceTrace",
     "NormalizedIntentRecognitionTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
@@ -105,6 +120,8 @@ __all__ = [
     "ToolArgumentSchemaDiagnostics",
     "ToolCallDiagnostics",
     "normalize_chat_exact_duplicates",
+    "build_evidence_source_catalog",
+    "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
     "build_required_parameter_catalog",
     "build_capability_catalog",
@@ -118,6 +135,7 @@ __all__ = [
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
+    "normalize_research_evidence",
     "normalize_research_intent_recognition",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
