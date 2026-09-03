@@ -1,0 +1,19 @@
+---
+description: Require explicit per-mode calculability checks for every metric
+alwaysApply: true
+---
+
+# Metric Calculability
+
+Before coding each metric, assess chat mode and research mode separately and label each as:
+
+- `DIRECTLY_COMPUTABLE`: required fields are present and no external semantic judgment is needed.
+- `CONDITIONALLY_COMPUTABLE`: required fields are present, but a Judge, Golden Benchmark, configuration,
+  or another declared dependency is required.
+- `NOT_COMPUTABLE`: required fields or a reliable structural mapping are absent.
+
+For every `NOT_COMPUTABLE` mode, state the missing fields or mapping, the safe reason code, and whether a
+reliable future schema change could enable it. Never estimate a value or silently exclude that mode.
+
+After implementation, validate chat and research modes separately. Report either the observed calculation
+result or the explicit `NOT_COMPUTABLE` reason for each mode before requesting metric acceptance.

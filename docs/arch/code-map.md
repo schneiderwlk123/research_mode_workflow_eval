@@ -4,6 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
+- `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
+  模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
   `JUDGE_MODEL`，真实密钥只允许写入被忽略的 `.env`。
 - `src/collectors/tool_call_events.py`：把聊天 `tool_call_queue` 与研究

@@ -46,6 +46,11 @@ Use `.agents/skills/creed-lite/SKILL.md` for documentation, feature, test, debug
 
 For bugs, establish an evidenced root cause and failing regression test first. Approval covers the declared files and behavior; request renewed approval for dependencies or expanded scope.
 
+Before coding every metric, assess chat mode and research mode separately. Label each mode as directly computable,
+conditionally computable, or not computable. For a mode that cannot be calculated, state the missing fields
+or reliable mapping, define a safe `NOT_COMPUTABLE` reason, and never estimate or silently omit that mode.
+After implementation, verify and report each mode separately before requesting metric acceptance.
+
 Maintain `docs/arch/code-map.md` once executable code exists. Every change that adds, removes, moves, or materially changes modules, entry points, call chains, configuration paths, schemas, diagnostic locations, or corresponding tests must update the map in the same commit. Keep it concise and path-based; do not record fragile line numbers.
 
 ## Testing Guidelines
