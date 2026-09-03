@@ -43,17 +43,17 @@ def _trace(
     }
 
 
-def test_evaluator_calculates_micro_completeness_and_schema_coverage() -> None:
+def test_evaluator_calculates_only_micro_completeness_metric() -> None:
     trace = _trace()
     original = deepcopy(trace)
 
     result = RequiredParameterCompletenessEvaluator().evaluate(trace)
 
     assert result.metric_name == "required_parameter_completeness_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(4 / 6)
-    assert result.metadata["schema_coverage_rate"] == pytest.approx(4 / 5)
+    assert "schema_coverage_rate" not in result.metadata
     assert result.metadata["manual_version"] == "0.1.0"
     assert result.metadata["missing_required_parameter_count"] == 2
     assert trace == original

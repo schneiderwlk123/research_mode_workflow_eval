@@ -6,7 +6,7 @@ from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 
 
 class RequiredParameterCompletenessEvaluator(BaseEvaluator):
-    """在 Schema 已覆盖调用上计算必填参数完整率，并同时报告覆盖率。"""
+    """在 Schema 已覆盖调用上计算必填参数完整率，仅保留覆盖诊断计数。"""
 
     @property
     def metric_name(self) -> str:
@@ -14,7 +14,7 @@ class RequiredParameterCompletenessEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         """使用规范化阶段产生的安全聚合计数计算指标。"""
@@ -45,7 +45,6 @@ class RequiredParameterCompletenessEvaluator(BaseEvaluator):
             "manual_version": manual_version,
             "total_call_count": total_count,
             "schema_covered_call_count": covered_count,
-            "schema_coverage_rate": covered_count / total_count if total_count else None,
             "eligible_call_count": eligible_count,
             "required_parameter_count": required_count,
             "filled_required_parameter_count": filled_count,

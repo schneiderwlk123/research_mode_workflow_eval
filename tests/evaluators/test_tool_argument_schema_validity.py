@@ -40,17 +40,17 @@ def _trace(
     }
 
 
-def test_evaluator_calculates_schema_validity_and_coverage() -> None:
+def test_evaluator_calculates_only_schema_validity_metric() -> None:
     trace = _trace()
     original = deepcopy(trace)
 
     result = ToolArgumentSchemaValidityEvaluator().evaluate(trace)
 
     assert result.metric_name == "tool_argument_schema_validity_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(4 / 6)
-    assert result.metadata["schema_coverage_rate"] == pytest.approx(6 / 7)
+    assert "schema_coverage_rate" not in result.metadata
     assert result.metadata["manual_version"] == "0.1.0"
     assert trace == original
 

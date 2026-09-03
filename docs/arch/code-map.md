@@ -22,11 +22,11 @@
   调用事件完整率；研究模式缺少 `callID` 时严格返回不可计算。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
 - `src/evaluators/required_parameter_completeness.py`：在 Schema 已覆盖范围内计算必填参数
-  微平均完整率，并同时报告 Schema 覆盖率和手册版本。
+  微平均完整率；覆盖调用数仅作为诊断，不派生辅助指标。
 - `src/evaluators/tool_argument_schema_validity.py`：在 Schema 已覆盖调用上计算参数类型、
-  枚举和嵌套结构合法率，并报告覆盖率与安全诊断。
+  枚举和嵌套结构合法率，仅保留安全诊断计数。
 - `src/evaluators/parameter_value_accuracy.py`：定义可注入的版本化 Judge 接口，校验逐字段
-  三态输出，隔离单调用失败，并聚合参数值准确率、完全匹配率和可判定覆盖率。
+  三态输出，隔离单调用失败，并仅输出参数值准确率主指标和安全诊断计数。
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
@@ -47,12 +47,12 @@
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
   规范化错误和非法计数测试。
-- `tests/evaluators/test_required_parameter_completeness.py`：必填参数完整率、Schema 覆盖率、
+- `tests/evaluators/test_required_parameter_completeness.py`：必填参数完整率、辅助指标排除、
   零分母、规范化错误和非法聚合计数测试。
-- `tests/evaluators/test_tool_argument_schema_validity.py`：Schema 合法率、覆盖率、零分母、
-  规范化错误和非法聚合计数测试。
-- `tests/evaluators/test_parameter_value_accuracy.py`：Judge 三态字段聚合、遗漏字段、完全匹配
-  与可判定覆盖率、部分失败隔离、非法 Judge 输出和不可计算边界测试。
+- `tests/evaluators/test_tool_argument_schema_validity.py`：Schema 合法率、辅助指标排除、
+  零分母、规范化错误和非法聚合计数测试。
+- `tests/evaluators/test_parameter_value_accuracy.py`：Judge 三态字段聚合、辅助指标排除、
+  部分失败隔离、非法 Judge 输出和不可计算边界测试。
 - `tests/evaluators/test_openai_compatible_parameter_judge.py`：dotenv 配置、HTTPS 边界、请求
   结构、认证头、结构化响应解析和供应商异常脱敏测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。

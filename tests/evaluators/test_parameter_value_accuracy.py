@@ -64,7 +64,7 @@ def _trace(*candidates: ParameterValueCandidate) -> dict[str, object]:
     }
 
 
-def test_evaluator_aggregates_field_accuracy_full_match_and_coverage() -> None:
+def test_evaluator_returns_only_primary_accuracy_and_diagnostic_counts() -> None:
     judge = FakeJudge(
         {
             "call-1": {
@@ -116,15 +116,19 @@ def test_evaluator_aggregates_field_accuracy_full_match_and_coverage() -> None:
     result = evaluator.evaluate(trace)
 
     assert result.metric_name == "parameter_value_accuracy_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(2 / 4)
-    assert result.metadata["call_parameter_full_match_rate"] == pytest.approx(1 / 2)
-    assert result.metadata["judge_assessable_coverage_rate"] == pytest.approx(4 / 5)
     assert result.metadata["correct_field_count"] == 2
     assert result.metadata["incorrect_field_count"] == 2
     assert result.metadata["not_assessable_field_count"] == 1
     assert result.metadata["judge_name"] == "fake-judge"
+    assert "schema_coverage_rate" not in result.metadata
+    assert "call_parameter_full_match_rate" not in result.metadata
+    assert "judge_assessable_coverage_rate" not in result.metadata
+    assert "assessable_call_count" not in result.metadata
+    assert "fully_matched_call_count" not in result.metadata
+    assert "candidate_field_count" not in result.metadata
     assert "query" not in result.metadata
     assert "arguments" not in result.metadata
 
@@ -182,7 +186,7 @@ def test_all_not_assessable_fields_are_not_computable() -> None:
     assert result.status is EvaluationStatus.NOT_COMPUTABLE
     assert result.value is None
     assert result.metadata["reason"] == "no_assessable_fields"
-    assert result.metadata["judge_assessable_coverage_rate"] == 0.0
+    assert "judge_assessable_coverage_rate" not in result.metadata
 
 
 @pytest.mark.parametrize(

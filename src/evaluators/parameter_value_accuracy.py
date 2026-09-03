@@ -70,14 +70,6 @@ class _CallCounts:
     not_assessable: int
     reason_codes: tuple[str, ...]
 
-    @property
-    def candidate(self) -> int:
-        return self.correct + self.incorrect + self.not_assessable
-
-    @property
-    def assessable(self) -> int:
-        return self.correct + self.incorrect
-
 
 class ParameterValueAccuracyEvaluator(BaseEvaluator):
     """聚合 Judge 的逐字段三态判定，并隔离单个调用失败。"""
@@ -94,7 +86,7 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -120,7 +112,6 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
             "manual_version": manual_version,
             "total_call_count": total_count,
             "eligible_call_count": eligible_count,
-            "schema_coverage_rate": eligible_count / total_count if total_count else None,
             "judge_name": self._judge_name,
             "judge_version": self._judge_version,
             "prompt_version": self._prompt_version,
@@ -143,8 +134,6 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
         incorrect_count = 0
         not_assessable_count = 0
         judged_call_count = 0
-        assessable_call_count = 0
-        fully_matched_call_count = 0
         judge_failed_call_count = 0
         reason_codes: Counter[str] = Counter()
         for candidate in candidates:
@@ -170,34 +159,16 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
             incorrect_count += counts.incorrect
             not_assessable_count += counts.not_assessable
             reason_codes.update(counts.reason_codes)
-            if counts.assessable:
-                assessable_call_count += 1
-                if counts.incorrect == 0:
-                    fully_matched_call_count += 1
 
-        candidate_field_count = correct_count + incorrect_count + not_assessable_count
         assessable_field_count = correct_count + incorrect_count
         metadata.update(
             {
                 "judged_call_count": judged_call_count,
                 "judge_failed_call_count": judge_failed_call_count,
-                "assessable_call_count": assessable_call_count,
-                "fully_matched_call_count": fully_matched_call_count,
                 "correct_field_count": correct_count,
                 "incorrect_field_count": incorrect_count,
                 "not_assessable_field_count": not_assessable_count,
-                "candidate_field_count": candidate_field_count,
                 "assessable_field_count": assessable_field_count,
-                "judge_assessable_coverage_rate": (
-                    assessable_field_count / candidate_field_count
-                    if candidate_field_count
-                    else None
-                ),
-                "call_parameter_full_match_rate": (
-                    fully_matched_call_count / assessable_call_count
-                    if assessable_call_count
-                    else None
-                ),
                 "judge_reason_code_counts": dict(sorted(reason_codes.items())),
             }
         )
