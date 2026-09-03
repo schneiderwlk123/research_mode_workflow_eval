@@ -2,6 +2,12 @@
 
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
+from evaluators.intent_recognition import (
+    IntentRecognitionAccuracyEvaluator,
+    IntentRecognitionJudge,
+    IntentRecognitionJudgeRequest,
+)
+from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_parameter_judge import (
     JudgeSettings,
     OpenAICompatibleParameterValueJudge,
@@ -33,8 +39,12 @@ __all__ = [
     "EvaluationResult",
     "EvaluationStatus",
     "ExactDuplicateToolCallEvaluator",
+    "IntentRecognitionAccuracyEvaluator",
+    "IntentRecognitionJudge",
+    "IntentRecognitionJudgeRequest",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
+    "OpenAICompatibleIntentRecognitionJudge",
     "OpenAICompatibleRoutingJudge",
     "ParameterValueAccuracyEvaluator",
     "ParameterValueJudge",

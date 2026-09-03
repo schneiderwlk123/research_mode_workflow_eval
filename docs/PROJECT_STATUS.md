@@ -5,13 +5,13 @@
 ## 当前里程碑
 
 评测框架基础骨架、调用事件完整率、完全重复调用率、必填参数完整率、Schema 合法率、
-参数值准确率核心、路由 Precision、路由 Recall 和子任务冗余率已经实现。
+参数值准确率核心、路由 Precision、路由 Recall、子任务冗余率和意图识别准确率已经实现。
 
 已完成：
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及八个指标行为测试，共 125 项；最近一次验证全部通过。
+- 公共契约及九个指标行为测试，共 148 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 38 项逐指标开发顺序；时延、Token 消耗及成本类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -34,7 +34,9 @@
   原始意图、实体、参数和响应不得持久化。
 - 聊天子任务的确定性 NFKC、约束词元和字符 bigram 冗余规则；不调用 LLM，任务正文和
   中间指纹不进入结果；`subtask_redundancy_rate` 版本为 `1.0.0`。
-- 集中式指标规格 `docs/specs/metrics.md`，当前记录八个已实现指标。
+- 聊天与研究模式的意图证据规范化、严格三态 Judge 契约和 OpenAI-compatible 适配器；
+  `intent_recognition_accuracy` 版本为 `1.0.0`，原始 query、规划、回答和 Judge 响应不落盘。
+- 集中式指标规格 `docs/specs/metrics.md`，当前记录九个已实现指标。
 
 ## 当前状态
 
@@ -45,10 +47,10 @@
   `routing_recall` 高度重复；后两项缺少可靠的任务级标准或跨模式结构化关联字段。
 - 已取消指标：依赖关系正确率；聊天与研究日志均缺少稳定的结构化任务 DAG 字段，
   不使用事件顺序推测依赖关系。
-- 进行中的具体指标：参数值准确率的生产 Judge 适配器已完成真实单调用冒烟测试。
-- 下一指标：意图识别准确率。
-- 下一动作：分别评估聊天与研究模式的可计算性，并展示意图识别准确率的公式、字段映射、
-  异常边界和模拟计算，等待编码前确认。
+- 进行中的具体指标：意图识别准确率已按用户确认的 Judge 代理口径完成实现和自动化验证，
+  等待第二次验收；验收前不进入下一指标。
+- 下一指标：等待意图识别准确率验收后再按顺序进入关键实体提取准确率。
+- 下一动作：展示聊天/研究模式的计算边界、测试结果和模拟计算，等待第二次确认。
 
 ## 已知缺口
 
@@ -89,4 +91,9 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 子任务冗余率聊天日志验算: 32/106 个 Trace 可计算，187 个有效子任务，规则命中 0 个冗余，
   微平均冗余率 0.0；其余 74 个 Trace 无子任务
 子任务冗余率研究日志: 当前缺少确认的结构化子任务契约，返回 missing_structured_subtasks
+意图识别准确率测试: 23 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+意图识别准确率聊天模式: 缺少 query 返回 missing_query；无行为证据返回 no_intent_evidence；
+  固定前置服务失败返回 pre_intent_failure
+意图识别准确率研究模式: 缺少 query 返回 missing_query；缺少调用 ID 返回 missing_call_id；
+  同 ID 不同工具返回 conflicting_call_definition
 ```

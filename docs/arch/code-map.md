@@ -24,6 +24,9 @@
 - `src/collectors/subtask_redundancy.py`：从聊天 `call_sub_agent_begin` 提取子任务，使用
   NFKC、约束词元和字符 bigram 规则计算高置信度冗余聚合计数；研究模式在结构化子任务
   契约确认前显式返回不可计算，任务正文和中间指纹不进入结果。
+- `src/collectors/intent_recognition.py`：分别从聊天与研究日志提取用户 query、子任务或规划、
+  最终回答和已解析 MCP 能力作为内存 Judge 候选；规则负责证据去重、前置失败、调用 ID
+  去重与冲突诊断，正文不进入持久化结果。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -43,6 +46,10 @@
   `subtask_redundancy_rate`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
   和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
+- `src/evaluators/intent_recognition.py`：定义意图对齐 Judge 契约，严格校验三态 verdict、
+  reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`。
+- `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
+  OpenAI-compatible Judge；使用 JSON 响应模式，并以通用异常隔离供应商响应和密钥。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
@@ -63,6 +70,8 @@
   调用去重和冲突定义测试。
 - `tests/collectors/test_subtask_redundancy.py`：聊天精确/高相似冗余、约束差异、非法事件、
   输入不可变、敏感正文隔离及研究模式不可计算测试。
+- `tests/collectors/test_intent_recognition.py`：聊天/研究 query、代理证据、MCP 能力提取，
+  兼容字段、证据与调用去重、前置失败、缺失调用 ID 和冲突定义测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -81,6 +90,10 @@
   聚合计数测试。
 - `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、MCP Schema 与
   历史映射的结构化请求测试。
+- `tests/evaluators/test_intent_recognition.py`：二元会话得分、不可判定、Judge 失败、严格
+  输出白名单、规范化错误和敏感正文隔离测试。
+- `tests/evaluators/test_openai_compatible_intent_judge.py`：意图证据请求结构、确定性采样、
+  JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
   检索测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。

@@ -6,6 +6,14 @@ from collectors.exact_duplicate_calls import (
     normalize_chat_exact_duplicates,
     normalize_research_exact_duplicates,
 )
+from collectors.intent_recognition import (
+    IntentEvidenceFragment,
+    IntentRecognitionCandidate,
+    IntentRecognitionDiagnostics,
+    NormalizedIntentRecognitionTrace,
+    normalize_chat_intent_recognition,
+    normalize_research_intent_recognition,
+)
 from collectors.parameter_value_accuracy import (
     NormalizedParameterValueTrace,
     ParameterValueCandidate,
@@ -59,6 +67,9 @@ from collectors.tool_call_events import (
 
 __all__ = [
     "ExactDuplicateDiagnostics",
+    "IntentEvidenceFragment",
+    "IntentRecognitionCandidate",
+    "IntentRecognitionDiagnostics",
     "CapabilityCatalog",
     "CapabilityDefinition",
     "CapabilityParameter",
@@ -66,6 +77,7 @@ __all__ = [
     "NormalizedToolCallTrace",
     "NormalizedToolArgumentSchemaTrace",
     "NormalizedExactDuplicateTrace",
+    "NormalizedIntentRecognitionTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
@@ -83,6 +95,7 @@ __all__ = [
     "ToolArgumentSchemaDiagnostics",
     "ToolCallDiagnostics",
     "normalize_chat_exact_duplicates",
+    "normalize_chat_intent_recognition",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -94,6 +107,7 @@ __all__ = [
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
+    "normalize_research_intent_recognition",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",

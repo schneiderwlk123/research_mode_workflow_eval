@@ -528,3 +528,71 @@ T3 的时间约束不同，不属于冗余。
 冗余子任务数 = 1
 子任务冗余率 = 1 ÷ 3 ≈ 0.33333
 ```
+
+## 9. 意图识别准确率
+
+### 指标定义
+
+稳定指标名：`intent_recognition_accuracy`
+
+```text
+意图识别准确率 =
+  Judge 判为 correct 的可判定会话数 ÷
+  （Judge 判为 correct 的会话数 + Judge 判为 incorrect 的会话数）
+```
+
+- 单会话 `correct` 记为 `1.0`，`incorrect` 记为 `0.0`；跨会话聚合即为上述公式。
+- 本指标是可追溯的 Judge 代理标准，用来判断用户 query 与代理实际行为证据的实质意图
+  是否对齐，不虚构结构化意图预测字段，也不等同于人工 Golden Benchmark。
+- 确定性规则负责字段存在性、证据去重、调用 ID 去重与冲突、前置失败和 Judge 输出校验；
+  只有语义对齐判断调用 Judge。
+- Judge 输出必须且只能包含 `verdict`、`reason_code`、`confidence`。`confidence` 必须是
+  `[0, 1]` 内的有限数值，且 verdict 与 reason code 必须匹配固定白名单。
+- `not_assessable` 返回 `NOT_COMPUTABLE / insufficient_intent_evidence`，不进入准确率分母。
+- Judge 调用异常返回 `NOT_COMPUTABLE / judge_failure`；结构化输出非法返回
+  `NOT_COMPUTABLE / invalid_judge_output`。
+- evaluator 版本为 `1.0.0`；Judge 名称、模型版本和 prompt 版本进入安全元数据。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 必需用户意图：顶层 `query`；缺失时返回 `missing_query`。
+- 代理证据：`call_sub_agent_begin.request_payload.taskName`，兼容 `taskDescription`；
+  `request_payload.arguments.query`，兼容 `arguments.task`；已解析到 MCP 目录的
+  `tool_call.tool_request_args.toolName`；以及顶层 `answer`。
+- 完全相同的证据正文仅保留第一次出现的位置和类型；未知框架工具只进入范围外诊断。
+- 只有 query、没有任何子任务、MCP 能力或最终回答证据时返回 `no_intent_evidence`。
+- 当没有其他代理证据且回答为固定模型服务失败文本时返回 `pre_intent_failure`。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 必需用户意图：首个顶层 `query`，兼容 `body.query`；缺失时返回 `missing_query`。
+- 代理证据：`body.task`、`body.description`，以及
+  `result.toolCalls[].toolCallId/toolName` 解析得到的 MCP 能力。
+- 调用按 `toolCallId` 去重；同 ID 同工具只增加重复诊断，同 ID 不同工具返回
+  `conflicting_call_definition`，调用缺少 ID 返回 `missing_call_id`。
+- 只有 query、没有任何规划文本或 MCP 能力时返回 `no_intent_evidence`。
+
+两种模式的 query、子任务、规划、回答、调用参数和 Judge 原始响应都只存在于内存请求中，
+不得进入评测结果或持久化介质。结果只保留模式、版本、证据与能力数量、诊断计数、Judge
+安全 reason code 和 confidence。
+
+### Judge 判定口径
+
+- `correct`：`material_intents_aligned`、`normalized_equivalent`。
+- `incorrect`：`wrong_primary_intent`、`material_intent_omitted`、
+  `unrelated_agent_behavior`。
+- `not_assessable`：`insufficient_agent_evidence`、`ambiguous_user_intent`。
+
+### 模拟计算
+
+```text
+会话 A：用户要求查询行情，代理子任务和 MCP 能力均为行情查询 → correct → 1.0
+会话 B：用户要求行情和新闻，代理证据只覆盖行情 → incorrect → 0.0
+会话 C：用户意图含糊，现有行为证据无法稳定判定 → not_assessable → 不进入分母
+
+correct = 1
+incorrect = 1
+意图识别准确率 = 1 ÷ (1 + 1) = 0.5
+```
