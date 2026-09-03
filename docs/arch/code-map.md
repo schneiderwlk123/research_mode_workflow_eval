@@ -17,7 +17,8 @@
 - `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录，按稳定
   调用 ID 提取聊天/研究 query 和参数的内存候选；长期结果不得保留 query 或参数值。
 - `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
-  意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断。
+  意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断，明确的
+  路由前模型服务失败会在调用 Judge 前标记为不可计算。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的

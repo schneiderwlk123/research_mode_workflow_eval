@@ -124,6 +124,7 @@ def normalize_chat_routing(
     actual_capabilities: set[str] = set()
     malformed_event_count = 0
     out_of_scope_count = 0
+    tool_call_count = 0
     raw_queue = trace.get("tool_call_queue", ())
     if raw_queue is None:
         raw_queue = ()
@@ -154,6 +155,7 @@ def normalize_chat_routing(
             continue
         if event_type != "tool_call":
             continue
+        tool_call_count += 1
         request = event.get("tool_request_args")
         if not isinstance(request, Mapping):
             malformed_event_count += 1
@@ -170,7 +172,9 @@ def normalize_chat_routing(
         else:
             actual_capabilities.add(capability_id)
 
-    if not intents:
+    if tool_call_count == 0 and _is_pre_routing_failure(trace.get("answer")):
+        normalization_error = "pre_routing_failure"
+    elif not intents:
         normalization_error = normalization_error or "missing_intent"
     return {
         "trace_id": trace_id,
@@ -319,6 +323,13 @@ def _empty_candidate(
 
 def _identifier(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _is_pre_routing_failure(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().rstrip("。")
+    return normalized == "模型服务暂时不可用，请稍后重试"
 
 
 def _is_sequence(value: object) -> TypeGuard[Sequence[object]]:

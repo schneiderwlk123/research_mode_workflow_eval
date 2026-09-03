@@ -240,3 +240,18 @@ def test_mapping_store_failure_does_not_change_metric_result() -> None:
     assert result.value == 1.0
     assert result.metadata["mapping_store_read_failed"] is True
     assert result.metadata["mapping_store_write_failed"] is True
+
+
+def test_pre_routing_failure_skips_judge_and_both_metrics_are_not_computable() -> None:
+    judge = FakeJudge(_judge_response("quote"))
+    candidate = _candidate() | {"normalization_error": "pre_routing_failure"}
+
+    assessment = build_routing_assessment(candidate, _catalog(), judge)
+    precision = RoutingPrecisionEvaluator().evaluate(assessment)
+    recall = RoutingRecallEvaluator().evaluate(assessment)
+
+    assert judge.requests == []
+    assert precision.status is EvaluationStatus.NOT_COMPUTABLE
+    assert recall.status is EvaluationStatus.NOT_COMPUTABLE
+    assert precision.metadata["reason"] == "pre_routing_failure"
+    assert recall.metadata["reason"] == "pre_routing_failure"

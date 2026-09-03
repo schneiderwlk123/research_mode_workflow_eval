@@ -121,3 +121,18 @@ def test_missing_intent_and_conflicting_research_call_are_not_computable() -> No
 
     assert missing_intent["normalization_error"] == "missing_intent"
     assert conflicting["normalization_error"] == "conflicting_call_definition"
+
+
+def test_chat_service_failure_before_routing_is_explicitly_ineligible() -> None:
+    normalized = normalize_chat_routing(
+        {
+            "traceId": "trace-1",
+            "query": "查询公司表现",
+            "tool_call_queue": [],
+            "answer": "模型服务暂时不可用，请稍后重试",
+        },
+        build_capability_catalog(_manual()),
+    )
+
+    assert normalized["actual_capability_ids"] == ()
+    assert normalized["normalization_error"] == "pre_routing_failure"

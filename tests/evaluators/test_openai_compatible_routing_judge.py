@@ -76,6 +76,7 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
     assert captured["authorization"] == "Bearer secret-value"
     body = captured["body"]
     assert isinstance(body, dict)
+    assert body["temperature"] == 0
     user_payload = json.loads(body["messages"][1]["content"])
     assert user_payload["intent_fragments"] == ["查询某公司的行情", "核对价格"]
     assert user_payload["capabilities"][0]["capability_id"] == "quote"

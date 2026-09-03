@@ -64,6 +64,7 @@ class OpenAICompatibleRoutingJudge:
         }
         payload = {
             "model": self._settings.model,
+            "temperature": 0,
             "max_tokens": 4096,
             "response_format": {"type": "json_object"},
             "messages": [

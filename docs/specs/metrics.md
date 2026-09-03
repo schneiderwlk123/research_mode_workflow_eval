@@ -384,6 +384,9 @@ OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_M
   `NOT_COMPUTABLE / no_expected_routes`；两者均为空时两项均不可计算。
 - 缺少意图、调用 ID、工具名或存在冲突调用定义时返回对应的 `NOT_COMPUTABLE`；Judge
   异常或非法输出分别返回 `judge_failure` 或 `invalid_judge_output`，不得估算。
+- 当聊天日志没有任何工具调用，且最终回答明确为模型服务暂时不可用时，判定为路由前
+  基础设施失败；两项均返回 `NOT_COMPUTABLE / pre_routing_failure`，且不得调用 Judge。
+  正常执行但没有调用能力、同时标准能力集合非空的日志，Recall 才按 `0` 计算。
 
 ### LLM 与 MCP Schema 契约
 
@@ -414,6 +417,8 @@ Judge 返回：
 - 所有能力 ID 必须存在于当前 MCP 目录；评测器会重新校验，不信任 Judge 输出。
 - Judge 适配器记录 `judge_name`、`judge_version`、`prompt_version` 和 MCP
   `schema_version`，保证生成口径可追溯。
+- OpenAI-compatible 请求固定 `temperature = 0` 以降低重复运行波动；在人工校准集冻结前，
+  结果仍属于 Judge 代理标准，不声明为完全确定的 Golden Benchmark。
 
 ### 字段映射
 
