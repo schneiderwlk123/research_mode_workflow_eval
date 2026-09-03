@@ -667,31 +667,3 @@ incorrect = 1
 错误字段数 = 1
 时间范围提取准确率 = 6 ÷ 7 ≈ 0.85714
 ```
-
-## 12. 指标与口径提取准确率
-
-稳定指标名：`metric_scope_extraction_accuracy`
-
-```text
-指标与口径提取准确率 =
-  正确字段数 ÷（正确字段数 + 错误字段数 + 意外新增字段数）
-```
-
-第一阶段 Judge 只读取 query，冻结指标名称及用户明确要求的单位、币种、频率、统计口径和
-实际/预测属性；第二阶段只能针对冻结字段比较去重工具参数。相同规范化 query 在单次运行中
-复用同一需求结果，防止实际参数改变标准分母。无工具调用但存在明确指标需求时确定性记零。
-
-聊天模式和研究模式均为 `CONDITIONALLY_COMPUTABLE`。聊天取顶层 `query` 与
-`tool_call_queue[].tool_request_args.arguments`；研究取顶层 `query`（兼容 `body.query`）与
-`result.toolCalls[].input`。缺失 query、调用 ID、冲突定义、参数解析不完整分别使用
-`missing_query`、`missing_call_id`、`conflicting_call_definition`、
-`incomplete_metric_observation`。需求无指标或有歧义、两阶段 Judge 输出非法及 Judge 失败均
-返回对应 `NOT_COMPUTABLE`，不得估算。
-
-结果只保留字段类型判定和聚合计数，不持久化 query、指标名称、口径值、工具参数或 Judge
-原始响应。evaluator 版本为 `1.0.0`。
-
-```text
-正确字段 = 7，错误字段 = 1，意外新增字段 = 1
-指标与口径提取准确率 = 7 ÷ 9 ≈ 0.77778
-```

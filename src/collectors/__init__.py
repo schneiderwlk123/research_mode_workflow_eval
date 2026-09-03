@@ -14,12 +14,6 @@ from collectors.intent_recognition import (
     normalize_chat_intent_recognition,
     normalize_research_intent_recognition,
 )
-from collectors.metric_scope_accuracy import (
-    MetricScopeCandidate,
-    NormalizedMetricScopeTrace,
-    normalize_chat_metric_scope,
-    normalize_research_metric_scope,
-)
 from collectors.parameter_value_accuracy import (
     NormalizedParameterValueTrace,
     ParameterValueCandidate,
@@ -91,14 +85,12 @@ __all__ = [
     "NormalizedToolArgumentSchemaTrace",
     "NormalizedExactDuplicateTrace",
     "NormalizedIntentRecognitionTrace",
-    "NormalizedMetricScopeTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
     "NormalizedSubtaskRedundancyTrace",
     "NormalizedTimeRangeTrace",
     "ParameterValueCandidate",
-    "MetricScopeCandidate",
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
     "ParameterValueToolDefinition",
@@ -114,7 +106,6 @@ __all__ = [
     "ToolCallDiagnostics",
     "normalize_chat_exact_duplicates",
     "normalize_chat_intent_recognition",
-    "normalize_chat_metric_scope",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -128,7 +119,6 @@ __all__ = [
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
     "normalize_research_intent_recognition",
-    "normalize_research_metric_scope",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",

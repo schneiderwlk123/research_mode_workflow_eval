@@ -7,15 +7,7 @@ from evaluators.intent_recognition import (
     IntentRecognitionJudge,
     IntentRecognitionJudgeRequest,
 )
-from evaluators.metric_scope_accuracy import (
-    MetricRequirement,
-    MetricRequirementExtractionRequest,
-    MetricScopeAccuracyEvaluator,
-    MetricScopeAssessmentRequest,
-    MetricScopeJudge,
-)
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
-from evaluators.openai_compatible_metric_scope_judge import OpenAICompatibleMetricScopeJudge
 from evaluators.openai_compatible_parameter_judge import (
     JudgeSettings,
     OpenAICompatibleParameterValueJudge,
@@ -56,15 +48,9 @@ __all__ = [
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
-    "MetricRequirement",
-    "MetricRequirementExtractionRequest",
-    "MetricScopeAccuracyEvaluator",
-    "MetricScopeAssessmentRequest",
-    "MetricScopeJudge",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleIntentRecognitionJudge",
-    "OpenAICompatibleMetricScopeJudge",
     "OpenAICompatibleRoutingJudge",
     "OpenAICompatibleTimeRangeJudge",
     "ParameterValueAccuracyEvaluator",
