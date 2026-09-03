@@ -24,6 +24,7 @@ from evaluators.routing import (
     RoutingRecallEvaluator,
     build_routing_assessment,
 )
+from evaluators.subtask_redundancy import SubtaskRedundancyEvaluator
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
 from evaluators.tool_call_event_completeness import ToolCallEventCompletenessEvaluator
 
@@ -46,6 +47,7 @@ __all__ = [
     "RoutingJudgeRequest",
     "RoutingPrecisionEvaluator",
     "RoutingRecallEvaluator",
+    "SubtaskRedundancyEvaluator",
     "ToolCallEventCompletenessEvaluator",
     "ToolArgumentSchemaValidityEvaluator",
     "load_judge_settings",

@@ -19,6 +19,9 @@
 - `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
   意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断，明确的
   路由前模型服务失败会在调用 Judge 前标记为不可计算。
+- `src/collectors/subtask_redundancy.py`：从聊天 `call_sub_agent_begin` 提取子任务，使用
+  NFKC、约束词元和字符 bigram 规则计算高置信度冗余聚合计数；研究模式在结构化子任务
+  契约确认前显式返回不可计算，任务正文和中间指纹不进入结果。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -34,6 +37,8 @@
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
   TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`。
+- `src/evaluators/subtask_redundancy.py`：校验规则版本、固定阈值和安全聚合计数，计算
+  `subtask_redundancy_rate`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
   和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
@@ -54,6 +59,8 @@
   描述目录、稳定 ID、研究去重、定义冲突和内存参数不可变测试。
 - `tests/collectors/test_routing.py`：聊天整体/子任务意图提取、MCP 能力范围、研究前缀映射、
   调用去重和冲突定义测试。
+- `tests/collectors/test_subtask_redundancy.py`：聊天精确/高相似冗余、约束差异、非法事件、
+  输入不可变、敏感正文隔离及研究模式不可计算测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -68,6 +75,8 @@
   结构、认证头、结构化响应解析和供应商异常脱敏测试。
 - `tests/evaluators/test_routing.py`：共享 Judge 调用、Precision/Recall 集合计数、零分母、
   Judge 非法输出、失败脱敏和安全映射写入测试。
+- `tests/evaluators/test_subtask_redundancy.py`：冗余率、单任务、零分母、规范化错误和非法
+  聚合计数测试。
 - `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、MCP Schema 与
   历史映射的结构化请求测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名

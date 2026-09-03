@@ -34,6 +34,12 @@ from collectors.routing import (
     normalize_chat_routing,
     normalize_research_routing,
 )
+from collectors.subtask_redundancy import (
+    NormalizedSubtaskRedundancyTrace,
+    SubtaskRedundancyDiagnostics,
+    normalize_chat_subtask_redundancy,
+    normalize_research_subtask_redundancy,
+)
 from collectors.tool_argument_schema import (
     NormalizedToolArgumentSchemaTrace,
     ParameterSchema,
@@ -63,6 +69,7 @@ __all__ = [
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
+    "NormalizedSubtaskRedundancyTrace",
     "ParameterValueCandidate",
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
@@ -70,6 +77,7 @@ __all__ = [
     "RequiredParameterCatalog",
     "RequiredParameterDiagnostics",
     "RoutingDiagnostics",
+    "SubtaskRedundancyDiagnostics",
     "ParameterSchema",
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
@@ -82,12 +90,14 @@ __all__ = [
     "normalize_chat_required_parameters",
     "normalize_chat_parameter_value_candidates",
     "normalize_chat_routing",
+    "normalize_chat_subtask_redundancy",
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",
+    "normalize_research_subtask_redundancy",
     "normalize_research_tool_call_events",
     "normalize_research_tool_argument_schema",
 ]
