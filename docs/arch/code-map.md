@@ -16,6 +16,8 @@
   Schema，按调用输出合法/非法与违规类别聚合计数；额外字段仅诊断，不使调用非法。
 - `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录，按稳定
   调用 ID 提取聊天/研究 query 和参数的内存候选；长期结果不得保留 query 或参数值。
+- `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
+  意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -29,9 +31,15 @@
   三态输出，隔离单调用失败，并仅输出参数值准确率主指标和安全诊断计数。
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
+- `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
+  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`。
+- `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
+  和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
-- `src/storage/`：原始数据和评测产物访问；尚待实现。
+- `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
+  子任务类型与能力集合，并支持 Jaccard 相似映射检索。
+- `src/storage/__init__.py`：导出安全意图路由映射存储入口。
 - `tests/evaluators/test_base_evaluator.py`：评测器公共契约的行为测试。
 - `tests/collectors/test_tool_call_events.py`：聊天/研究工具事件规范化、去重、严格
   `callID` 和敏感正文隔离测试。
@@ -43,6 +51,8 @@
   额外字段、未知工具、参数解析和研究调用去重测试。
 - `tests/collectors/test_parameter_value_accuracy.py`：聊天/研究 query 与调用候选提取、手册
   描述目录、稳定 ID、研究去重、定义冲突和内存参数不可变测试。
+- `tests/collectors/test_routing.py`：聊天整体/子任务意图提取、MCP 能力范围、研究前缀映射、
+  调用去重和冲突定义测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -55,6 +65,12 @@
   部分失败隔离、非法 Judge 输出和不可计算边界测试。
 - `tests/evaluators/test_openai_compatible_parameter_judge.py`：dotenv 配置、HTTPS 边界、请求
   结构、认证头、结构化响应解析和供应商异常脱敏测试。
+- `tests/evaluators/test_routing.py`：共享 Judge 调用、Precision/Recall 集合计数、零分母、
+  Judge 非法输出、失败脱敏和安全映射写入测试。
+- `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、MCP Schema 与
+  历史映射的结构化请求测试。
+- `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
+  检索测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
 - `tests/`：测试包根目录；子目录结构与 `src/` 对应。
 - `configs/evaluation.example.toml`：提交安全的评测配置样例。

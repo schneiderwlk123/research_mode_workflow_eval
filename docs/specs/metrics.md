@@ -355,3 +355,111 @@ Judge 可判定覆盖率和 Schema 覆盖率不计算，也不得写入最终结
 OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
 固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
 其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
+
+## 6-7. 路由 Precision 与路由 Recall
+
+### 指标定义
+
+稳定指标名：`routing_precision`、`routing_recall`
+
+两项指标共享一次 LLM 路由标准生成和同一组集合计数：
+
+```text
+正确路由能力集合 = 实际能力集合 ∩ 标准能力集合
+
+路由 Precision = 正确路由能力数 ÷ 实际能力数
+路由 Recall = 正确路由能力数 ÷ 标准能力数
+```
+
+- 采用会话级能力集合口径，同一能力调用多次只计一次；重复调用由
+  `exact_duplicate_tool_call_rate` 单独评估，避免重复惩罚或加分。
+- 标准能力集合不是从实际调用反推。路由 Judge 必须综合整体用户意图、所有可见子任务
+  意图、完整 MCP 能力目录以及历史安全映射，选择完成需求所需的最小充分能力集合。
+- 本批次只计算选择层 Recall。调用是否成功属于执行质量，不混入路由选择判断。
+- 不在 MCP 手册中的 `respond` 等框架工具不进入实际能力集合，只记录
+  `out_of_scope_tool_call_count`；Judge 不得选择未在当前目录注册的能力。
+- 实际能力集合为空而标准集合非空时，Precision 返回
+  `NOT_COMPUTABLE / no_actual_routes`，Recall 等于 `0`。
+- 标准集合为空而实际集合非空时，Precision 等于 `0`，Recall 返回
+  `NOT_COMPUTABLE / no_expected_routes`；两者均为空时两项均不可计算。
+- 缺少意图、调用 ID、工具名或存在冲突调用定义时返回对应的 `NOT_COMPUTABLE`；Judge
+  异常或非法输出分别返回 `judge_failure` 或 `invalid_judge_output`，不得估算。
+
+### LLM 与 MCP Schema 契约
+
+Judge 请求包含：
+
+- 顶层用户意图和日志中全部可见子任务意图；这些正文只在单次调用内存中存在。
+- MCP 手册中每个能力的 `capability_id`、工具描述、参数名称、类型、必填标记和描述。
+- 最多 50 条不含原始文本的历史意图路由映射，作为可选参考而非强制答案。
+
+Judge 返回：
+
+```json
+{
+  "subtasks": [
+    {
+      "intent_signature": ["market_data", "valuation"],
+      "subtask_type": "company_analysis",
+      "required_capability_ids": ["pricePerformance"]
+    }
+  ],
+  "required_capability_ids": ["pricePerformance"]
+}
+```
+
+- `intent_signature` 和 `subtask_type` 只能使用小写 snake_case，禁止包含公司、人名、
+  证券代码、日期、金额、地区或用户原文。
+- 顶层能力集合必须严格等于所有子任务能力集合的去重并集。
+- 所有能力 ID 必须存在于当前 MCP 目录；评测器会重新校验，不信任 Judge 输出。
+- Judge 适配器记录 `judge_name`、`judge_version`、`prompt_version` 和 MCP
+  `schema_version`，保证生成口径可追溯。
+
+### 字段映射
+
+MCP 手册：
+
+- 能力 ID：`mcp_tool_manual.json` 的 `tools[].name`。
+- 能力语义：`tools[].description` 和 `parameters[]` 的名称、类型、必填标记及描述。
+- 研究模式的 `mcp__<server>__<tool>` 名称可按末段工具名映射到同一能力 ID；其他别名
+  必须显式登记。
+
+聊天模式：
+
+- 整体意图：`query`。
+- 子任务意图：`tool_call_queue[]` 中 `event_type == "call_sub_agent_begin"` 的
+  `request_payload.taskName` 和 `request_payload.arguments.query`，按文本去重。
+- 实际能力：`event_type == "tool_call"` 的 `tool_request_args.toolName`。
+
+研究模式：
+
+- 整体意图：优先读取事件顶层 `query`，兼容 `body.query`。
+- 可见步骤意图：`body.task` 和 `body.description`。
+- 实际能力：`result.toolCalls[].toolName`，按 `toolCallId` 去重；同一 ID 对应不同工具名
+  时返回 `conflicting_call_definition`。
+
+### 可复用意图路由映射
+
+通过 `JsonlIntentRouteMappingStore` 将每条成功判定日志中的去实体化子任务映射写入被忽略的
+运行产物目录。每条记录只包含：
+
+- `intent_signature`、`subtask_type` 和 `capability_ids`。
+- MCP Schema、Judge、模型和 prompt 版本。
+
+存储会去除完全重复记录，并支持按意图签名 Jaccard 相似度查找历史映射。映射表不得保存
+原始 query、子任务正文、实体、参数、响应、Trace ID 或 Judge 原始输出。读取或写入映射表
+失败只记录安全诊断，不改变已经生成的标准能力集合和指标结果。
+
+### 模拟计算
+
+```text
+标准能力集合 = {行情, 新闻, 研报}
+实际能力集合 = {行情, 新闻, 日历}
+
+TP = 2
+FP = 1
+FN = 1
+
+路由 Precision = 2 ÷ 3 ≈ 0.66667
+路由 Recall = 2 ÷ 3 ≈ 0.66667
+```
