@@ -14,6 +14,7 @@ from evaluators.openai_compatible_parameter_judge import (
     load_judge_settings,
 )
 from evaluators.openai_compatible_routing_judge import OpenAICompatibleRoutingJudge
+from evaluators.openai_compatible_time_range_judge import OpenAICompatibleTimeRangeJudge
 from evaluators.parameter_value_accuracy import (
     ParameterValueAccuracyEvaluator,
     ParameterValueJudge,
@@ -31,6 +32,11 @@ from evaluators.routing import (
     build_routing_assessment,
 )
 from evaluators.subtask_redundancy import SubtaskRedundancyEvaluator
+from evaluators.time_range_accuracy import (
+    TimeRangeAccuracyEvaluator,
+    TimeRangeJudge,
+    TimeRangeJudgeRequest,
+)
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
 from evaluators.tool_call_event_completeness import ToolCallEventCompletenessEvaluator
 
@@ -46,6 +52,7 @@ __all__ = [
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleIntentRecognitionJudge",
     "OpenAICompatibleRoutingJudge",
+    "OpenAICompatibleTimeRangeJudge",
     "ParameterValueAccuracyEvaluator",
     "ParameterValueJudge",
     "ParameterValueJudgeRequest",
@@ -58,6 +65,9 @@ __all__ = [
     "RoutingPrecisionEvaluator",
     "RoutingRecallEvaluator",
     "SubtaskRedundancyEvaluator",
+    "TimeRangeAccuracyEvaluator",
+    "TimeRangeJudge",
+    "TimeRangeJudgeRequest",
     "ToolCallEventCompletenessEvaluator",
     "ToolArgumentSchemaValidityEvaluator",
     "load_judge_settings",

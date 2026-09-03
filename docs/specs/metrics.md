@@ -596,3 +596,74 @@ correct = 1
 incorrect = 1
 意图识别准确率 = 1 ÷ (1 + 1) = 0.5
 ```
+
+## 11. 时间范围提取准确率
+
+### 指标定义
+
+稳定指标名：`time_range_extraction_accuracy`
+
+```text
+时间范围提取准确率 =
+  正确提取的预期时间字段数 ÷ 用户需求中可评估的时间字段总数
+```
+
+- 评估字段包括开始时间、结束时间、数据频率，以及实际值/预测值属性；多段区间分别计数。
+- 用户未指定的字段不进入分母；明确要求但工具参数遗漏的字段计为错误。
+- 额外时间条件若改变查询范围，应使受影响的预期字段判错，并计入
+  `unexpected_constraint_count` 安全诊断。
+- 本指标使用 LLM Judge 代理标准，不等同于人工 Golden Benchmark。Judge 只返回聚合计数、
+  固定 reason code 和 confidence，不得返回日期、query、参数值或解释正文。
+- Judge 返回 `assessed` 时，`correct_field_count + incorrect_field_count` 必须大于零；结果为
+  `correct_field_count / assessable_field_count`。
+- Judge 返回 `not_assessable` 时，使用 `no_temporal_requirement`、
+  `missing_reference_time`、`ambiguous_temporal_requirement` 或
+  `insufficient_time_evidence`，结果为 `NOT_COMPUTABLE`。
+- Judge 调用异常或输出非法分别返回 `NOT_COMPUTABLE / judge_failure` 和
+  `NOT_COMPUTABLE / invalid_judge_output`。
+- evaluator 版本为 `1.0.0`；Judge、模型、prompt 和 MCP 手册版本进入安全元数据。
+
+### 相对时间规则
+
+- 相对时间必须绑定日志中的会话/调用时间或调用方显式提供的 `reference_time`，不得使用
+  评测运行当天，保证结果可复现。
+- `近 N 年` 按以锚点为终点的 N 年滚动区间；`今年以来` 从锚点所在年份 1 月 1 日开始；
+  `上一完整年度` 为锚点年份之前的一个自然年。
+- 用户要求相对时间但没有可靠锚点时返回 `missing_reference_time`。
+- 工具省略可选日期时，只有 MCP 参数说明明确给出默认观察日语义，Judge 才能使用该默认值。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 用户需求：顶层 `query`；缺失时返回 `missing_query`。
+- 实际时间证据：`tool_call_queue[].tool_request_args.arguments`，并结合 MCP 工具和参数说明。
+- 相对时间锚点：调用方显式值优先，否则取首个工具请求的
+  `tool_request_args.create_time`；无法取得时保留为空，由 Judge 判断是否需要。
+- 调用按 `toolId` 去重；参数无法完整解析时返回 `incomplete_time_observation`。
+- 没有工具调用但用户存在明确时间要求时仍调用 Judge，缺失的预期字段可计算为零分；固定
+  模型服务失败则返回 `pre_time_extraction_failure`。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 用户需求：首个顶层 `query`，兼容 `body.query`；缺失时返回 `missing_query`。
+- 实际时间证据：`result.toolCalls[].input`，结合 `toolName` 对应的 MCP 参数说明。
+- 相对时间锚点：调用方显式值优先，否则依次读取事件 `timestamp`、`create_time` 或
+  `part.state.time.start`。
+- 调用按 `toolCallId` 去重；缺失 ID 返回 `missing_call_id`，同 ID 定义冲突返回
+  `conflicting_call_definition`，参数无法完整解析返回 `incomplete_time_observation`。
+
+两种模式的 query、reference time、参数值、日期原文和 Judge 原始响应只允许在内存中存在。
+持久化结果仅保留字段计数、调用与异常诊断、版本标识、reference time 是否存在及其来源。
+
+### 模拟计算
+
+```text
+用户要求：2020A-2025A 历史数据，2026E-2028E 预测数据，年度频率
+实际参数：2020A-2024A 历史数据，2026E-2028E 预测数据，年度频率
+
+可评估字段数 = 7
+正确字段数 = 6
+错误字段数 = 1
+时间范围提取准确率 = 6 ÷ 7 ≈ 0.85714
+```

@@ -6,12 +6,13 @@
 
 评测框架基础骨架、调用事件完整率、完全重复调用率、必填参数完整率、Schema 合法率、
 参数值准确率核心、路由 Precision、路由 Recall、子任务冗余率和意图识别准确率已经实现。
+时间范围提取准确率也已完成核心实现，等待第二次验收。
 
 已完成：
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及九个指标行为测试，共 148 项；最近一次验证全部通过。
+- 公共契约及十个指标行为测试，共 174 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 38 项逐指标开发顺序；时延、Token 消耗及成本类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -36,7 +37,10 @@
   中间指纹不进入结果；`subtask_redundancy_rate` 版本为 `1.0.0`。
 - 聊天与研究模式的意图证据规范化、严格三态 Judge 契约和 OpenAI-compatible 适配器；
   `intent_recognition_accuracy` 版本为 `1.0.0`，原始 query、规划、回答和 Judge 响应不落盘。
-- 集中式指标规格 `docs/specs/metrics.md`，当前记录九个已实现指标。
+- 聊天与研究模式的时间需求、工具参数和可复现时间锚点规范化，严格字段计数 Judge 契约
+  及 OpenAI-compatible 适配器；`time_range_extraction_accuracy` 版本为 `1.0.0`，
+  query、日期原文、参数值和 Judge 响应不落盘。
+- 集中式指标规格 `docs/specs/metrics.md`，当前记录十个已实现指标。
 
 ## 当前状态
 
@@ -48,10 +52,10 @@
 - 已取消指标：依赖关系正确率；聊天与研究日志均缺少稳定的结构化任务 DAG 字段，
   不使用事件顺序推测依赖关系。
 - 已取消指标：关键实体提取准确率；用户在编码前取消，未新增实现、测试或专用规格。
-- 进行中的具体指标：无。
-- 下一指标：时间范围提取准确率。
-- 下一动作：展示时间范围提取准确率的公式、聊天/研究模式字段映射、异常边界和模拟计算，
-  等待编码前确认。
+- 进行中的具体指标：时间范围提取准确率已按用户确认的 Judge 代理口径完成实现和自动化
+  验证，等待第二次验收；验收前不进入下一指标。
+- 下一指标：等待时间范围提取准确率验收后再按顺序进入指标与口径提取准确率。
+- 下一动作：展示聊天/研究模式的计算边界、测试结果和模拟计算，等待第二次确认。
 
 ## 已知缺口
 
@@ -66,7 +70,7 @@
 ## 验证基线
 
 ```text
-pytest: 125 passed
+pytest: 174 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -99,4 +103,10 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   同 ID 不同工具返回 conflicting_call_definition
 意图识别准确率真实单调用冒烟: 聊天模式 3 段行为证据、1 个 MCP 能力，Judge 返回
   correct / material_intents_aligned / confidence 0.95，最终结果 1.0, computed
+时间范围提取准确率测试: 26 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+时间范围提取准确率聊天模式: 支持显式 reference_time 和首个工具请求 create_time；正常执行
+  但未传递时间字段可由 Judge 计算为 0，固定前置服务失败返回 pre_time_extraction_failure
+时间范围提取准确率研究模式: 支持事件 timestamp/create_time 或 part.state.time.start 锚点；
+  缺少调用 ID、冲突定义和参数解析不完整分别显式返回安全原因码
+时间范围提取准确率模拟计算: 正确字段 6、错误字段 1，结果 6/7 ≈ 0.85714, computed
 ```

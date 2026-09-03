@@ -48,6 +48,13 @@ from collectors.subtask_redundancy import (
     normalize_chat_subtask_redundancy,
     normalize_research_subtask_redundancy,
 )
+from collectors.time_range_accuracy import (
+    NormalizedTimeRangeTrace,
+    TimeRangeCandidate,
+    TimeRangeDiagnostics,
+    normalize_chat_time_range,
+    normalize_research_time_range,
+)
 from collectors.tool_argument_schema import (
     NormalizedToolArgumentSchemaTrace,
     ParameterSchema,
@@ -82,6 +89,7 @@ __all__ = [
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
     "NormalizedSubtaskRedundancyTrace",
+    "NormalizedTimeRangeTrace",
     "ParameterValueCandidate",
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
@@ -90,6 +98,8 @@ __all__ = [
     "RequiredParameterDiagnostics",
     "RoutingDiagnostics",
     "SubtaskRedundancyDiagnostics",
+    "TimeRangeCandidate",
+    "TimeRangeDiagnostics",
     "ParameterSchema",
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
@@ -104,6 +114,7 @@ __all__ = [
     "normalize_chat_parameter_value_candidates",
     "normalize_chat_routing",
     "normalize_chat_subtask_redundancy",
+    "normalize_chat_time_range",
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
@@ -112,6 +123,7 @@ __all__ = [
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",
     "normalize_research_subtask_redundancy",
+    "normalize_research_time_range",
     "normalize_research_tool_call_events",
     "normalize_research_tool_argument_schema",
 ]
