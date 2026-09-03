@@ -1,65 +1,28 @@
-"""通过 OpenAI-compatible Chat Completions API 调用参数值 Judge。"""
+"""通过 OpenAI-compatible Batch File API 调用参数值 Judge。"""
 
-import json
-import os
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
-from typing import cast
-from urllib.parse import urlparse
 
 from evaluators.parameter_value_accuracy import ParameterValueJudgeRequest
+from llm.batch_file import (
+    BatchFileSettings,
+    BatchFileTransport,
+    Sleep,
+    load_batch_file_settings,
+    request_json_completion,
+)
 
-JudgeTransport = Callable[[str, bytes, Mapping[str, str], float], bytes]
-
-
-@dataclass(frozen=True, slots=True)
-class JudgeSettings:
-    """真实 Judge 连接配置；密钥不会出现在对象表示中。"""
-
-    api_url: str
-    api_key: str = field(repr=False)
-    model: str = ""
-
-    def __post_init__(self) -> None:
-        for name, value in (
-            ("JUDGE_API_URL", self.api_url),
-            ("JUDGE_API_KEY", self.api_key),
-            ("JUDGE_MODEL", self.model),
-        ):
-            if not value.strip():
-                raise ValueError(f"{name} 不能为空")
-        parsed_url = urlparse(self.api_url)
-        local_hosts = {"127.0.0.1", "::1", "localhost"}
-        if parsed_url.scheme != "https" and not (
-            parsed_url.scheme == "http" and parsed_url.hostname in local_hosts
-        ):
-            raise ValueError("远程 JUDGE_API_URL 必须使用 HTTPS")
+JudgeTransport = BatchFileTransport
+JudgeSettings = BatchFileSettings
 
 
 def load_judge_settings(
     path: str | Path = ".env", *, environ: Mapping[str, str] | None = None
 ) -> JudgeSettings:
-    """读取常见 dotenv 格式，并允许进程环境变量覆盖文件值。"""
+    """兼容旧入口，实际加载统一 Batch File 配置。"""
 
-    values = _read_dotenv(Path(path))
-    active_environ = os.environ if environ is None else environ
-    for name in ("JUDGE_API_URL", "JUDGE_API_KEY", "JUDGE_MODEL"):
-        environment_value = active_environ.get(name)
-        if environment_value is not None:
-            values[name] = environment_value
-    missing = [
-        name for name in ("JUDGE_API_URL", "JUDGE_API_KEY", "JUDGE_MODEL") if not values.get(name)
-    ]
-    if missing:
-        raise ValueError(f"缺少 Judge 配置: {', '.join(missing)}")
-    return JudgeSettings(
-        api_url=values["JUDGE_API_URL"],
-        api_key=values["JUDGE_API_KEY"],
-        model=values["JUDGE_MODEL"],
-    )
+    return load_batch_file_settings(path, environ=environ)
 
 
 class OpenAICompatibleParameterValueJudge:
@@ -73,97 +36,46 @@ class OpenAICompatibleParameterValueJudge:
         settings: JudgeSettings,
         *,
         transport: JudgeTransport | None = None,
-        timeout_seconds: float = 90,
+        timeout_seconds: float | None = None,
+        sleep: Sleep | None = None,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds 必须大于零")
-        self._settings = settings
-        self._transport = transport or _post_json
-        self._timeout_seconds = timeout_seconds
+        active_timeout = settings.timeout_seconds if timeout_seconds is None else timeout_seconds
+        if active_timeout <= 0:
+            raise ValueError("Batch File timeout_seconds 必须大于零")
+        self._settings = replace(settings, timeout_seconds=active_timeout)
+        self._transport = transport
+        self._sleep = sleep
         self.judge_version = settings.model
 
     def judge(self, request: ParameterValueJudgeRequest) -> Mapping[str, object]:
         """调用 Judge 并只返回经过 JSON 解码的结构化结果。"""
 
-        payload = {
-            "model": self._settings.model,
-            "max_tokens": 2048,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "query": request.query,
-                            "tool_name": request.tool_name,
-                            "tool_description": request.tool_description,
-                            "parameter_descriptions": dict(request.parameter_descriptions),
-                            "arguments": _plain_value(request.arguments),
-                        },
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
-                },
-            ],
-        }
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self._settings.api_key}",
-            "Content-Type": "application/json",
-        }
-        endpoint = _chat_completions_endpoint(self._settings.api_url)
         try:
-            raw_response = self._transport(
-                endpoint,
-                body,
-                headers,
-                self._timeout_seconds,
+            user_payload = {
+                "query": request.query,
+                "tool_name": request.tool_name,
+                "tool_description": request.tool_description,
+                "parameter_descriptions": dict(request.parameter_descriptions),
+                "arguments": _plain_value(request.arguments),
+            }
+            if self._sleep is None:
+                return request_json_completion(
+                    self._settings,
+                    system_prompt=_SYSTEM_PROMPT,
+                    user_payload=user_payload,
+                    max_tokens=2048,
+                    transport=self._transport,
+                )
+            return request_json_completion(
+                self._settings,
+                system_prompt=_SYSTEM_PROMPT,
+                user_payload=user_payload,
+                max_tokens=2048,
+                transport=self._transport,
+                sleep=self._sleep,
             )
-            envelope = json.loads(raw_response)
-            if not isinstance(envelope, Mapping) or envelope.get("error") is not None:
-                raise ValueError("invalid provider envelope")
-            choices = envelope.get("choices")
-            if not isinstance(choices, list) or not choices:
-                raise ValueError("missing choices")
-            first_choice = choices[0]
-            if not isinstance(first_choice, Mapping):
-                raise ValueError("invalid choice")
-            message = first_choice.get("message")
-            if not isinstance(message, Mapping):
-                raise ValueError("missing message")
-            content = message.get("content")
-            if not isinstance(content, str):
-                raise ValueError("missing content")
-            parsed = json.loads(content)
-            if not isinstance(parsed, Mapping):
-                raise ValueError("Judge content must be an object")
-            return cast(Mapping[str, object], parsed)
-        except Exception as error:
-            if isinstance(error, RuntimeError) and str(error) == "Judge 请求失败":
-                raise
+        except Exception:
             raise RuntimeError("Judge 请求失败") from None
-
-
-def _post_json(
-    url: str,
-    body: bytes,
-    headers: Mapping[str, str],
-    timeout_seconds: float,
-) -> bytes:
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return cast(bytes, response.read())
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        raise RuntimeError("Judge 请求失败") from None
-
-
-def _chat_completions_endpoint(api_url: str) -> str:
-    normalized = api_url.strip().rstrip("/")
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
 
 
 def _plain_value(value: object) -> object:
@@ -172,25 +84,6 @@ def _plain_value(value: object) -> object:
     if isinstance(value, tuple):
         return [_plain_value(item) for item in value]
     return value
-
-
-def _read_dotenv(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        raise ValueError(f"Judge 配置文件不存在: {path}")
-    values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            raise ValueError(".env 必须使用 KEY=VALUE 格式")
-        name, raw_value = line.split("=", 1)
-        normalized_name = name.strip()
-        value = raw_value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        values[normalized_name] = value
-    return values
 
 
 _SYSTEM_PROMPT = """你是严格的工具调用参数语义评测器。

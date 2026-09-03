@@ -69,14 +69,12 @@ def test_judge_sends_json_mode_request_and_parses_field_verdicts() -> None:
     captured: dict[str, object] = {}
 
     def transport(
-        url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float
+        method: str,
+        url: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
     ) -> bytes:
-        captured.update(
-            url=url,
-            body=json.loads(body),
-            authorization=headers["Authorization"],
-            timeout_seconds=timeout_seconds,
-        )
         content = {
             "fields": [
                 {
@@ -99,7 +97,37 @@ def test_judge_sends_json_mode_request_and_parses_field_verdicts() -> None:
                 },
             ]
         }
-        return json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode()
+        if method == "POST" and url.endswith("/files"):
+            assert body is not None
+            text = body.decode("utf-8")
+            request = json.loads(next(line for line in text.splitlines() if line.startswith("{")))
+            captured.update(
+                url=url,
+                body=request["body"],
+                authorization=headers["Authorization"],
+                timeout_seconds=timeout_seconds,
+            )
+            return b'{"id":"file-batch-input"}'
+        if method == "POST" and url.endswith("/batches"):
+            return b'{"id":"batch-1","status":"validating"}'
+        if method == "GET" and url.endswith("/batches/batch-1"):
+            return (
+                b'{"id":"batch-1","status":"completed",'
+                b'"output_file_id":"file-batch_output-1","error_file_id":null}'
+            )
+        if method == "GET" and url.endswith("/files/file-batch_output-1/content"):
+            result = {
+                "custom_id": "request-1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": json.dumps(content)}}]},
+                },
+                "error": None,
+            }
+            return (json.dumps(result) + "\n").encode()
+        if method == "DELETE" and "/files/" in url:
+            return b'{"deleted":true}'
+        raise AssertionError(f"unexpected request: {method} {url}")
 
     judge = OpenAICompatibleParameterValueJudge(
         JudgeSettings(
@@ -108,18 +136,20 @@ def test_judge_sends_json_mode_request_and_parses_field_verdicts() -> None:
             model="test-model",
         ),
         transport=transport,
-        timeout_seconds=12,
+        timeout_seconds=60,
+        sleep=lambda _: None,
     )
 
     response = judge.judge(_request())
 
-    assert captured["url"] == "https://example.test/compatible-mode/v1/chat/completions"
+    assert captured["url"] == "https://example.test/compatible-mode/v1/files"
     assert captured["authorization"] == "Bearer secret-value"
-    assert captured["timeout_seconds"] == 12
+    assert captured["timeout_seconds"] == 90
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["model"] == "test-model"
     assert body["response_format"] == {"type": "json_object"}
+    assert body["enable_thinking"] is False
     assert response["fields"][0]["field_path"] == "querys"  # type: ignore[index]
 
 
@@ -136,14 +166,37 @@ def test_invalid_provider_response_raises_without_echoing_payload(
     payload: Mapping[str, object],
 ) -> None:
     def transport(
-        url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float
+        method: str,
+        url: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
     ) -> bytes:
-        del url, body, headers, timeout_seconds
-        return json.dumps(payload).encode()
+        del body, headers, timeout_seconds
+        if method == "POST" and url.endswith("/files"):
+            return b'{"id":"file-batch-input"}'
+        if method == "POST" and url.endswith("/batches"):
+            return b'{"id":"batch-1","status":"validating"}'
+        if method == "GET" and url.endswith("/batches/batch-1"):
+            return (
+                b'{"id":"batch-1","status":"completed",'
+                b'"output_file_id":"file-batch_output-1","error_file_id":null}'
+            )
+        if method == "GET" and url.endswith("/files/file-batch_output-1/content"):
+            result = {
+                "custom_id": "request-1",
+                "response": {"status_code": 200, "body": payload},
+                "error": None,
+            }
+            return (json.dumps(result) + "\n").encode()
+        if method == "DELETE" and "/files/" in url:
+            return b'{"deleted":true}'
+        raise AssertionError(f"unexpected request: {method} {url}")
 
     judge = OpenAICompatibleParameterValueJudge(
         JudgeSettings("https://example.test/v1", "secret-value", "test-model"),
         transport=transport,
+        sleep=lambda _: None,
     )
 
     with pytest.raises(RuntimeError) as error:

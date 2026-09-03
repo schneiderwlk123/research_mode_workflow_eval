@@ -13,9 +13,12 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
     captured: dict[str, object] = {}
 
     def transport(
-        url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float
+        method: str,
+        url: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
     ) -> bytes:
-        captured.update(url=url, body=json.loads(body), authorization=headers["Authorization"])
         content = {
             "subtasks": [
                 {
@@ -26,7 +29,36 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
             ],
             "required_capability_ids": ["quote"],
         }
-        return json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode()
+        if method == "POST" and url.endswith("/files"):
+            assert body is not None
+            text = body.decode("utf-8")
+            request = json.loads(next(line for line in text.splitlines() if line.startswith("{")))
+            captured.update(
+                url=url,
+                body=request["body"],
+                authorization=headers["Authorization"],
+            )
+            return b'{"id":"file-batch-input"}'
+        if method == "POST" and url.endswith("/batches"):
+            return b'{"id":"batch-1","status":"validating"}'
+        if method == "GET" and url.endswith("/batches/batch-1"):
+            return (
+                b'{"id":"batch-1","status":"completed",'
+                b'"output_file_id":"file-batch_output-1","error_file_id":null}'
+            )
+        if method == "GET" and url.endswith("/files/file-batch_output-1/content"):
+            result = {
+                "custom_id": "request-1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": json.dumps(content)}}]},
+                },
+                "error": None,
+            }
+            return (json.dumps(result) + "\n").encode()
+        if method == "DELETE" and "/files/" in url:
+            return b'{"deleted":true}'
+        raise AssertionError(f"unexpected request: {method} {url}")
 
     catalog = build_capability_catalog(
         {
@@ -67,16 +99,18 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
     judge = OpenAICompatibleRoutingJudge(
         JudgeSettings("https://example.test/v1", "secret-value", "test-model"),
         transport=transport,
+        sleep=lambda _: None,
     )
 
     response = judge.judge(request)
 
     assert response["required_capability_ids"] == ["quote"]
-    assert captured["url"] == "https://example.test/v1/chat/completions"
+    assert captured["url"] == "https://example.test/v1/files"
     assert captured["authorization"] == "Bearer secret-value"
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["temperature"] == 0
+    assert body["enable_thinking"] is False
     user_payload = json.loads(body["messages"][1]["content"])
     assert user_payload["intent_fragments"] == ["查询某公司的行情", "核对价格"]
     assert user_payload["capabilities"][0]["capability_id"] == "quote"
@@ -94,14 +128,37 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
 )
 def test_invalid_provider_response_is_safely_wrapped(payload: Mapping[str, object]) -> None:
     def transport(
-        url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float
+        method: str,
+        url: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
     ) -> bytes:
-        del url, body, headers, timeout_seconds
-        return json.dumps(payload).encode()
+        del body, headers, timeout_seconds
+        if method == "POST" and url.endswith("/files"):
+            return b'{"id":"file-batch-input"}'
+        if method == "POST" and url.endswith("/batches"):
+            return b'{"id":"batch-1","status":"validating"}'
+        if method == "GET" and url.endswith("/batches/batch-1"):
+            return (
+                b'{"id":"batch-1","status":"completed",'
+                b'"output_file_id":"file-batch_output-1","error_file_id":null}'
+            )
+        if method == "GET" and url.endswith("/files/file-batch_output-1/content"):
+            result = {
+                "custom_id": "request-1",
+                "response": {"status_code": 200, "body": payload},
+                "error": None,
+            }
+            return (json.dumps(result) + "\n").encode()
+        if method == "DELETE" and "/files/" in url:
+            return b'{"deleted":true}'
+        raise AssertionError(f"unexpected request: {method} {url}")
 
     judge = OpenAICompatibleRoutingJudge(
         JudgeSettings("https://example.test/v1", "secret-value", "test-model"),
         transport=transport,
+        sleep=lambda _: None,
     )
     request = RoutingJudgeRequest(
         trace_id="trace-1",

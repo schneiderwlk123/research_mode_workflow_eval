@@ -352,9 +352,15 @@ not_assessable 字段数 = 1
 Judge 可判定覆盖率和 Schema 覆盖率不计算，也不得写入最终结果；调用数、字段计数、失败数
 和原因类别仅作为诊断元数据保留。
 
-OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
-固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
-其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
+OpenAI-compatible 适配器统一使用 Batch File。优先读取 `BATCH_FILE_API_URL`、
+`BATCH_FILE_API_KEY` 和 `BATCH_FILE_MODEL`，旧 `JUDGE_*` 名称仅作兼容。客户端在内存中构造
+单行 UTF-8 JSONL，通过 `/files` 上传后创建 `/batches` 任务，并按 `custom_id` 关联下载结果；
+不得依赖结果顺序。默认 `completion_window=24h`、轮询间隔 60 秒、整体等待上限 86400 秒，
+单次 HTTP 请求超时 90 秒；查询、下载、删除和取消等安全操作传输失败最多重试 2 次，文件
+上传与任务创建不自动重试，避免响应丢失时产生重复任务和重复计费。任务结束后尽力删除远端
+输入、输出和错误文件。请求在模型字段同级显式发送 `enable_thinking=false`。query 和参数按不可信数据
+处理，禁止其中的文本覆盖系统评测规则；不得把 JSONL 或原始响应持久化到项目目录。
+未配置适配器或真实请求未成功时不得伪造语义得分。
 
 ## 6-7. 路由 Precision 与路由 Recall
 
@@ -417,8 +423,9 @@ Judge 返回：
 - 所有能力 ID 必须存在于当前 MCP 目录；评测器会重新校验，不信任 Judge 输出。
 - Judge 适配器记录 `judge_name`、`judge_version`、`prompt_version` 和 MCP
   `schema_version`，保证生成口径可追溯。
-- OpenAI-compatible 请求固定 `temperature = 0` 以降低重复运行波动；在人工校准集冻结前，
-  结果仍属于 Judge 代理标准，不声明为完全确定的 Golden Benchmark。
+- OpenAI-compatible Batch File 请求固定 `temperature = 0`，并在 JSONL 的 `body` 顶层显式发送
+  `enable_thinking=false`，避免思考 Token 增加离线标注成本。在人工校准集冻结前，结果
+  仍属于 Judge 代理标准，不声明为完全确定的 Golden Benchmark。
 
 ### 字段映射
 

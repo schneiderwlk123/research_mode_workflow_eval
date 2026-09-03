@@ -1,15 +1,17 @@
-"""通过 OpenAI-compatible Chat Completions API 生成标准路由集合。"""
+"""通过 OpenAI-compatible Batch File API 生成标准路由集合。"""
 
-import json
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Mapping
-from typing import cast
+from collections.abc import Mapping
+from dataclasses import replace
 
-from evaluators.openai_compatible_parameter_judge import JudgeSettings
 from evaluators.routing import RoutingJudgeRequest
+from llm.batch_file import (
+    BatchFileSettings,
+    BatchFileTransport,
+    Sleep,
+    request_json_completion,
+)
 
-RoutingJudgeTransport = Callable[[str, bytes, Mapping[str, str], float], bytes]
+RoutingJudgeTransport = BatchFileTransport
 
 
 class OpenAICompatibleRoutingJudge:
@@ -20,16 +22,18 @@ class OpenAICompatibleRoutingJudge:
 
     def __init__(
         self,
-        settings: JudgeSettings,
+        settings: BatchFileSettings,
         *,
         transport: RoutingJudgeTransport | None = None,
-        timeout_seconds: float = 90,
+        timeout_seconds: float | None = None,
+        sleep: Sleep | None = None,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds 必须大于零")
-        self._settings = settings
-        self._transport = transport or _post_json
-        self._timeout_seconds = timeout_seconds
+        active_timeout = settings.timeout_seconds if timeout_seconds is None else timeout_seconds
+        if active_timeout <= 0:
+            raise ValueError("Batch File timeout_seconds 必须大于零")
+        self._settings = replace(settings, timeout_seconds=active_timeout)
+        self._transport = transport
+        self._sleep = sleep
         self.judge_version = settings.model
 
     def judge(self, request: RoutingJudgeRequest) -> Mapping[str, object]:
@@ -62,73 +66,25 @@ class OpenAICompatibleRoutingJudge:
                 for mapping in request.reusable_mappings
             ],
         }
-        payload = {
-            "model": self._settings.model,
-            "temperature": 0,
-            "max_tokens": 4096,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":")),
-                },
-            ],
-        }
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self._settings.api_key}",
-            "Content-Type": "application/json",
-        }
         try:
-            raw_response = self._transport(
-                _chat_completions_endpoint(self._settings.api_url),
-                body,
-                headers,
-                self._timeout_seconds,
+            if self._sleep is None:
+                return request_json_completion(
+                    self._settings,
+                    system_prompt=_SYSTEM_PROMPT,
+                    user_payload=user_payload,
+                    max_tokens=4096,
+                    transport=self._transport,
+                )
+            return request_json_completion(
+                self._settings,
+                system_prompt=_SYSTEM_PROMPT,
+                user_payload=user_payload,
+                max_tokens=4096,
+                transport=self._transport,
+                sleep=self._sleep,
             )
-            envelope = json.loads(raw_response)
-            if not isinstance(envelope, Mapping) or envelope.get("error") is not None:
-                raise ValueError("invalid provider envelope")
-            choices = envelope.get("choices")
-            if not isinstance(choices, list) or not choices:
-                raise ValueError("missing choices")
-            choice = choices[0]
-            if not isinstance(choice, Mapping):
-                raise ValueError("invalid choice")
-            message = choice.get("message")
-            if not isinstance(message, Mapping):
-                raise ValueError("missing message")
-            content = message.get("content")
-            if not isinstance(content, str):
-                raise ValueError("missing content")
-            parsed = json.loads(content)
-            if not isinstance(parsed, Mapping):
-                raise ValueError("Judge content must be an object")
-            return cast(Mapping[str, object], parsed)
         except Exception:
             raise RuntimeError("路由 Judge 请求失败") from None
-
-
-def _post_json(
-    url: str,
-    body: bytes,
-    headers: Mapping[str, str],
-    timeout_seconds: float,
-) -> bytes:
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return cast(bytes, response.read())
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        raise RuntimeError("路由 Judge 请求失败") from None
-
-
-def _chat_completions_endpoint(api_url: str) -> str:
-    normalized = api_url.strip().rstrip("/")
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
 
 
 _SYSTEM_PROMPT = """你是严格的工具路由标准答案生成器。

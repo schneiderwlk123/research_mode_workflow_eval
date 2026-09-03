@@ -4,8 +4,11 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
-  `JUDGE_MODEL`，真实密钥只允许写入被忽略的 `.env`。
+- `.env.example`：本地运行配置模板；所有 LLM 任务优先使用 `BATCH_FILE_*` 配置，旧
+  `JUDGE_*` 名称仅作兼容，真实密钥只允许写入被忽略的 `.env`。
+- `src/llm/batch_file.py`：统一的阿里云百炼 OpenAI-compatible Batch File 客户端；在内存
+  构造 JSONL，完成文件上传、任务创建、状态轮询、结果关联、错误隔离和远端文件清理。
+- `src/llm/__init__.py`：导出可供 Judge 和后续 LLM 任务复用的 Batch File 客户端契约。
 - `src/collectors/tool_call_events.py`：把聊天 `tool_call_queue` 与研究
   `message.part.updated` 工具状态规范化为不含请求、响应正文的统一调用事件。
 - `src/collectors/exact_duplicate_calls.py`：在内存中规范化工具名、参数和响应并比较摘要，
@@ -30,12 +33,12 @@
   枚举和嵌套结构合法率，仅保留安全诊断计数。
 - `src/evaluators/parameter_value_accuracy.py`：定义可注入的版本化 Judge 接口，校验逐字段
   三态输出，隔离单调用失败，并仅输出参数值准确率主指标和安全诊断计数。
-- `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
-  通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
+- `src/evaluators/openai_compatible_parameter_judge.py`：兼容旧 Judge 配置入口，并通过统一
+  Batch File 客户端请求结构化逐字段判定。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
   TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
-  和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
+  和历史安全映射通过统一 Batch File 客户端提交，生成严格结构化标准路由。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
@@ -70,6 +73,8 @@
   Judge 非法输出、失败脱敏和安全映射写入测试。
 - `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、MCP Schema 与
   历史映射的结构化请求测试。
+- `tests/llm/test_batch_file.py`：Batch File 配置、内存 JSONL、上传与任务生命周期、结果下载、
+  远端文件清理和供应商错误脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
   检索测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
