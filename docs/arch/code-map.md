@@ -4,6 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
+- `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
+  `JUDGE_MODEL`，真实密钥只允许写入被忽略的 `.env`。
 - `src/collectors/tool_call_events.py`：把聊天 `tool_call_queue` 与研究
   `message.part.updated` 工具状态规范化为不含请求、响应正文的统一调用事件。
 - `src/collectors/exact_duplicate_calls.py`：在内存中规范化工具名、参数和响应并比较摘要，
@@ -25,6 +27,8 @@
   枚举和嵌套结构合法率，并报告覆盖率与安全诊断。
 - `src/evaluators/parameter_value_accuracy.py`：定义可注入的版本化 Judge 接口，校验逐字段
   三态输出，隔离单调用失败，并聚合参数值准确率、完全匹配率和可判定覆盖率。
+- `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
+  通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/`：原始数据和评测产物访问；尚待实现。
@@ -49,6 +53,8 @@
   规范化错误和非法聚合计数测试。
 - `tests/evaluators/test_parameter_value_accuracy.py`：Judge 三态字段聚合、遗漏字段、完全匹配
   与可判定覆盖率、部分失败隔离、非法 Judge 输出和不可计算边界测试。
+- `tests/evaluators/test_openai_compatible_parameter_judge.py`：dotenv 配置、HTTPS 边界、请求
+  结构、认证头、结构化响应解析和供应商异常脱敏测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
 - `tests/`：测试包根目录；子目录结构与 `src/` 对应。
 - `configs/evaluation.example.toml`：提交安全的评测配置样例。

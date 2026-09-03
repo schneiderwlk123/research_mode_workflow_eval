@@ -368,5 +368,6 @@ not_assessable 字段数 = 1
 Judge 可判定覆盖率 = 4 ÷ (2 + 2 + 1) = 0.8
 ```
 
-当前仓库尚未配置生产 Judge 模型适配器，真实日志不得伪造参数值准确率；接入固定模型、
-版本化 prompt 与安全调用边界后再建立真实日志验算基线。
+OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
+固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
+其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
