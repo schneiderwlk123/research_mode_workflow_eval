@@ -4,7 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：24 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
+- `docs/specs/metric-development-order.md`：25 项指标的唯一开发顺序；新增最终数值与召回证据
+  一致率、MCP 工具调用膨胀率、
   工具间空窗时延、首次工具决策时延和研究模式上下文膨胀率。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
@@ -37,6 +38,8 @@
   响应，按来源原生结构拆分、内存去重证据单元；无边界长文本和派生工具不进入指标。
 - `src/collectors/statement_support.py`：复用证据单元抽取，提取聊天最终回答或研究模式
   `turn.end` 前最后一个 assistant 文本；区分空证据、缺终态和不完整证据拆分。
+- `src/collectors/numeric_consistency.py`：复用陈述支持率的最终回答选择和来源原生证据单元，
+  构建不落盘正文的数值一致性 Judge 候选。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -72,6 +75,10 @@
   提交给 OpenAI-compatible Judge，并以固定 reason code 和通用异常隔离敏感正文。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
   三态可验证结论和排除项，并计算 `statement_support_rate`。
+- `src/evaluators/numeric_consistency.py`：定义直接召回数值对齐 Judge 契约，以 `Decimal` 统一
+  单位倍率和展示精度，确定性计算 `retrieved_numeric_consistency_rate`。
+- `src/evaluators/openai_compatible_numeric_consistency_judge.py`：将最终回答和来源证据提交给
+  OpenAI-compatible Judge，只返回结构化数值对齐信息并隔离供应商异常。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
   证据单元提交给 OpenAI-compatible Judge，禁止输出陈述正文并隔离供应商异常。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
@@ -104,6 +111,7 @@
   聊天位置标识、研究调用关联、不可拆分响应和调用冲突测试。
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
   缺终态、部分不可拆分响应和成功产物无正文测试。
+- `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用及不完整证据隔离测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -138,6 +146,10 @@
   JSON 响应解析和供应商异常脱敏测试。
 - `tests/evaluators/test_statement_support.py`：支持率、正常零分、无可验证陈述、不可判定、
   Judge 完整性、证据引用和敏感正文隔离测试。
+- `tests/evaluators/test_numeric_consistency.py`：单位倍率、正常舍入、缺失召回值、排除项、
+  不可判定、非法 Judge 输出和敏感正文隔离测试。
+- `tests/evaluators/test_openai_compatible_numeric_consistency_judge.py`：数值对齐请求结构、
+  确定性采样、JSON 响应和供应商异常脱敏测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
   JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名

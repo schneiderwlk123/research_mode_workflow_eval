@@ -30,6 +30,12 @@ from collectors.mcp_tool_call_inflation import (
     normalize_chat_mcp_tool_call_inflation,
     normalize_research_mcp_tool_call_inflation,
 )
+from collectors.numeric_consistency import (
+    NormalizedNumericConsistencyTrace,
+    NumericConsistencyCandidate,
+    normalize_chat_numeric_consistency,
+    normalize_research_numeric_consistency,
+)
 from collectors.parameter_value_accuracy import (
     NormalizedParameterValueTrace,
     ParameterValueCandidate,
@@ -114,6 +120,7 @@ __all__ = [
     "NormalizedEvidenceTrace",
     "NormalizedIntentRecognitionTrace",
     "NormalizedMcpToolCallInflationTrace",
+    "NormalizedNumericConsistencyTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
@@ -124,6 +131,7 @@ __all__ = [
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
     "ParameterValueToolDefinition",
+    "NumericConsistencyCandidate",
     "RequiredParameterCatalog",
     "RequiredParameterDiagnostics",
     "RoutingDiagnostics",
@@ -140,6 +148,7 @@ __all__ = [
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
     "normalize_chat_mcp_tool_call_inflation",
+    "normalize_chat_numeric_consistency",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -156,6 +165,7 @@ __all__ = [
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
     "normalize_research_mcp_tool_call_inflation",
+    "normalize_research_numeric_consistency",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",
