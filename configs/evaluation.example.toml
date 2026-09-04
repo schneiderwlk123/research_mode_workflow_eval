@@ -1,0 +1,22 @@
+[run]
+name = "local-baseline"
+fail_on = "error"
+
+[input]
+format = "jsonl"
+encoding = "utf-8"
+
+[evaluators]
+required_fields = true
+message_shape = true
+tool_call_integrity = true
+
+# 示例 SLA 仅展示结构，不代表生产阈值。实际运行前应替换为经服务方确认的版本化配置。
+[tool_timeout_policy]
+policy_version = "example-1"
+explicit_timeout_statuses = ["timeout", "timed_out"]
+
+[[tool_timeout_policy.tools]]
+name = "replace_with_tool_name"
+timeout_ms = 5000
+aliases = ["replace_with_chat_or_research_alias"]

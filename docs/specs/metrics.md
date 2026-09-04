@@ -1016,3 +1016,64 @@ pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_
 
 首次工具决策时延 = 28859 毫秒
 ```
+
+## 20. 超时率
+
+### 指标定义
+
+本指标衡量唯一工具调用中明确超时、超过工具 SLA，或缺少完整时间记录的调用比例。SLA 必须
+来自版本化 `ToolTimeoutPolicyCatalog`，不得为全部工具临时套用统一阈值。
+
+```text
+单次调用超时 =
+  终态属于策略配置的 timeout / timed_out
+  或完整调用耗时 > 对应工具 timeout_ms
+  或对应工具已有 SLA、但缺少开始时间或结束时间
+
+超时率 = 超时唯一调用数 ÷ 唯一调用总数
+```
+
+耗时等于 `timeout_ms` 时不算超时。`failed`、`error`、`cancelled` 和业务错误码本身不等于
+超时；只有显式超时状态、SLA 超限或时间观测缺失进入分子。结果分别保留
+`explicit_timeout_count`、`sla_exceeded_count` 和 `missing_time_timeout_count`，避免把真实超限
+与日志质量问题混为一类。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 唯一调用：每个 `tool_call_queue[].event_type == "tool_call"` 对象；优先保留请求或响应
+  `toolId`，缺少时使用会话内位置标识。
+- 工具名称：优先读取 `tool_request_args.toolName`，缺失时读取
+  `tool_response_result.toolName`；两者冲突返回 `conflicting_call_definition`。
+- 开始时间：`tool_request_args.create_time`。
+- 结束时间：`tool_response_result.create_time`。
+- 显式超时：响应顶层或结构化 `result/rawResult` 中的 `status/state` 命中策略状态集合。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 唯一调用：按 `message.part.updated.part.callID` 合并生命周期事件。
+- 工具名称：`part.tool`，支持目录别名和 `mcp__...__工具名` 后缀解析。
+- 开始时间：同一 `callID` 的最早 `part.state.time.start`。
+- 结束时间：同一 `callID` 终态事件的最晚 `part.state.time.end`。
+- 显式超时：`part.state.status` 命中策略状态集合。
+
+两种模式都必须能从版本化目录解析每个工具的 `timeout_ms`。当前仓库没有生产 SLA 目录，
+因此真实日志在配置落地前返回 `NOT_COMPUTABLE / missing_tool_sla`；不能因未观察到显式
+timeout 就输出 0%。无调用、缺少研究调用 ID、非法队列或未知 SLA 分别返回
+`no_tool_calls`、`missing_call_id`、`invalid_tool_call_queue`、`missing_tool_sla`。非法时间、
+负时序和调用定义冲突分别返回 `ERROR / invalid_timestamp`、`ERROR / invalid_event_order`、
+`ERROR / conflicting_call_definition`。
+
+### 模拟计算
+
+```text
+工具 A：耗时 4000 ms，SLA 5000 ms       -> 未超时
+工具 B：耗时 3000 ms，SLA 2000 ms       -> SLA 超时
+工具 A：终态 timed_out                  -> 显式超时
+工具 A：缺少结束时间，SLA 已配置         -> 观测缺失超时
+
+超时调用数 = 3
+唯一调用总数 = 4
+超时率 = 3 ÷ 4 = 0.75
+```
