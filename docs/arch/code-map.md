@@ -4,7 +4,7 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：27 项指标的唯一开发顺序；新增工具调用膨胀率、
+- `docs/specs/metric-development-order.md`：27 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
   工具间空窗时延、首次工具决策时延、研究模式上下文膨胀率和模型工具循环深度。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
@@ -14,6 +14,8 @@
   `message.part.updated` 工具状态规范化为不含请求、响应正文的统一调用事件。
 - `src/collectors/exact_duplicate_calls.py`：在内存中规范化工具名、参数和响应并比较摘要，
   输出完全重复调用聚合计数，不保留原始正文或摘要。
+- `src/collectors/mcp_tool_call_inflation.py`：按版本化 MCP 目录过滤聊天/研究调用，以调用 ID
+  去重并对能力 ID 与入参生成不可逆签名，输出调用、唯一签名和膨胀调用聚合计数。
 - `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录，
   统计聊天/研究调用的 Schema 覆盖和非空必填参数；输出聚合计数，不输出参数值或摘要。
 - `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
@@ -40,6 +42,8 @@
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
   调用事件完整率；研究模式缺少 `callID` 时严格返回不可计算。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
+- `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
+  MCP 且相同入参的后续调用占比。
 - `src/evaluators/required_parameter_completeness.py`：在 Schema 已覆盖范围内计算必填参数
   微平均完整率；覆盖调用数仅作为诊断，不派生辅助指标。
 - `src/evaluators/tool_argument_schema_validity.py`：在 Schema 已覆盖调用上计算参数类型、
@@ -80,6 +84,8 @@
   `callID` 和敏感正文隔离测试。
 - `tests/collectors/test_exact_duplicate_calls.py`：聊天/研究完全重复识别、生命周期去重、
   缺失字段和敏感正文隔离测试。
+- `tests/collectors/test_mcp_tool_call_inflation.py`：MCP 范围过滤、规范化入参签名、调用 ID
+  去重、冲突隔离及双模式敏感正文隔离测试。
 - `tests/collectors/test_required_parameters.py`：必填参数目录解析、聊天/研究参数计数、
   占位值、未知 Schema、零必填参数、调用去重和缺失 ID 测试。
 - `tests/collectors/test_tool_argument_schema.py`：Schema 类型、数组元素、枚举、嵌套必填、
@@ -102,6 +108,8 @@
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
   规范化错误和非法计数测试。
+- `tests/evaluators/test_mcp_tool_call_inflation.py`：膨胀率、零膨胀、零分母、规范化失败和非法
+  聚合计数测试。
 - `tests/evaluators/test_required_parameter_completeness.py`：必填参数完整率、辅助指标排除、
   零分母、规范化错误和非法聚合计数测试。
 - `tests/evaluators/test_tool_argument_schema_validity.py`：Schema 合法率、辅助指标排除、

@@ -24,6 +24,12 @@ from collectors.intent_recognition import (
     normalize_chat_intent_recognition,
     normalize_research_intent_recognition,
 )
+from collectors.mcp_tool_call_inflation import (
+    McpToolCallInflationDiagnostics,
+    NormalizedMcpToolCallInflationTrace,
+    normalize_chat_mcp_tool_call_inflation,
+    normalize_research_mcp_tool_call_inflation,
+)
 from collectors.parameter_value_accuracy import (
     NormalizedParameterValueTrace,
     ParameterValueCandidate,
@@ -97,6 +103,7 @@ __all__ = [
     "IntentEvidenceFragment",
     "IntentRecognitionCandidate",
     "IntentRecognitionDiagnostics",
+    "McpToolCallInflationDiagnostics",
     "CapabilityCatalog",
     "CapabilityDefinition",
     "CapabilityParameter",
@@ -106,6 +113,7 @@ __all__ = [
     "NormalizedExactDuplicateTrace",
     "NormalizedEvidenceTrace",
     "NormalizedIntentRecognitionTrace",
+    "NormalizedMcpToolCallInflationTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
@@ -131,6 +139,7 @@ __all__ = [
     "build_evidence_source_catalog",
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
+    "normalize_chat_mcp_tool_call_inflation",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -146,6 +155,7 @@ __all__ = [
     "normalize_research_exact_duplicates",
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
+    "normalize_research_mcp_tool_call_inflation",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",

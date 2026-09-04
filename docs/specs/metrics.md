@@ -838,3 +838,64 @@ C2 同比增长 10% -> unsupported
 
 陈述支持率 = 1 ÷ 2 = 0.5
 ```
+
+## 13. MCP 工具调用膨胀率
+
+### 指标定义
+
+本指标只统计 `mcp_tool_manual.json` 已登记的 MCP。对同一日志任务中的每次唯一调用，使用
+规范化 MCP 能力 ID 与规范化入参生成请求签名；同一签名第一次出现不算膨胀，第二次及之后
+均算膨胀。参数或 MCP 不同则不算膨胀，响应内容不参与判断。
+
+```text
+N = 当前任务中唯一的已登记 MCP 调用总数
+U = 当前任务中不同“规范化 MCP 能力 ID + 规范化入参”签名数
+
+膨胀调用数 = N - U
+MCP 工具调用膨胀率 = (N - U) ÷ N
+```
+
+- JSON 对象按键排序并递归规范化，字段顺序不影响签名；数组顺序保留。
+- 字符串形式的 JSON 对象或数组先解析再规范化，普通字符串按原值比较。
+- 同一调用 ID 的重复定义或生命周期事件只计一次；同一 ID 出现不同能力或入参时返回
+  `NOT_COMPUTABLE / conflicting_call_definition`。
+- 手册外工具不进入分子和分母，只记录 `out_of_scope_tool_call_count`。
+- 本指标与完全重复调用率不同：完全重复调用率还要求响应相同，且不限定 MCP 范围；本指标
+  只比较手册内 MCP 与入参，不读取响应正文。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 任务边界：每条 JSONL 记录；会话标识：顶层 `traceId`。
+- 调用事件：`tool_call_queue[].event_type == "tool_call"`。
+- 调用 ID、工具名和入参：`tool_request_args.toolId/toolName/arguments`。
+- 缺少调用 ID 或入参分别返回 `missing_call_id`、`missing_call_arguments`；非法队列或事件返回
+  `invalid_tool_call_queue`、`invalid_tool_call_events`。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 任务边界及标识：`sessionID + userMessageID`。
+- 调用定义：`result.toolCalls[].toolCallId/toolName/input`。
+- 生命周期补充：`message.part.updated.part.callID/tool/state.input`；按 `callID` 合并
+  `pending/running/completed`，不得把状态事件条数当成调用次数。
+- 已观察到手册内 MCP 生命周期但没有任何可用入参定义时返回 `missing_call_arguments`。
+
+两种模式均使用版本化 `CapabilityCatalog` 解析手册直接名称和 `mcp__...__工具名`。入参无法
+稳定序列化时返回 `unserializable_call_arguments`；没有手册内 MCP 时返回
+`NOT_COMPUTABLE / no_registered_mcp_calls`。结果只保留 `manual_version`、调用计数、签名计数、
+膨胀计数和安全诊断，不保留工具名、入参、摘要或响应正文。
+
+### 模拟计算
+
+```text
+quote({"symbol": "AAA", "window": 1})
+quote({"window": 1, "symbol": "AAA"})
+quote({"symbol": "BBB", "window": 1})
+news({"symbol": "AAA"})
+
+MCP 调用总数 N = 4
+不同请求签名数 U = 3
+膨胀调用数 = 1
+MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
+```
