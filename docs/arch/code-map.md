@@ -4,7 +4,7 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：27 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
+- `docs/specs/metric-development-order.md`：26 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
   工具间空窗时延、首次工具决策时延、研究模式上下文膨胀率和模型工具循环深度。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
