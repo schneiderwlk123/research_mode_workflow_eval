@@ -4,8 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：25 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
-  工具间空窗时延、首次工具决策时延、研究模式上下文膨胀率和模型工具循环深度。
+- `docs/specs/metric-development-order.md`：24 项指标的唯一开发顺序；新增 MCP 工具调用膨胀率、
+  工具间空窗时延、首次工具决策时延和研究模式上下文膨胀率。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
@@ -16,8 +16,6 @@
   输出完全重复调用聚合计数，不保留原始正文或摘要。
 - `src/collectors/mcp_tool_call_inflation.py`：按版本化 MCP 目录过滤聊天/研究调用，以调用 ID
   去重并对能力 ID 与入参生成不可逆签名，输出调用、唯一签名和膨胀调用聚合计数。
-- `src/collectors/model_tool_loop_depth.py`：研究模式按连续 `loop` 合并重复模型快照，连接
-  `toolCallId/callID` 工具终态并统计完整模型工具循环；聊天模式缺轮次边界时显式不可计算。
 - `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录，
   统计聊天/研究调用的 Schema 覆盖和非空必填参数；输出聚合计数，不输出参数值或摘要。
 - `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
@@ -46,8 +44,6 @@
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
   MCP 且相同入参的后续调用占比。
-- `src/evaluators/model_tool_loop_depth.py`：校验模型轮次、工具轮次、完整循环和唯一调用计数，
-  输出会话级 `model_tool_loop_depth`。
 - `src/evaluators/required_parameter_completeness.py`：在 Schema 已覆盖范围内计算必填参数
   微平均完整率；覆盖调用数仅作为诊断，不派生辅助指标。
 - `src/evaluators/tool_argument_schema_validity.py`：在 Schema 已覆盖调用上计算参数类型、
@@ -90,8 +86,6 @@
   缺失字段和敏感正文隔离测试。
 - `tests/collectors/test_mcp_tool_call_inflation.py`：MCP 范围过滤、规范化入参签名、调用 ID
   去重、冲突隔离及双模式敏感正文隔离测试。
-- `tests/collectors/test_model_tool_loop_depth.py`：聊天不可计算、研究并行调用、重复快照、连续
-  轮次、工具终态和不完整循环测试。
 - `tests/collectors/test_required_parameters.py`：必填参数目录解析、聊天/研究参数计数、
   占位值、未知 Schema、零必填参数、调用去重和缺失 ID 测试。
 - `tests/collectors/test_tool_argument_schema.py`：Schema 类型、数组元素、枚举、嵌套必填、
@@ -116,8 +110,6 @@
   规范化错误和非法计数测试。
 - `tests/evaluators/test_mcp_tool_call_inflation.py`：膨胀率、零膨胀、零分母、规范化失败和非法
   聚合计数测试。
-- `tests/evaluators/test_model_tool_loop_depth.py`：循环深度、正常零值、双模式不可计算和非法
-  聚合计数隔离测试。
 - `tests/evaluators/test_required_parameter_completeness.py`：必填参数完整率、辅助指标排除、
   零分母、规范化错误和非法聚合计数测试。
 - `tests/evaluators/test_tool_argument_schema_validity.py`：Schema 合法率、辅助指标排除、
