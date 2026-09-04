@@ -961,3 +961,58 @@ MCP 调用总数 N = 4
 膨胀调用数 = 1
 MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 ```
+
+## 15. 首次工具决策时延
+
+### 指标定义
+
+本指标衡量当前用户请求创建后，模型首次决定进入子 Agent 或工具执行链所需的时间。它只使用
+事件时间，不读取工具参数、响应或用户正文。
+
+```text
+首次工具决策时延（毫秒） = 最早有效决策时间 - 当前请求开始时间
+```
+
+聊天日志不能机械读取 JSON 中第二次出现的 `create_time`，也不能固定使用队列第一项；必须遍历
+全部有效决策节点并按时间取最小值。研究日志使用工具 `pending` 事件，而不是工具执行开始时间或
+可能晚于工具完成才写入的 `llm.response.result.toolCalls` 时间。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 当前请求开始：顶层 `create_time`。
+- 子 Agent 决策：`tool_call_queue[].event_type == "call_sub_agent_begin"` 的
+  `request_payload.create_time`。
+- 工具调用决策：`tool_call_queue[].event_type == "tool_call"` 的
+  `tool_request_args.create_time`。
+- 对全部有效决策时间取最小值；数组顺序不作为时间顺序依据。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 当前请求开始：`turn.start.ts`。
+- 工具决策：`message.part.updated` 中 `part.type == "tool"` 且
+  `part.state.status == "pending"` 的事件 `ts`。
+- 相同 `callID` 的重复 pending 事件只保留最早时间，并记录重复计数。
+- `part.state.time.start` 是执行开始时间，不用于本指标。
+
+两种模式都以 `trace_id` 为单次评测边界，结果单位固定为毫秒。没有决策、缺少起点、缺少
+pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_tool_decision`、
+`missing_turn_start_time`、`missing_tool_decision_time`、
+`incomplete_tool_decision_observation` 或 `missing_call_id`。非法时间戳和负时延分别返回
+`ERROR / invalid_timestamp` 与 `ERROR / invalid_event_order`，不得填零或裁剪长尾。
+
+### 模拟计算
+
+```text
+聊天请求 create_time = 10:00:00.000
+首个子 Agent 决策时间 = 10:00:06.000
+首个 tool_call 决策时间 = 10:00:09.000
+
+首次工具决策时延 = min(6 秒, 9 秒) = 6000 毫秒
+
+研究 turn.start.ts = 03:25:38.806
+首个工具 pending.ts = 03:26:07.665
+
+首次工具决策时延 = 28859 毫秒
+```

@@ -16,6 +16,12 @@ from collectors.exact_duplicate_calls import (
     normalize_chat_exact_duplicates,
     normalize_research_exact_duplicates,
 )
+from collectors.first_tool_decision_latency import (
+    FirstToolDecisionDiagnostics,
+    NormalizedFirstToolDecisionTrace,
+    normalize_chat_first_tool_decision_latency,
+    normalize_research_first_tool_decision_latency,
+)
 from collectors.intent_recognition import (
     IntentEvidenceFragment,
     IntentRecognitionCandidate,
@@ -102,6 +108,7 @@ from collectors.tool_call_events import (
 
 __all__ = [
     "ExactDuplicateDiagnostics",
+    "FirstToolDecisionDiagnostics",
     "EvidenceDiagnostics",
     "EvidencePrecisionCandidate",
     "EvidenceSourceCatalog",
@@ -118,6 +125,7 @@ __all__ = [
     "NormalizedToolArgumentSchemaTrace",
     "NormalizedExactDuplicateTrace",
     "NormalizedEvidenceTrace",
+    "NormalizedFirstToolDecisionTrace",
     "NormalizedIntentRecognitionTrace",
     "NormalizedMcpToolCallInflationTrace",
     "NormalizedNumericConsistencyTrace",
@@ -144,6 +152,7 @@ __all__ = [
     "ToolArgumentSchemaDiagnostics",
     "ToolCallDiagnostics",
     "normalize_chat_exact_duplicates",
+    "normalize_chat_first_tool_decision_latency",
     "build_evidence_source_catalog",
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
@@ -162,6 +171,7 @@ __all__ = [
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_research_exact_duplicates",
+    "normalize_research_first_tool_decision_latency",
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
     "normalize_research_mcp_tool_call_inflation",

@@ -40,6 +40,8 @@
   `turn.end` 前最后一个 assistant 文本；区分空证据、缺终态和不完整证据拆分。
 - `src/collectors/numeric_consistency.py`：复用陈述支持率的最终回答选择和来源原生证据单元，
   构建不落盘正文的数值一致性 Judge 候选。
+- `src/collectors/first_tool_decision_latency.py`：提取聊天请求到最早子 Agent/工具决策，以及
+  研究回合到最早工具 pending 事件的时间边界；不保留请求或工具正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -79,6 +81,8 @@
   单位倍率和展示精度，确定性计算 `retrieved_numeric_consistency_rate`。
 - `src/evaluators/openai_compatible_numeric_consistency_judge.py`：将最终回答和来源证据提交给
   OpenAI-compatible Judge，只返回结构化数值对齐信息并隔离供应商异常。
+- `src/evaluators/first_tool_decision_latency.py`：校验规范化时间边界，以毫秒确定性计算
+  `first_tool_decision_latency_ms`，并隔离缺失、非法和负时延。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
   证据单元提交给 OpenAI-compatible Judge，禁止输出陈述正文并隔离供应商异常。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
@@ -112,6 +116,8 @@
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
   缺终态、部分不可拆分响应和成功产物无正文测试。
 - `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用及不完整证据隔离测试。
+- `tests/collectors/test_first_tool_decision_latency.py`：聊天乱序决策、子 Agent/工具时间选择、
+  研究 pending 去重及缺失时间边界测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -148,6 +154,8 @@
   Judge 完整性、证据引用和敏感正文隔离测试。
 - `tests/evaluators/test_numeric_consistency.py`：单位倍率、正常舍入、缺失召回值、排除项、
   不可判定、非法 Judge 输出和敏感正文隔离测试。
+- `tests/evaluators/test_first_tool_decision_latency.py`：双模式毫秒计算、不可计算原因、非法
+  规范化输入和负时延隔离测试。
 - `tests/evaluators/test_openai_compatible_numeric_consistency_judge.py`：数值对齐请求结构、
   确定性采样、JSON 响应和供应商异常脱敏测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
