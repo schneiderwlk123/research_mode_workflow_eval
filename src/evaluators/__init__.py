@@ -13,6 +13,7 @@ from evaluators.intent_recognition import (
     IntentRecognitionJudgeRequest,
 )
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
+from evaluators.model_tool_loop_depth import ModelToolLoopDepthEvaluator
 from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_parameter_judge import (
@@ -67,6 +68,7 @@ __all__ = [
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
     "McpToolCallInflationEvaluator",
+    "ModelToolLoopDepthEvaluator",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleEvidenceRelevanceJudge",
