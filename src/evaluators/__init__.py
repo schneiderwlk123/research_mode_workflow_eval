@@ -7,20 +7,12 @@ from evaluators.evidence_precision import (
     EvidenceRelevanceJudgeRequest,
 )
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
-from evaluators.information_retention import (
-    InformationRetentionEvaluator,
-    InformationRetentionJudge,
-    InformationRetentionJudgeRequest,
-)
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudge,
     IntentRecognitionJudgeRequest,
 )
 from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
-from evaluators.openai_compatible_information_retention_judge import (
-    OpenAICompatibleInformationRetentionJudge,
-)
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_parameter_judge import (
     JudgeSettings,
@@ -73,14 +65,10 @@ __all__ = [
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
-    "InformationRetentionEvaluator",
-    "InformationRetentionJudge",
-    "InformationRetentionJudgeRequest",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleEvidenceRelevanceJudge",
     "OpenAICompatibleIntentRecognitionJudge",
-    "OpenAICompatibleInformationRetentionJudge",
     "OpenAICompatibleRoutingJudge",
     "OpenAICompatibleStatementSupportJudge",
     "OpenAICompatibleTimeRangeJudge",

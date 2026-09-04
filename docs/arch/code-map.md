@@ -33,8 +33,6 @@
   响应，按来源原生结构拆分、内存去重证据单元；无边界长文本和派生工具不进入指标。
 - `src/collectors/statement_support.py`：复用证据单元抽取，提取聊天最终回答或研究模式
   `turn.end` 前最后一个 assistant 文本；区分空证据、缺终态和不完整证据拆分。
-- `src/collectors/information_retention.py`：复用来源证据抽取，提取聊天/研究最终产物文本；
-  区分无上游事实、缺终态、空终态输出和只有产物路径但无正文的情况。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -70,10 +68,6 @@
   三态可验证结论和排除项，并计算 `statement_support_rate`。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
   证据单元提交给 OpenAI-compatible Judge，禁止输出陈述正文并隔离供应商异常。
-- `src/evaluators/information_retention.py`：定义原子事实保留 Judge 契约，严格校验事实来源、
-  三态保留结论和排除项，并计算 `information_retention_rate`。
-- `src/evaluators/openai_compatible_information_retention_judge.py`：把不可信 query、最终产物和
-  来源证据提交给 OpenAI-compatible Judge，禁止输出事实正文并隔离供应商异常。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
@@ -102,8 +96,6 @@
   聊天位置标识、研究调用关联、不可拆分响应和调用冲突测试。
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
   缺终态、部分不可拆分响应和成功产物无正文测试。
-- `tests/collectors/test_information_retention.py`：聊天/研究最终产物选择、上游事实边界、完整
-  空输出、缺回合终态、不可拆分响应和成功产物无正文测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
@@ -138,10 +130,6 @@
   Judge 完整性、证据引用和敏感正文隔离测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
   JSON 响应解析和供应商异常脱敏测试。
-- `tests/evaluators/test_information_retention.py`：保留率、正常零分、无应保留事实、不可判定、
-  Judge 事实来源与结构校验及敏感正文隔离测试。
-- `tests/evaluators/test_openai_compatible_information_retention_judge.py`：最终产物与上游证据
-  请求结构、JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
   检索测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
