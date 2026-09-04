@@ -14,7 +14,7 @@
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
 - 公共契约及十二个指标行为测试，共 215 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
-- 代码地图和 22 项逐指标开发顺序；时延、Token 消耗及成本类指标统一置于最后阶段。
+- 代码地图和 27 项逐指标开发顺序；时延、执行效率、Token 消耗及成本类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
 - 聊天与研究工具调用事件的最小规范化切片，不保留工具参数或响应正文。
 - `tool_call_event_completeness_rate` 评测器，版本 `1.0.0`。
