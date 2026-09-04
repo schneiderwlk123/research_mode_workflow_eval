@@ -142,4 +142,10 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   缺 turn.end 和只有成功产物路径但无正文分别显式返回不可计算
 信息保留率模拟计算: 2 个应保留原子事实中 1 个 retained、1 个 not_retained，另有 1 个
   excluded 事实，结果 1/2 = 0.5, computed；聊天与研究 evaluator 路径均通过
+信息保留率真实前 10 条聊天日志: 0 条可计算；7 条无已登记上游证据，2 条存在不可稳定拆分的
+  部分成功响应，1 条含 30 个证据单元但 Judge 返回 no_required_facts；Judge 模型 qwen-plus，
+  prompt 版本 1.0.0，证据范围版本 evidence-scope-fb2e5e3d8576ccd8
+信息保留率聊天日志全量结构扫描: 106 条中 3 条形成完整 Judge 候选；80 条无已登记上游证据，
+  22 条存在不可稳定拆分的部分成功响应，1 条缺少最终回答；全部 3 条候选实跑结果为
+  2 条 no_required_facts、1 条 Judge 超时隔离为 judge_failure，未生成可汇总语义分数
 ```
