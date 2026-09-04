@@ -838,3 +838,86 @@ C2 同比增长 10% -> unsupported
 
 陈述支持率 = 1 ÷ 2 = 0.5
 ```
+
+## 13. 信息保留率
+
+### 指标定义
+
+稳定指标名：`information_retention_rate`
+
+```text
+信息保留率 =
+  最终产物已保留的应保留原子事实数 ÷ 上游成功产生且按任务要求应保留的原子事实总数
+```
+
+- 原子事实是上游来源证据中能够独立判断是否应进入最终产物、以及是否被最终产物保留的最小
+  语义单元。一个证据单元含有多个事实时必须拆分，重复事实只计一次。
+- 本指标以用户 query 和本次会话实际取得的来源证据构造 Judge 代理事实标准，不依赖外部
+  Golden Benchmark，也不得使用外部知识补全证据。
+- Judge 对每个事实返回 `retained`、`not_retained`、`not_assessable` 或 `excluded`。
+  与用户任务无关、重复、非事实或纯操作说明的内容必须标记为 `excluded`，不进入分母。
+- 明确完成但最终文本为空时，应保留事实判为 `not_retained`，允许正常得到 `0`。
+- 任一应保留事实为 `not_assessable` 时返回
+  `NOT_COMPUTABLE / incomplete_retention_judgment`，不得当作未保留或从分母删除。
+- 没有应保留事实时返回 `NOT_COMPUTABLE / no_required_facts`。Judge 异常和非法结构分别返回
+  `judge_failure` 与 `invalid_judge_output`。
+
+### Judge 契约
+
+Judge 请求包含原始 query、最终产物文本和证据查准率定义的来源原生 `evidence_units`。这些正文
+只在单次 Judge 生命周期内存在，均按不可信数据处理。
+
+```json
+{
+  "facts": [
+    {
+      "fact_id": "f1",
+      "fact_type": "required",
+      "verdict": "retained",
+      "reason_code": "explicitly_retained",
+      "source_unit_ids": ["call-1:0"],
+      "confidence": 0.96
+    }
+  ]
+}
+```
+
+- `fact_id` 必须非空且唯一；每项只能包含固定字段，不得返回事实正文、解释或证据摘要。
+- `fact_type` 只能是 `required` 或 `excluded`；`required` 不得返回 `excluded`，`excluded`
+  只能返回 `excluded`。
+- 每个事实必须引用至少一个本次请求中的真实 `source_unit_ids`，不得重复或引用请求外 ID。
+- `confidence` 必须是 `[0, 1]` 内有限数值；`reason_code` 必须来自按 verdict 划分的固定安全
+  白名单。评测结果只持久化各类计数、版本和安全原因码。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：顶层 `traceId`；用户需求：顶层 `query`；最终产物：顶层 `answer`。
+- 上游事实复用显式 `EvidenceSourceCatalog` 和证据查准率的结构化证据单元抽取。
+- 没有证据调用、全部调用失败、成功结果为空分别返回 `no_upstream_evidence`、
+  `no_successful_upstream_results` 和 `no_upstream_facts`。
+- 缺少最终回答返回 `missing_final_answer`；明确的服务失败文本仍作为最终输出交给 Judge，允许
+  在存在应保留事实时计算为零。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 会话标识：`sessionID + userMessageID`；用户需求优先读取顶层 `query`，兼容 `body.query`。
+- 通过 assistant message ID 选择 `turn.end` 前最后一个非空文本；回合完整结束但没有最终文本
+  时使用空字符串，允许计算零分。
+- 缺少 `turn.end` 返回 `incomplete_session_observation`；只有成功产物路径、无法取得产物正文时
+  返回 `missing_final_artifact_content`，不得把不可观察的产物当作未保留。
+- 上游证据定义、终态响应和 `callID` 关联规则与证据查准率相同。
+
+两种模式只要证据调用缺少终态，返回 `incomplete_evidence_observation`；部分或全部成功响应无法
+稳定拆分时返回 `incomplete_fact_segmentation`，不得只使用可拆分子集缩小分母。query、最终
+产物、原子事实、证据正文和 Judge 原始响应不得进入持久化结果。
+
+### 模拟计算
+
+```text
+上游应保留原子事实数 = 3
+最终产物已保留事实数 = 2
+
+信息保留率 = 2 ÷ 3 ≈ 0.66667
+```

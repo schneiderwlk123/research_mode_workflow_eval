@@ -16,6 +16,12 @@ from collectors.exact_duplicate_calls import (
     normalize_chat_exact_duplicates,
     normalize_research_exact_duplicates,
 )
+from collectors.information_retention import (
+    InformationRetentionCandidate,
+    NormalizedInformationRetentionTrace,
+    normalize_chat_information_retention,
+    normalize_research_information_retention,
+)
 from collectors.intent_recognition import (
     IntentEvidenceFragment,
     IntentRecognitionCandidate,
@@ -97,6 +103,7 @@ __all__ = [
     "IntentEvidenceFragment",
     "IntentRecognitionCandidate",
     "IntentRecognitionDiagnostics",
+    "InformationRetentionCandidate",
     "CapabilityCatalog",
     "CapabilityDefinition",
     "CapabilityParameter",
@@ -106,6 +113,7 @@ __all__ = [
     "NormalizedExactDuplicateTrace",
     "NormalizedEvidenceTrace",
     "NormalizedIntentRecognitionTrace",
+    "NormalizedInformationRetentionTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
@@ -131,6 +139,7 @@ __all__ = [
     "build_evidence_source_catalog",
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
+    "normalize_chat_information_retention",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -146,6 +155,7 @@ __all__ = [
     "normalize_research_exact_duplicates",
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
+    "normalize_research_information_retention",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",
