@@ -40,71 +40,6 @@ _TERMINAL_STATUSES = frozenset(
 
 
 def normalize_chat_tool_call_events(trace: Mapping[str, object]) -> NormalizedToolCallTrace:
-    """规范化单条聊天 Trace 的工具调用事件。
-
-    新版 canvas 日志按 `traceId + toolId` 关联跨消息请求和结果；旧版
-    `tool_call_queue` 继续保留兼容分支。规范化过程只记录事件是否存在，不复制请求、
-    参数或响应正文。
-    """
-
-    if "canvas" in trace:
-        return _normalize_canvas_chat_tool_call_events(trace)
-    return _normalize_legacy_chat_tool_call_events(trace)
-
-
-def _normalize_legacy_chat_tool_call_events(
-    trace: Mapping[str, object],
-) -> NormalizedToolCallTrace:
-    """兼容没有稳定调用 ID 的旧版聊天队列。"""
-
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        return _empty_trace(
-            trace_id=_optional_identifier(trace.get("traceId")),
-            mode="chat",
-            normalization_error="invalid_tool_call_queue",
-            malformed_event_count=1,
-        )
-
-    calls: list[NormalizedToolCall] = []
-    malformed_event_count = 0
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
-            malformed_event_count += 1
-            continue
-        if event.get("event_type") != "tool_call":
-            continue
-
-        call_index = len(calls)
-        calls.append(
-            {
-                "call_id": f"chat-tool-call-{call_index}",
-                "request_observed": _has_non_empty_value(event, "tool_request_args"),
-                "terminal_observed": _has_non_empty_value(event, "tool_response_result"),
-                "source_event_count": 1,
-            }
-        )
-
-    return {
-        "trace_id": _optional_identifier(trace.get("traceId")),
-        "mode": "chat",
-        "tool_calls": tuple(calls),
-        "diagnostics": {
-            "duplicate_state_event_count": 0,
-            "duplicate_request_observation_count": 0,
-            "duplicate_result_observation_count": 0,
-            "orphan_result_count": 0,
-            "malformed_event_count": malformed_event_count,
-        },
-        "normalization_error": None,
-    }
-
-
-def _normalize_canvas_chat_tool_call_events(
-    trace: Mapping[str, object],
-) -> NormalizedToolCallTrace:
     """按新版 canvas 结构合并普通工具请求和结果。
 
     结果侧孤立记录可能是 worker 或 direct_answer 返回，因此只记录诊断，不反向生成
@@ -403,17 +338,6 @@ def _optional_identifier(value: object) -> str | None:
 
 def _required_identifier(value: object) -> str | None:
     return _optional_identifier(value)
-
-
-def _has_non_empty_value(mapping: Mapping[object, object], key: str) -> bool:
-    if key not in mapping:
-        return False
-    value = mapping[key]
-    if value is None:
-        return False
-    if isinstance(value, (str, bytes, Mapping, Sequence)):
-        return len(value) > 0
-    return True
 
 
 def _is_sequence(value: object) -> TypeGuard[Sequence[object]]:

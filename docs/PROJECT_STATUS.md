@@ -18,8 +18,8 @@ Schema 合法率、
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
-- 新版 canvas、旧版聊天和研究工具调用事件的最小规范化切片，不保留工具参数或响应正文；
-  新版聊天按 `traceId + toolId` 跨消息关联请求与结果，并隔离孤立 Agent 返回。
+- 新版 canvas 和研究工具调用事件的最小规范化切片，不保留工具参数或响应正文；新版聊天按
+  `traceId + toolId` 跨消息关联请求与结果，并隔离孤立 Agent 返回；旧版聊天解析已删除。
 - `tool_call_event_completeness_rate` 评测器，版本 `1.1.0`。
 - 聊天与研究调用的安全摘要比较规范化，不持久化参数、响应或摘要值。
 - `exact_duplicate_tool_call_rate` 评测器，版本 `1.0.0`。

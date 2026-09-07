@@ -4,63 +4,21 @@ from collectors.tool_call_events import (
 )
 
 
-def test_chat_tool_calls_preserve_incomplete_events_without_sensitive_payloads() -> None:
-    trace = {
-        "traceId": "trace-001",
-        "tool_call_queue": [
-            {
-                "event_type": "tool_call",
-                "tool_request_args": {"secret_query": "不得进入规范化结果"},
-                "tool_response_result": {"status": "failed", "raw": "不得保留"},
-            },
-            {
-                "event_type": "tool_call",
-                "tool_request_args": {"query": "only-request"},
-            },
-            {
-                "event_type": "tool_call",
-                "tool_response_result": {"status": "completed"},
-            },
-            {"event_type": "message"},
-        ],
-    }
+def test_legacy_chat_tool_call_queue_is_not_supported() -> None:
+    normalized = normalize_chat_tool_call_events(
+        {
+            "traceId": "legacy-trace",
+            "tool_call_queue": [
+                {
+                    "event_type": "tool_call",
+                    "tool_request_args": {"toolName": "search"},
+                }
+            ],
+        }
+    )
 
-    normalized = normalize_chat_tool_call_events(trace)
-
-    assert normalized == {
-        "trace_id": "trace-001",
-        "mode": "chat",
-        "tool_calls": (
-            {
-                "call_id": "chat-tool-call-0",
-                "request_observed": True,
-                "terminal_observed": True,
-                "source_event_count": 1,
-            },
-            {
-                "call_id": "chat-tool-call-1",
-                "request_observed": True,
-                "terminal_observed": False,
-                "source_event_count": 1,
-            },
-            {
-                "call_id": "chat-tool-call-2",
-                "request_observed": False,
-                "terminal_observed": True,
-                "source_event_count": 1,
-            },
-        ),
-        "diagnostics": {
-            "duplicate_state_event_count": 0,
-            "duplicate_request_observation_count": 0,
-            "duplicate_result_observation_count": 0,
-            "orphan_result_count": 0,
-            "malformed_event_count": 0,
-        },
-        "normalization_error": None,
-    }
-    assert "不得进入规范化结果" not in repr(normalized)
-    assert "不得保留" not in repr(normalized)
+    assert normalized["tool_calls"] == ()
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
 
 
 def test_canvas_chat_calls_are_joined_by_tool_id_across_messages() -> None:
