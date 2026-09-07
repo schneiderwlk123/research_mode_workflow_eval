@@ -125,7 +125,7 @@ def test_one_judge_assessment_drives_precision_recall_and_reusable_table() -> No
     assert precision.evaluator_version == "1.1.0"
     assert precision.value == 1.0
     assert recall.metric_name == "routing_recall"
-    assert recall.evaluator_version == "1.0.0"
+    assert recall.evaluator_version == "1.1.0"
     assert recall.value == pytest.approx(2 / 3)
     assert precision.metadata["true_positive_count"] == 2
     assert precision.metadata["false_positive_count"] == 0

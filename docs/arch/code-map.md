@@ -69,8 +69,8 @@
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
-  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；Precision 的新版
-  canvas 适配版本为 `1.1.0`，Recall 保持 `1.0.0` 等待下一批单独验收。
+  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；两个指标的新版
+  canvas 适配版本均为 `1.1.0`。
 - `src/evaluators/subtask_redundancy.py`：校验规则版本、固定阈值和安全聚合计数，计算
   `subtask_redundancy_rate`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema

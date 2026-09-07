@@ -182,7 +182,7 @@ class RoutingRecallEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_assessment(trace)

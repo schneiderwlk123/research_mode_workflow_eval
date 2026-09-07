@@ -553,8 +553,8 @@ MCP 手册：
 336 条规范化对象共提取 1,531 个意图片段，其中 24 个属于前置失败且不会提交 Judge。由于
 本次未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
 
-本批新版聊天适配只验收 `routing_precision`，evaluator 版本为 `1.1.0`；共享 Judge 和
-TP/FP/FN 计数继续供 Recall 复用，但 `routing_recall` 保持 `1.0.0`，留待下一批单独验收。
+新版聊天适配按两个批次分别验收 Precision 与 Recall；两者共用一次 Judge 和 TP/FP/FN
+计数，`routing_precision` 与 `routing_recall` 的 evaluator 版本现均为 `1.1.0`。
 
 ### 模拟计算
 
