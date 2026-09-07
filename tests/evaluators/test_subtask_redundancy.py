@@ -38,7 +38,7 @@ def test_evaluator_computes_redundancy_rate_without_mutating_input() -> None:
     result = SubtaskRedundancyEvaluator().evaluate(trace)
 
     assert result.metric_name == "subtask_redundancy_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.5)
     assert result.metadata["redundant_subtask_count"] == 2

@@ -591,8 +591,10 @@ FN = 1
 - 该结果是高置信度冗余下界，不推断规则无法可靠识别的同义改写。阈值和算法变化必须
   升级 `evaluator_version`。
 - 没有子任务时返回 `NOT_COMPUTABLE / no_subtasks`；只有一个有效子任务时结果为 `0`。
-- 子任务事件存在但 payload、`arguments` 或任务正文非法时返回
+- 子任务事件存在但 `arguments` 或任务正文非法时返回
   `NOT_COMPUTABLE / invalid_subtask_event`，不得静默缩小分母。
+- 缺少 `canvas.meta.traceId` 时返回 `NOT_COMPUTABLE / missing_trace_id`；Canvas 各层容器
+  类型非法时返回 `NOT_COMPUTABLE / invalid_chat_trace_structure`。
 - 研究模式尚无确认的结构化子任务事件契约，返回
   `NOT_COMPUTABLE / missing_structured_subtasks`，不得从普通描述文本推测。
 
@@ -601,10 +603,13 @@ FN = 1
 聊天模式：
 
 - 单次执行标识：`canvas.meta.traceId`。
-- 子任务候选：`content.tool_call[]` 中具有 `agentName` 且没有 `toolId` 的子 Agent 调用。
+- 子任务候选：扫描 `canvas.agents[].messages[].content.tool_call[]`，其中具有 `agentName`
+  且没有 `toolId` 的调用视为子 Agent；即使同时存在 `toolName`，仍按子 Agent 处理。
 - 一个候选事件对应一个实际子任务，不在比较前去重。
-- 子任务文本：优先读取 `arguments.query`，兼容 `arguments.task`。`agentName` 仅表示
+- 子任务文本：`arguments` 支持对象或可解析为对象的 JSON 字符串；优先读取
+  `arguments.query`，兼容 `arguments.task`。`agentName` 仅表示
   `worker_search/worker_validation/...` 类型，不作为子任务正文。两者均为空时事件非法。
+- 普通工具请求和 `tool_result` 不参与本指标；旧版 `tool_call_queue` 不再支持。
 
 研究模式：
 
@@ -630,9 +635,11 @@ T3 的时间约束不同，不属于冗余。
 子任务冗余率 = 1 ÷ 3 ≈ 0.33333
 ```
 
-新版聊天日志微平均验算：1,199 次子 Agent 调用中 1,197 次具有结构化任务文本；识别出 2 次
-精确重复和 1 次高相似冗余，`3 / 1197 ≈ 0.00251`。另 2 次多模态调用只有图片参数，涉及的
-Trace 返回 `NOT_COMPUTABLE / invalid_subtask_event`，不得把图片内容猜测为任务文本。
+新版聊天日志微平均验算：336 条 Trace 中 253 条可计算、81 条没有子任务、2 条包含非法
+子任务事件。1,199 次子 Agent 调用中 1,197 次具有结构化任务文本；两条非法 Trace 中另有
+3 个有效子任务，因整条 Trace 不可计算而不进入分母。最终在 1,194 个有效子任务中识别出
+2 次精确重复和 1 次高相似冗余，`3 / 1194 ≈ 0.00251`。两次非法调用只有图片参数，不得把
+图片内容猜测为任务文本。evaluator 版本为 `1.1.0`。
 
 ## 9. 意图识别准确率
 
