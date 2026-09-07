@@ -991,8 +991,16 @@ query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响�
 Judge 候选，118 条因证据拆分不完整返回 `incomplete_evidence_segmentation`，25 条固定服务
 失败返回 `pre_answer_failure`，1 条返回 `missing_final_answer`；候选及不可计算记录合计观察
 18,257 个稳定证据单元。研究日志因 3 个成功响应没有稳定来源边界返回
-`incomplete_evidence_segmentation`。生产证据工具目录尚未确认，本次未运行陈述支持 Judge，
-因此不产生正式 `statement_support_rate` 数值。
+`incomplete_evidence_segmentation`。生产证据工具目录尚未确认，全量重算未运行陈述支持
+Judge，因此不产生正式 `statement_support_rate` 数值。
+
+真实前 10 条新版聊天日志使用同一临时 17 工具目录执行 Judge：1 条 `computed`，50 个可验证
+陈述全部判为 `supported`，该条及可计算样本的微平均结果均为 `50/50 = 1.0`；4 条返回
+`incomplete_evidence_segmentation`，1 条返回 `missing_final_answer`，1 条返回
+`pre_answer_failure`。其余 Judge 候选中，1 条空证据请求返回 `invalid_judge_output`，2 条分别在
+包含 205 和 50 个证据单元时于 120 秒超时边界返回 `judge_failure`。成功请求耗时约 95.446 秒。
+该临时目录未进入生产配置，且样本仅有 1 条成功计算，因此结果只用于真实链路冒烟，不作为
+正式生产指标基线。
 
 ### 模拟计算
 

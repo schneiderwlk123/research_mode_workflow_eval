@@ -210,6 +210,11 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   日志因 3 个成功响应不可稳定拆分而返回 incomplete_evidence_segmentation
 陈述支持率模拟计算: 2 个可验证原子陈述中 1 个 supported、1 个 unsupported，另有 1 个
   excluded 建议，结果 1/2 = 0.5, computed；聊天与研究 evaluator 路径均通过
+陈述支持率真实前 10 条新版聊天日志: 使用临时 17 工具目录执行 Judge，1 条 computed，50 个
+  可验证陈述全部 supported，结果及可计算样本微平均均为 50/50 = 1.0；4 条
+  incomplete_evidence_segmentation，1 条 missing_final_answer，1 条 pre_answer_failure，
+  1 条 invalid_judge_output，2 条在 120 秒超时边界返回 judge_failure。成功请求耗时约
+  95.446 秒；临时目录未进入生产配置，结果不作为正式生产基线
 最终数值与召回证据一致率测试: 19 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
 最终数值与召回证据一致率模拟计算: 2 个直接召回数值中 1 个正常舍入一致、1 个不一致，
   另有 1 个派生值被排除，结果 1/2 = 0.5, computed；两种模式 evaluator 路径均通过
