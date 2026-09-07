@@ -162,9 +162,37 @@ worker_text2image
 #### Orchestrator
 
 - 共 758 个 orchestrator 条目，但只有 6 个唯一 `agentId`。
-- 这 6 个 ID 会跨多个 Trace 复用，因此 orchestrator 的 `agentId` 不是单次调用 ID。
+- 这 6 个 ID 分别固定对应 `round` 1 至 6，并会跨多个 Trace 复用，因此 orchestrator 的
+  `agentId` 表示编排层级身份，不是单次调用 ID。
 - 所有 orchestrator 条目都有 `round`。
 - 推荐使用 `traceId + agentId + round` 标识一轮 orchestrator 执行。
+
+单条 Trace 中的 orchestrator round 始终从 1 开始且连续递增，未观察到跳层：
+
+```text
+(1)
+(1, 2)
+(1, 2, 3)
+(1, 2, 3, 4)
+(1, 2, 3, 4, 5)
+(1, 2, 3, 4, 5, 6)
+```
+
+样本中的层数分布：
+
+```text
+0 层：75 条 Trace
+1 层：6 条 Trace
+2 层：86 条 Trace
+3 层：112 条 Trace
+4 层：45 条 Trace
+5 层：8 条 Trace
+6 层：4 条 Trace
+```
+
+当前采用的执行模型是：每层 orchestrator 独立完成本轮规划或汇总，可调用多个 worker；worker
+通过 `taskId -> agentId` 返回独立执行结果，后续 orchestrator round 再基于上游结果继续编排。
+结构能够确认连续层级和调用关系，但原始传导正文仍属于敏感内容，不进入规范化结果。
 
 #### Worker
 
@@ -313,9 +341,89 @@ message 内按位置关联，其中：
 - 3,443 个工具结果有 `durationSeconds`。
 - 335/336 个最终回答有 `durationSeconds`。
 
-因此单次工具调用时延可以在有 `tool_result.durationSeconds` 时直接计算，但首次工具决策时延
-缺少首个调用的绝对时间，不能沿用旧日志公式。除非上游明确 `message.durationSeconds` 的起点
-和累计语义，否则应返回 `missing_tool_decision_timestamp`。
+#### 耗时层级与确认口径
+
+日志中只有三个 `durationSeconds` 存储路径：
+
+```text
+canvas.answer.durationSeconds
+canvas.agents[].messages[].content.durationSeconds
+canvas.agents[].messages[].content.tool_result[].durationSeconds
+```
+
+以下路径不存在：
+
+```text
+canvas.durationSeconds
+canvas.agents[].durationSeconds
+content.tool_call[].durationSeconds
+```
+
+当前确认口径如下：
+
+1. `message.content.durationSeconds` 是当前 Agent 消息或步骤自己的耗时。
+2. orchestrator 的该字段只表示本 orchestrator round 自身耗时，与其调用的 worker 耗时独立。
+3. worker 的该字段表示 worker 内某条消息或步骤耗时，不是显式的 worker 总耗时。
+4. `tool_result.durationSeconds` 表示单次工具执行耗时。
+5. `canvas.answer.durationSeconds` 是终止 Agent 消息耗时的复制，不是独立的 Trace 总耗时。
+
+每个 orchestrator 条目固定只有一条 message；758 个 orchestrator 条目中 757 个具有
+`message.content.durationSeconds`。因此每个非缺失的 orchestrator round 都有一个自身步骤耗时，
+但没有包含全部下游 worker 的 orchestrator 聚合总耗时字段。
+
+该独立性得到以下数据验证：在 498 个实际调用 worker 的 orchestrator round 中，orchestrator
+自身耗时与子 worker 消息耗时之和相等的记录为 0，与最长子 worker 消息耗时相等的记录也为
+0。部分 orchestrator 耗时小于其子 worker 的最长耗时，因此不能把它解释为覆盖完整子树的
+墙钟时间。
+
+同样，Agent message 耗时和工具结果耗时不能进行包含关系推断。在 3,234 条单请求、单结果且
+两侧都有耗时的消息中：
+
+```text
+message duration == tool duration：0
+message duration > tool duration：2779
+message duration < tool duration：455
+```
+
+因此禁止使用以下计算：
+
+```text
+模型纯耗时 = message duration - tool duration
+Agent 总耗时 = sum(message duration) + sum(tool duration)
+Orchestrator 总耗时 = orchestrator duration + sum(worker duration)
+```
+
+这些字段应作为彼此独立的观测保存。若需要汇总 worker 已观察步骤，可输出明确命名的
+`observed_agent_step_duration_sum`，但不得把它标记为墙钟总耗时。
+
+#### 最终回答耗时不是端到端耗时
+
+335 条具有 `canvas.answer.durationSeconds` 的记录中，该值全部能在某条 Agent message 中找到
+完全相同的值。在存在 orchestrator 的 260 条记录中：
+
+```text
+canvas.answer.durationSeconds
+  == 最后一个 orchestrator round 的 message.content.durationSeconds：260/260
+
+canvas.answer.usageTokens
+  == 最后一个 orchestrator round 的 message.content.usageTokens：260/260
+```
+
+因此 `canvas.answer` 的耗时和 Token 是终止 Agent 消息元数据的复制，聚合时必须去重。
+
+聊天模式没有显式 Trace 总耗时字段。可候选派生：
+
+```text
+trace_wall_clock_duration
+  = canvas.answer.create_time - canvas.meta.create_time
+```
+
+该差值是秒级时间戳推导值，不等于 `canvas.answer.durationSeconds`；样本中二者中位数分别为
+84 秒和约 42.26 秒，335 条中只有 31 条相差不超过 1 秒。使用该派生值前，应保留秒级精度和
+端点语义诊断。
+
+单次工具调用时延可以在有 `tool_result.durationSeconds` 时直接计算。首次工具决策时延缺少
+首个调用的绝对时间，不能沿用旧日志公式，应返回 `missing_tool_decision_timestamp`。
 
 Token 字段为：
 
@@ -823,9 +931,7 @@ collector 不应让各指标分别理解两套原始结构。建议两种输入�
 ### 聊天模式
 
 - `chatId` 与 `recordId` 的正式业务语义，以及为什么存在同值多 Trace。
-- orchestrator 的 6 个固定 `agentId` 分别代表模型、部署实例还是配置版本。
 - 75 个匿名 Agent 条目的产生条件。
-- `message.durationSeconds` 的起点、终点及是否包含工具等待时间。
 - `usageTokens.cache_tokens` 是否包含在 `input_tokens` 中。
 - 独立 `tool_result` message 与原请求的官方关联规则。
 
