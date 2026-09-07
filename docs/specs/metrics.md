@@ -101,12 +101,22 @@ Trace 返回 `NOT_COMPUTABLE / no_tool_calls`。
 聊天模式：
 
 - 单次执行标识：`canvas.meta.traceId`。
-- 唯一调用：普通请求 `content.tool_call[]`，按 `traceId + toolId` 标识。
-- 工具名称和参数：请求的 `toolName/arguments`。
-- 响应内容：在同一 Trace 内按 `toolId` 关联 `content.tool_result[]`，优先使用 `result`，
-  为空时使用 `rawResult`。
-- 找到结果事件但没有 `result/rawResult`，或请求没有匹配结果时，该调用进入总分母但不进入
-  可比较分母；结果侧孤立的 Agent 返回不生成调用。
+- 调用候选：`canvas.agents[].messages[].content.tool_call[]` 中同时具有非空 `toolId` 和
+  `toolName` 的普通工具请求；具有 `agentName` 且没有 `toolId` 的子 Agent 调用不进入范围。
+- 唯一调用：按 `traceId + toolId` 去重。同一 `toolId` 的重复请求定义只计一次；工具名称或
+  规范化参数不一致时返回 `NOT_COMPUTABLE / conflicting_call_definition`。
+- 工具名称和参数：普通请求的 `toolName/arguments`。缺少 `toolId`、`toolName` 或
+  `arguments` 时分别返回 `missing_call_id`、`missing_tool_name` 或
+  `missing_call_arguments`，不得使用数组位置补造调用 ID。
+- 响应关联：扫描同一 Trace 的全部 `content.tool_result[]`，按 `toolId` 跨 Agent、跨 message
+  关联请求；结果侧非空 `toolName` 与请求不一致时返回
+  `conflicting_call_definition`。
+- 响应内容：优先使用具有实际内容的 `result`，否则使用具有实际内容的 `rawResult`。`null`、
+  空字符串、空数组和空对象均视为没有可比较响应正文。
+- 同一调用存在多个结果时，内容摘要相同的重复观察合并并记录诊断；多个非空响应内容不一致
+  时返回 `NOT_COMPUTABLE / conflicting_call_result`，不得任意选择其中一个。
+- 找到结果事件但没有可比较正文，或请求没有匹配结果时，该调用进入总分母但不进入可比较
+  分母。只出现于结果侧的 Agent 返回只记录 `orphan_result_count`，不反向生成普通工具调用。
 
 研究模式：
 

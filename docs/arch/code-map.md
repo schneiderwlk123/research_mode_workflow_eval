@@ -14,8 +14,9 @@
 - `src/collectors/tool_call_events.py`：按 `traceId + toolId` 合并新版聊天 `canvas` 中跨消息的
   普通工具请求与结果，并规范化研究 `message.part.updated`；旧版聊天 `tool_call_queue` 不再
   支持。孤立 Agent 返回只进入安全诊断，不反向生成调用，也不保留请求、参数或响应正文。
-- `src/collectors/exact_duplicate_calls.py`：在内存中规范化工具名、参数和响应并比较摘要，
-  输出完全重复调用聚合计数，不保留原始正文或摘要。
+- `src/collectors/exact_duplicate_calls.py`：按 `traceId + toolId` 关联新版聊天 canvas 请求与
+  跨消息结果，在内存中规范化工具名、参数和响应并比较摘要；旧版聊天结构不再支持，孤立
+  Agent 返回、重复观察和冲突定义只输出安全诊断，不保留原始正文或摘要。
 - `src/collectors/mcp_tool_call_inflation.py`：按版本化 MCP 目录过滤聊天/研究调用，以调用 ID
   去重并对能力 ID 与入参生成不可逆签名，输出调用、唯一签名和膨胀调用聚合计数。
 - `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录，
@@ -50,7 +51,8 @@
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
   调用事件完整率，并输出重复请求、重复结果和孤立结果计数；聊天调用定义冲突及研究模式
   缺少 `callID` 时严格返回不可计算。
-- `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
+- `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率，并输出
+  不可比较调用、重复请求、重复结果及孤立结果诊断。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
   MCP 且相同入参的后续调用占比。
 - `src/evaluators/required_parameter_completeness.py`：在 Schema 已覆盖范围内计算必填参数
@@ -99,8 +101,8 @@
 - `tests/evaluators/test_base_evaluator.py`：评测器公共契约的行为测试。
 - `tests/collectors/test_tool_call_events.py`：新版 canvas 和研究工具事件规范化、跨消息关联、
   重复观察、孤立结果、严格调用 ID、定义冲突和敏感正文隔离测试。
-- `tests/collectors/test_exact_duplicate_calls.py`：聊天/研究完全重复识别、生命周期去重、
-  缺失字段和敏感正文隔离测试。
+- `tests/collectors/test_exact_duplicate_calls.py`：新版 canvas/研究完全重复识别、跨消息关联、
+  请求和结果冲突、孤立结果、生命周期去重、缺失字段及敏感正文隔离测试。
 - `tests/collectors/test_mcp_tool_call_inflation.py`：MCP 范围过滤、规范化入参签名、调用 ID
   去重、冲突隔离及双模式敏感正文隔离测试。
 - `tests/collectors/test_required_parameters.py`：必填参数目录解析、聊天/研究参数计数、

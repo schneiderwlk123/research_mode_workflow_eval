@@ -24,6 +24,9 @@ def _trace(
             "malformed_event_count": 0,
             "missing_response_payload_count": missing_payloads,
             "duplicate_state_event_count": 0,
+            "duplicate_request_observation_count": 2,
+            "duplicate_result_observation_count": 3,
+            "orphan_result_count": 4,
         },
         "normalization_error": normalization_error,
     }
@@ -36,7 +39,7 @@ def test_evaluator_calculates_exact_duplicates_over_all_unique_calls() -> None:
     result = ExactDuplicateToolCallEvaluator().evaluate(trace)
 
     assert result.metric_name == "exact_duplicate_tool_call_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.25)
     assert result.metadata == {
@@ -49,6 +52,9 @@ def test_evaluator_calculates_exact_duplicates_over_all_unique_calls() -> None:
         "malformed_event_count": 0,
         "missing_response_payload_count": 1,
         "duplicate_state_event_count": 0,
+        "duplicate_request_observation_count": 2,
+        "duplicate_result_observation_count": 3,
+        "orphan_result_count": 4,
     }
     assert trace == original
 

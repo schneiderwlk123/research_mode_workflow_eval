@@ -12,6 +12,9 @@ class ExactDuplicateDiagnostics(TypedDict):
     malformed_event_count: int
     missing_response_payload_count: int
     duplicate_state_event_count: int
+    duplicate_request_observation_count: int
+    duplicate_result_observation_count: int
+    orphan_result_count: int
 
 
 class NormalizedExactDuplicateTrace(TypedDict):
@@ -34,70 +37,216 @@ _TERMINAL_STATUSES = frozenset(
 def normalize_chat_exact_duplicates(
     trace: Mapping[str, object],
 ) -> NormalizedExactDuplicateTrace:
-    """比较聊天模式中工具名、参数和响应均相同的后续调用。"""
+    """按新版 canvas 结构比较工具名、参数和响应均相同的后续调用。"""
 
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
         return _result(
-            trace_id=_optional_identifier(trace.get("traceId")),
+            trace_id=None,
             mode="chat",
-            normalization_error="invalid_tool_call_queue",
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _result(
+            trace_id=None,
+            mode="chat",
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    trace_id = _optional_identifier(meta.get("traceId"))
+    if trace_id is None:
+        return _result(
+            trace_id=None,
+            mode="chat",
+            normalization_error="missing_trace_id",
             malformed_event_count=1,
         )
 
-    unique_call_count = 0
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _result(
+            trace_id=trace_id,
+            mode="chat",
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+
+    requests: dict[str, tuple[str, str] | None] = {}
+    request_tool_names: dict[str, str] = {}
+    results: list[Mapping[object, object]] = []
+    malformed_event_count = 0
+    duplicate_request_count = 0
+    duplicate_result_count = 0
+    orphan_result_count = 0
+    normalization_error: str | None = None
+
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
+            malformed_event_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
+            continue
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            malformed_event_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
+            continue
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+            else:
+                for raw_call in raw_calls:
+                    if not isinstance(raw_call, Mapping):
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    call_id = _optional_identifier(raw_call.get("toolId"))
+                    tool_name = _optional_identifier(raw_call.get("toolName"))
+                    agent_name = _optional_identifier(raw_call.get("agentName"))
+                    if call_id is None and tool_name is None and agent_name is not None:
+                        continue
+                    if call_id is None and tool_name is not None:
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "missing_call_id"
+                        continue
+                    if call_id is not None and tool_name is None:
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "missing_tool_name"
+                        requests.setdefault(call_id, None)
+                        continue
+                    if call_id is None or tool_name is None:
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    if "arguments" not in raw_call:
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "missing_call_arguments"
+                        requests.setdefault(call_id, None)
+                        request_tool_names.setdefault(call_id, tool_name)
+                        continue
+
+                    request_digest = _canonical_digest(raw_call["arguments"])
+                    if request_digest is None:
+                        normalization_error = (
+                            normalization_error or "unserializable_duplicate_value"
+                        )
+                        requests.setdefault(call_id, None)
+                        request_tool_names.setdefault(call_id, tool_name)
+                        continue
+                    request_key = (tool_name, request_digest)
+                    if call_id in requests:
+                        duplicate_request_count += 1
+                        if requests[call_id] != request_key:
+                            normalization_error = (
+                                normalization_error or "conflicting_call_definition"
+                            )
+                        continue
+                    requests[call_id] = request_key
+                    request_tool_names[call_id] = tool_name
+
+            raw_results = content.get("tool_result", ())
+            if raw_results is None:
+                raw_results = ()
+            if not _is_sequence(raw_results):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+            else:
+                for raw_result in raw_results:
+                    if not isinstance(raw_result, Mapping):
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    if _optional_identifier(raw_result.get("toolId")) is None:
+                        malformed_event_count += 1
+                        normalization_error = normalization_error or "missing_call_id"
+                        continue
+                    results.append(raw_result)
+
+    response_digests: dict[str, str] = {}
+    matched_result_ids: set[str] = set()
+    for result in results:
+        call_id = _optional_identifier(result.get("toolId"))
+        assert call_id is not None
+        if call_id not in requests:
+            orphan_result_count += 1
+            continue
+        result_tool_name = _optional_identifier(result.get("toolName"))
+        request_tool_name = request_tool_names.get(call_id)
+        if (
+            result_tool_name is not None
+            and request_tool_name is not None
+            and result_tool_name != request_tool_name
+        ):
+            normalization_error = normalization_error or "conflicting_call_definition"
+
+        if call_id in matched_result_ids:
+            duplicate_result_count += 1
+        else:
+            matched_result_ids.add(call_id)
+        payload_found, payload = _chat_response_payload(result)
+        if not payload_found:
+            continue
+        response_digest = _canonical_digest(payload)
+        if response_digest is None:
+            normalization_error = normalization_error or "unserializable_duplicate_value"
+            continue
+        existing_digest = response_digests.get(call_id)
+        if existing_digest is not None and existing_digest != response_digest:
+            normalization_error = normalization_error or "conflicting_call_result"
+            continue
+        response_digests[call_id] = response_digest
+
     comparable_call_count = 0
     exact_duplicate_call_count = 0
-    malformed_event_count = 0
-    missing_response_payload_count = 0
-    normalization_error: str | None = None
     observed_fingerprints: set[str] = set()
-
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
-            malformed_event_count += 1
+    for call_id, stored_request_key in requests.items():
+        if stored_request_key is None:
             continue
-        if event.get("event_type") != "tool_call":
+        response_digest = response_digests.get(call_id)
+        if response_digest is None:
             continue
-
-        unique_call_count += 1
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            normalization_error = "missing_duplicate_key"
-            continue
-        tool_name = _optional_identifier(request.get("toolName"))
-        if tool_name is None or "arguments" not in request:
-            normalization_error = "missing_duplicate_key"
-            continue
-
-        payload_found, payload = _chat_response_payload(event.get("tool_response_result"))
-        if not payload_found:
-            missing_response_payload_count += 1
-            continue
-
-        request_digest = _canonical_digest(request["arguments"])
-        response_digest = _canonical_digest(payload)
-        if request_digest is None or response_digest is None:
-            normalization_error = "unserializable_duplicate_value"
-            continue
-
         comparable_call_count += 1
-        fingerprint = _combined_digest(tool_name, request_digest, response_digest)
+        fingerprint = _combined_digest(
+            stored_request_key[0], stored_request_key[1], response_digest
+        )
         if fingerprint in observed_fingerprints:
             exact_duplicate_call_count += 1
         else:
             observed_fingerprints.add(fingerprint)
 
+    unique_call_count = len(requests)
+    missing_response_payload_count = sum(call_id not in response_digests for call_id in requests)
+
     return _result(
-        trace_id=_optional_identifier(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         unique_call_count=unique_call_count,
         comparable_call_count=comparable_call_count,
         exact_duplicate_call_count=exact_duplicate_call_count,
         malformed_event_count=malformed_event_count,
         missing_response_payload_count=missing_response_payload_count,
+        duplicate_request_observation_count=duplicate_request_count,
+        duplicate_result_observation_count=duplicate_result_count,
+        orphan_result_count=orphan_result_count,
         normalization_error=normalization_error,
     )
 
@@ -298,6 +447,9 @@ def _result(
     malformed_event_count: int = 0,
     missing_response_payload_count: int = 0,
     duplicate_state_event_count: int = 0,
+    duplicate_request_observation_count: int = 0,
+    duplicate_result_observation_count: int = 0,
+    orphan_result_count: int = 0,
     normalization_error: str | None,
 ) -> NormalizedExactDuplicateTrace:
     return {
@@ -310,6 +462,9 @@ def _result(
             "malformed_event_count": malformed_event_count,
             "missing_response_payload_count": missing_response_payload_count,
             "duplicate_state_event_count": duplicate_state_event_count,
+            "duplicate_request_observation_count": duplicate_request_observation_count,
+            "duplicate_result_observation_count": duplicate_result_observation_count,
+            "orphan_result_count": orphan_result_count,
         },
         "normalization_error": normalization_error,
     }

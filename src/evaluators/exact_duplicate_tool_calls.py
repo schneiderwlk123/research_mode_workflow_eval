@@ -14,7 +14,7 @@ class ExactDuplicateToolCallEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         """使用规范化阶段产生的安全聚合计数计算指标。"""
@@ -38,6 +38,11 @@ class ExactDuplicateToolCallEvaluator(BaseEvaluator):
             "malformed_event_count": diagnostics["malformed_event_count"],
             "missing_response_payload_count": diagnostics["missing_response_payload_count"],
             "duplicate_state_event_count": diagnostics["duplicate_state_event_count"],
+            "duplicate_request_observation_count": diagnostics[
+                "duplicate_request_observation_count"
+            ],
+            "duplicate_result_observation_count": diagnostics["duplicate_result_observation_count"],
+            "orphan_result_count": diagnostics["orphan_result_count"],
         }
         if mode not in {"chat", "research"}:
             metadata["reason"] = "unsupported_trace_mode"
@@ -116,10 +121,20 @@ def _parse_trace(
         diagnostics_value.get("missing_response_payload_count")
     )
     duplicate_state_count = _non_negative_int(diagnostics_value.get("duplicate_state_event_count"))
+    duplicate_request_count = _non_negative_int(
+        diagnostics_value.get("duplicate_request_observation_count", 0)
+    )
+    duplicate_result_count = _non_negative_int(
+        diagnostics_value.get("duplicate_result_observation_count", 0)
+    )
+    orphan_result_count = _non_negative_int(diagnostics_value.get("orphan_result_count", 0))
     if (
         malformed_count is None
         or missing_payload_count is None
         or duplicate_state_count is None
+        or duplicate_request_count is None
+        or duplicate_result_count is None
+        or orphan_result_count is None
         or missing_payload_count > unique_count
     ):
         return None
@@ -134,6 +149,9 @@ def _parse_trace(
             "malformed_event_count": malformed_count,
             "missing_response_payload_count": missing_payload_count,
             "duplicate_state_event_count": duplicate_state_count,
+            "duplicate_request_observation_count": duplicate_request_count,
+            "duplicate_result_observation_count": duplicate_result_count,
+            "orphan_result_count": orphan_result_count,
         },
         normalization_error.strip() if isinstance(normalization_error, str) else None,
     )
