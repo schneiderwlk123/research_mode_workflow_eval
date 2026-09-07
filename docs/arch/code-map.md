@@ -19,8 +19,9 @@
   Agent 返回、重复观察和冲突定义只输出安全诊断，不保留原始正文或摘要。
 - `src/collectors/mcp_tool_call_inflation.py`：按版本化 MCP 目录过滤聊天/研究调用，以调用 ID
   去重并对能力 ID 与入参生成不可逆签名，输出调用、唯一签名和膨胀调用聚合计数。
-- `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录，
-  统计聊天/研究调用的 Schema 覆盖和非空必填参数；输出聚合计数，不输出参数值或摘要。
+- `src/collectors/required_parameters.py`：从版本化 MCP 手册构建顶层必填参数目录；聊天模式
+  按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按 `toolCallId` 去重，
+  统计 Schema 覆盖和非空顶层必填参数；旧版聊天结构不再支持，输出不含参数值或摘要。
 - `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
   Schema，按调用输出合法/非法与违规类别聚合计数；额外字段仅诊断，不使调用非法。
 - `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录，按稳定
@@ -105,8 +106,9 @@
   请求和结果冲突、孤立结果、生命周期去重、缺失字段及敏感正文隔离测试。
 - `tests/collectors/test_mcp_tool_call_inflation.py`：MCP 范围过滤、规范化入参签名、调用 ID
   去重、冲突隔离及双模式敏感正文隔离测试。
-- `tests/collectors/test_required_parameters.py`：必填参数目录解析、聊天/研究参数计数、
-  占位值、未知 Schema、零必填参数、调用去重和缺失 ID 测试。
+- `tests/collectors/test_required_parameters.py`：必填参数目录解析、新版 canvas/研究参数计数、
+  子 Agent 排除、跨消息去重、冲突定义、缺失字段、非法结构、占位值、未知 Schema、零必填
+  参数及旧版聊天结构拒绝测试。
 - `tests/collectors/test_tool_argument_schema.py`：Schema 类型、数组元素、枚举、嵌套必填、
   额外字段、未知工具、参数解析和研究调用去重测试。
 - `tests/collectors/test_parameter_value_accuracy.py`：聊天/研究 query 与调用候选提取、手册

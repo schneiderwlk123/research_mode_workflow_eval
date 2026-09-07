@@ -28,17 +28,17 @@ def _catalog() -> RequiredParameterCatalog:
 
 
 def test_chat_counts_only_non_empty_required_parameters_for_known_schemas() -> None:
-    trace = {
-        "traceId": "trace-001",
-        "tool_call_queue": [
-            _chat_call("quote", {"symbol": "AAA", "window": 0}),
-            _chat_call("quote", {"symbol": "  ", "window": False}),
-            _chat_call("quote", '{"symbol":"unknown","window":5}'),
-            _chat_call("quote", "not-json"),
-            _chat_call("health", {}),
-            _chat_call("not-in-manual", {"value": 1}),
-        ],
-    }
+    trace = _canvas_trace(
+        [
+            _chat_call("call-1", "quote", {"symbol": "AAA", "window": 0}),
+            _chat_call("call-2", "quote", {"symbol": "  ", "window": False}),
+            _chat_call("call-3", "quote", '{"symbol":"unknown","window":5}'),
+            _chat_call("call-4", "quote", "not-json"),
+            _chat_call("call-5", "health", {}),
+            _chat_call("call-6", "not-in-manual", {"value": 1}),
+            {"agentName": "worker_search", "arguments": {"query": "sensitive"}},
+        ]
+    )
 
     normalized = normalize_chat_required_parameters(trace, _catalog())
 
@@ -61,15 +61,123 @@ def test_chat_counts_only_non_empty_required_parameters_for_known_schemas() -> N
         },
         "normalization_error": None,
     }
+    assert "sensitive" not in repr(normalized)
 
 
-def test_chat_invalid_queue_is_isolated_without_reading_arguments() -> None:
-    normalized = normalize_chat_required_parameters(
-        {"traceId": "trace-001", "tool_call_queue": "invalid"}, _catalog()
+def test_chat_deduplicates_equivalent_definitions_across_messages() -> None:
+    trace = {
+        "canvas": {
+            "meta": {"traceId": "trace-001"},
+            "agents": [
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_call": [
+                                    _chat_call("call-1", "quote", {"symbol": "AAA", "window": 5})
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_call": [
+                                    _chat_call("call-1", "quote", '{"window":5,"symbol":"AAA"}')
+                                ]
+                            }
+                        }
+                    ]
+                },
+            ],
+        }
+    }
+
+    normalized = normalize_chat_required_parameters(trace, _catalog())
+
+    assert normalized["total_call_count"] == 1
+    assert normalized["filled_required_parameter_count"] == 2
+    assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
+    assert normalized["normalization_error"] is None
+
+
+def test_chat_conflicting_duplicate_definition_is_not_computable() -> None:
+    trace = _canvas_trace(
+        [
+            _chat_call("call-1", "quote", {"symbol": "AAA", "window": 5}),
+            _chat_call("call-1", "quote", {"symbol": "BBB", "window": 5}),
+        ]
     )
 
-    assert normalized["normalization_error"] == "invalid_tool_call_queue"
+    normalized = normalize_chat_required_parameters(trace, _catalog())
+
+    assert normalized["total_call_count"] == 1
+    assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
+    assert normalized["normalization_error"] == "conflicting_call_definition"
+
+
+@pytest.mark.parametrize(
+    ("call", "reason"),
+    [
+        ({"toolName": "quote", "arguments": {}}, "missing_call_id"),
+        ({"toolId": "call-1", "arguments": {}}, "missing_tool_name"),
+        ({"toolId": "call-1", "toolName": "quote"}, "missing_call_arguments"),
+    ],
+)
+def test_chat_missing_request_fields_are_not_computable(
+    call: dict[str, object], reason: str
+) -> None:
+    normalized = normalize_chat_required_parameters(_canvas_trace([call]), _catalog())
+
+    assert normalized["normalization_error"] == reason
     assert normalized["diagnostics"]["malformed_event_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "trace",
+    [
+        {},
+        {"canvas": {"meta": {}, "agents": []}},
+        {"canvas": {"meta": {"traceId": "trace-001"}, "agents": "invalid"}},
+        {
+            "canvas": {
+                "meta": {"traceId": "trace-001"},
+                "agents": [{"messages": [{"content": {"tool_call": "invalid"}}]}],
+            }
+        },
+    ],
+)
+def test_chat_invalid_canvas_structure_is_isolated(trace: dict[str, object]) -> None:
+    normalized = normalize_chat_required_parameters(trace, _catalog())
+
+    assert normalized["normalization_error"] in {
+        "invalid_chat_trace_structure",
+        "missing_trace_id",
+    }
+    assert normalized["diagnostics"]["malformed_event_count"] == 1
+
+
+def test_legacy_chat_tool_call_queue_is_not_supported() -> None:
+    normalized = normalize_chat_required_parameters(
+        {
+            "traceId": "legacy-trace",
+            "tool_call_queue": [
+                {
+                    "event_type": "tool_call",
+                    "tool_request_args": {
+                        "toolName": "quote",
+                        "arguments": {"symbol": "AAA", "window": 5},
+                    },
+                }
+            ],
+        },
+        _catalog(),
+    )
+
+    assert normalized["total_call_count"] == 0
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
 
 
 def test_research_deduplicates_call_definitions_before_counting() -> None:
@@ -117,10 +225,16 @@ def test_invalid_manual_schema_is_rejected() -> None:
         build_required_parameter_catalog({"tools": []})
 
 
-def _chat_call(tool_name: str, arguments: object) -> dict[str, object]:
+def _chat_call(call_id: str, tool_name: str, arguments: object) -> dict[str, object]:
+    return {"toolId": call_id, "toolName": tool_name, "arguments": arguments}
+
+
+def _canvas_trace(calls: list[dict[str, object]]) -> dict[str, object]:
     return {
-        "event_type": "tool_call",
-        "tool_request_args": {"toolName": tool_name, "arguments": arguments},
+        "canvas": {
+            "meta": {"traceId": "trace-001"},
+            "agents": [{"messages": [{"content": {"tool_call": calls}}]}],
+        }
     }
 
 

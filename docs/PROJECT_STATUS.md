@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 300 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 309 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -26,8 +26,10 @@ Schema 合法率、
 - `exact_duplicate_tool_call_rate` 评测器，版本 `1.1.0`。
 - `mcp_tool_call_inflation_rate` 评测器，版本 `1.0.0`；只统计手册内 MCP，同任务内相同能力
   与规范化入参的后续调用计为膨胀，响应正文不参与比较。
-- 版本化 MCP 必填参数目录，以及聊天/研究调用的安全聚合规范化；参数值和摘要不进入结果。
-- `required_parameter_completeness_rate` 评测器，版本 `1.1.0`；Schema 覆盖仅保留诊断计数。
+- 版本化 MCP 必填参数目录，以及新版 canvas/研究调用的安全聚合规范化；聊天模式按
+  `traceId + toolId` 跨 Agent 和消息去重并排除子 Agent 调用，旧版聊天解析已删除，参数值和
+  摘要不进入结果。
+- `required_parameter_completeness_rate` 评测器，版本 `1.2.0`；Schema 覆盖仅保留诊断计数。
 - MCP 参数类型、枚举和嵌套结构的递归校验；额外字段只诊断，不重复检查顶层必填字段。
 - `tool_argument_schema_validity_rate` 评测器，版本 `1.1.0`。
 - 参数值语义目录、聊天/研究 Judge 候选提取，以及不持久化 query 和参数值的内存边界。
@@ -75,14 +77,15 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 进行中的具体指标：完全重复调用率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：必填参数完整率的新版聊天 schema 适配。
-- 下一动作：展示完全重复调用率实现与新版聊天真实日志验证结果，验收后再进入下一指标。
+- 最近完成并验收的新版聊天适配指标：完全重复调用率。
+- 进行中的具体指标：必填参数完整率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：Schema 合法率的新版聊天 schema 适配。
+- 下一动作：展示必填参数完整率实现及聊天/研究真实日志验证结果，验收后再进入下一指标。
 
 ## 已知缺口
 
-- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率和完全重复
-  调用率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版
+- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
+  调用率和必填参数完整率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版
   `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
@@ -114,7 +117,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 300 passed
+pytest: 309 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed

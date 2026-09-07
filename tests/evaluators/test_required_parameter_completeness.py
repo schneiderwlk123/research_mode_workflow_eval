@@ -50,7 +50,7 @@ def test_evaluator_calculates_only_micro_completeness_metric() -> None:
     result = RequiredParameterCompletenessEvaluator().evaluate(trace)
 
     assert result.metric_name == "required_parameter_completeness_rate"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(4 / 6)
     assert "schema_coverage_rate" not in result.metadata
