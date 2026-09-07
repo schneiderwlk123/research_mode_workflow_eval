@@ -15,7 +15,7 @@ def _request() -> IntentRecognitionJudgeRequest:
         trace_id="trace-1",
         mode="chat",
         query="分析某公司的行情",
-        evidence_fragments=(IntentEvidenceFragment("subtask_title", "查询该公司行情"),),
+        evidence_fragments=(IntentEvidenceFragment("subtask_query", "查询该公司行情"),),
         capabilities=(CapabilityDefinition("quote", "查询证券行情。", ()),),
         schema_version="0.1.0",
     )
@@ -57,7 +57,7 @@ def test_intent_judge_sends_structured_request_and_parses_response() -> None:
     assert body["response_format"] == {"type": "json_object"}
     user_payload = json.loads(body["messages"][1]["content"])
     assert user_payload["query"] == "分析某公司的行情"
-    assert user_payload["evidence_fragments"][0]["kind"] == "subtask_title"
+    assert user_payload["evidence_fragments"][0]["kind"] == "subtask_query"
     assert user_payload["capabilities"][0]["capability_id"] == "quote"
 
 

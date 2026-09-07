@@ -1,5 +1,6 @@
 """提取意图识别 Judge 所需的用户 query 与代理行为证据。"""
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypedDict, TypeGuard
@@ -49,79 +50,129 @@ class NormalizedIntentRecognitionTrace(TypedDict):
 def normalize_chat_intent_recognition(
     trace: Mapping[str, object], catalog: CapabilityCatalog
 ) -> NormalizedIntentRecognitionTrace:
-    """规范化聊天 Trace 的 query、子任务、MCP 能力和最终回答证据。"""
+    """从新版 canvas 规范化 query、子任务、MCP 能力和最终回答证据。"""
 
-    query = _text(trace.get("query"))
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _empty_chat_result(catalog, error="invalid_chat_trace_structure")
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _empty_chat_result(catalog, error="invalid_chat_trace_structure")
+    trace_id = _text(meta.get("traceId"))
+    if trace_id is None:
+        return _empty_chat_result(catalog, error="missing_trace_id")
+    query = _text(meta.get("query"))
     fragments: list[IntentEvidenceFragment] = []
     seen_evidence: set[str] = set()
+    calls: dict[str, str] = {}
     capabilities: set[str] = set()
     malformed_count = 0
     out_of_scope_count = 0
+    duplicate_call_count = 0
     duplicate_evidence_count = 0
     normalization_error: str | None = None
 
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        raw_queue = ()
-        malformed_count += 1
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _empty_chat_result(
+            catalog,
+            trace_id=trace_id,
+            query=query,
+            error="invalid_chat_trace_structure",
+        )
 
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
             malformed_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
             continue
-        event_type = event.get("event_type")
-        if event_type == "call_sub_agent_begin":
-            payload = event.get("request_payload")
-            if not isinstance(payload, Mapping):
-                malformed_count += 1
-                continue
-            title_kind = "subtask_title"
-            title = _text(payload.get("taskName"))
-            if title is None:
-                title_kind = "subtask_description"
-                title = _text(payload.get("taskDescription"))
-            duplicate_evidence_count += _append_evidence(
-                fragments, seen_evidence, title_kind, title
-            )
-            arguments = payload.get("arguments")
-            if arguments is not None and not isinstance(arguments, Mapping):
-                malformed_count += 1
-                continue
-            if isinstance(arguments, Mapping):
-                task_query = _text(arguments.get("query")) or _text(arguments.get("task"))
-                duplicate_evidence_count += _append_evidence(
-                    fragments, seen_evidence, "subtask_query", task_query
-                )
-            continue
-        if event_type != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
             malformed_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
             continue
-        capability_id = catalog.resolve(request.get("toolName"))
-        if capability_id is None:
-            out_of_scope_count += 1
-        else:
-            capabilities.add(capability_id)
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    malformed_count += 1
+                    normalization_error = normalization_error or "invalid_chat_trace_structure"
+                    continue
+                call_id = _text(raw_call.get("toolId"))
+                tool_name = _text(raw_call.get("toolName"))
+                agent_name = _text(raw_call.get("agentName"))
+                if call_id is None and agent_name is not None:
+                    arguments = _parse_arguments(raw_call.get("arguments"))
+                    if arguments is None:
+                        malformed_count += 1
+                        continue
+                    task = _text(arguments.get("query")) or _text(arguments.get("task"))
+                    if task is None:
+                        malformed_count += 1
+                    else:
+                        duplicate_evidence_count += _append_evidence(
+                            fragments, seen_evidence, "subtask_query", task
+                        )
+                    continue
 
-    answer = _text(trace.get("answer"))
+                if call_id is None and (tool_name is not None or "arguments" in raw_call):
+                    malformed_count += 1
+                    normalization_error = normalization_error or "missing_call_id"
+                    continue
+                if call_id is not None and tool_name is None:
+                    malformed_count += 1
+                    normalization_error = normalization_error or "missing_tool_name"
+                    continue
+                if call_id is None or tool_name is None:
+                    continue
+                previous = calls.get(call_id)
+                if previous is not None:
+                    if previous == tool_name:
+                        duplicate_call_count += 1
+                    else:
+                        normalization_error = normalization_error or "conflicting_call_definition"
+                    continue
+                calls[call_id] = tool_name
+                capability_id = catalog.resolve(tool_name)
+                if capability_id is None:
+                    out_of_scope_count += 1
+                else:
+                    capabilities.add(capability_id)
+
+    answer = _text(_chat_answer(canvas))
     if answer is not None and not _is_pre_intent_failure(answer):
         duplicate_evidence_count += _append_evidence(
             fragments, seen_evidence, "final_answer", answer
         )
 
     if query is None:
-        normalization_error = "missing_query"
+        normalization_error = normalization_error or "missing_query"
     elif not fragments and not capabilities and _is_pre_intent_failure(answer):
-        normalization_error = "pre_intent_failure"
+        normalization_error = normalization_error or "pre_intent_failure"
     elif not fragments and not capabilities:
-        normalization_error = "no_intent_evidence"
+        normalization_error = normalization_error or "no_intent_evidence"
 
     return _build_result(
-        trace_id=_text(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         query=query,
         fragments=fragments,
@@ -129,9 +180,31 @@ def normalize_chat_intent_recognition(
         catalog=catalog,
         malformed_count=malformed_count,
         out_of_scope_count=out_of_scope_count,
-        duplicate_call_count=0,
+        duplicate_call_count=duplicate_call_count,
         duplicate_evidence_count=duplicate_evidence_count,
         normalization_error=normalization_error,
+    )
+
+
+def _empty_chat_result(
+    catalog: CapabilityCatalog,
+    *,
+    trace_id: str | None = None,
+    query: str | None = None,
+    error: str,
+) -> NormalizedIntentRecognitionTrace:
+    return _build_result(
+        trace_id=trace_id,
+        mode="chat",
+        query=query,
+        fragments=[],
+        capability_ids=set(),
+        catalog=catalog,
+        malformed_count=1,
+        out_of_scope_count=0,
+        duplicate_call_count=0,
+        duplicate_evidence_count=0,
+        normalization_error=error,
     )
 
 
@@ -286,6 +359,21 @@ def _append_evidence(
     seen.add(content)
     fragments.append(IntentEvidenceFragment(kind, content))
     return 0
+
+
+def _parse_arguments(value: object) -> Mapping[str, object] | None:
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
+def _chat_answer(canvas: Mapping[object, object]) -> object:
+    answer = canvas.get("answer")
+    return answer.get("answer") if isinstance(answer, Mapping) else None
 
 
 def _text(value: object) -> str | None:

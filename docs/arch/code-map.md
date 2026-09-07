@@ -36,9 +36,10 @@
   调用，从对象或 JSON 字符串参数提取任务正文，使用 NFKC、约束词元和字符 bigram 规则
   计算高置信度冗余聚合计数；旧版聊天结构不再支持，研究模式在结构化子任务契约确认前
   显式返回不可计算，任务正文和中间指纹不进入结果。
-- `src/collectors/intent_recognition.py`：分别从聊天与研究日志提取用户 query、子任务或规划、
-  最终回答和已解析 MCP 能力作为内存 Judge 候选；规则负责证据去重、前置失败、调用 ID
-  去重与冲突诊断，正文不进入持久化结果。
+- `src/collectors/intent_recognition.py`：从新版聊天 canvas 跨 Agent/message 提取 query、
+  子 Agent 任务、最终回答和按调用 ID 去重的 MCP 能力，研究模式继续提取规划与调用证据；
+  规则负责证据去重、前置失败、缺失字段和冲突诊断，旧版聊天结构不再支持，正文不进入
+  持久化结果。
 - `src/collectors/time_range_accuracy.py`：复用参数语义目录，聊天模式从新版 canvas 提取
   query、去重工具参数、最终回答和 `meta.create_time` 锚点，研究模式读取事件流；时间正文与
   参数值仅保留在内存 Judge 候选中。
@@ -77,7 +78,8 @@
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
   和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
 - `src/evaluators/intent_recognition.py`：定义意图对齐 Judge 契约，严格校验三态 verdict、
-  reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`。
+  reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`；
+  新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
   OpenAI-compatible Judge；使用 JSON 响应模式，并以通用异常隔离供应商响应和密钥。
 - `src/evaluators/time_range_accuracy.py`：严格校验时间字段聚合计数、三态可计算边界和安全
@@ -126,8 +128,9 @@
 - `tests/collectors/test_subtask_redundancy.py`：新版 canvas 跨 Agent/message 扫描、精确与
   高相似冗余、约束差异、JSON 参数、非法事件、旧结构拒绝、敏感正文隔离及研究模式
   不可计算测试。
-- `tests/collectors/test_intent_recognition.py`：聊天/研究 query、代理证据、MCP 能力提取，
-  兼容字段、证据与调用去重、前置失败、缺失调用 ID 和冲突定义测试。
+- `tests/collectors/test_intent_recognition.py`：新版 canvas 的 query、子 Agent、最终回答与
+  MCP 能力提取，JSON 参数、证据与调用去重、前置失败、非法结构、旧结构拒绝，以及研究
+  模式回归测试。
 - `tests/collectors/test_time_range_accuracy.py`：新版 canvas/研究时间候选、锚点优先级、调用
   去重、无调用零分入口、前置失败和不完整参数观察测试。
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、结构化单元拆分、内存去重、

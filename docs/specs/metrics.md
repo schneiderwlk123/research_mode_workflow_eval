@@ -663,19 +663,29 @@ T3 的时间约束不同，不属于冗余。
 - `not_assessable` 返回 `NOT_COMPUTABLE / insufficient_intent_evidence`，不进入准确率分母。
 - Judge 调用异常返回 `NOT_COMPUTABLE / judge_failure`；结构化输出非法返回
   `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.0.0`；Judge 名称、模型版本和 prompt 版本进入安全元数据。
+- evaluator 版本为 `1.1.0`；Judge 名称、模型版本和 prompt 版本进入安全元数据。
 
 ### 分模式可计算性与字段映射
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 必需用户意图：`canvas.meta.query`；缺失时返回 `missing_query`。
-- 代理证据：子 Agent 调用的 `arguments.query` 或 `arguments.task`；已解析到 MCP 目录的普通
-  工具请求 `toolName`；以及 `canvas.answer.answer`。`agentName` 只可作为行为类型诊断，不能
-  替代任务正文。
+- 必需执行标识：`canvas.meta.traceId`；缺失时返回 `missing_trace_id`。必需用户意图：
+  `canvas.meta.query`；缺失时返回 `missing_query`。
+- 扫描 `canvas.agents[].messages[].content.tool_call[]`。具有 `agentName` 且没有 `toolId`
+  的调用视为子 Agent；即使同时存在 `toolName`，仍按子 Agent 处理。
+- 子 Agent 证据优先读取 `arguments.query`，否则读取 `arguments.task`；`arguments` 支持对象
+  或可解析为对象的 JSON 字符串。没有可靠任务正文时只增加异常诊断，不能使用 `agentName`
+  或多模态内容猜测；只要还有其他可靠行为证据，该 Trace 仍可提交 Judge。
+- 普通工具请求必须同时具有 `toolId + toolName`，按 `traceId + toolId` 去重；同 ID 同工具名
+  合并并增加重复诊断，同 ID 不同工具名返回 `conflicting_call_definition`。缺少调用 ID 或
+  工具名分别返回 `missing_call_id`、`missing_tool_name`。
+- 代理证据还包括已解析到 MCP 目录的能力和 `canvas.answer.answer`；本指标不读取工具参数或
+  `tool_result` 正文。手册外框架工具只进入范围外诊断。
 - 完全相同的证据正文仅保留第一次出现的位置和类型；未知框架工具只进入范围外诊断。
 - 只有 query、没有任何子任务、MCP 能力或最终回答证据时返回 `no_intent_evidence`。
 - 当没有其他代理证据且回答为固定模型服务失败文本时返回 `pre_intent_failure`。
+- Canvas 各层容器类型非法时返回 `invalid_chat_trace_structure`；旧版 `tool_call_queue` 不再
+  支持。
 
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
@@ -691,8 +701,9 @@ T3 的时间约束不同，不属于冗余。
 安全 reason code 和 confidence。
 
 新版聊天日志重算状态：312/336 条 Trace 可构造意图 Judge 候选，24 条为明确前置失败；候选
-包含 1,505 个去重行为证据片段和按 Trace 去重后合计 950 个实际 MCP 能力。未运行 Judge，
-因此本次不产生 `intent_recognition_accuracy` 数值。
+包含 1,505 个去重行为证据片段和按 Trace 去重后合计 950 个实际 MCP 能力；另记录 2 个
+无文本子 Agent 诊断、2 个重复证据和 1,355 次手册外工具调用。未运行 Judge，因此本次不
+产生 `intent_recognition_accuracy` 数值。
 
 ### Judge 判定口径
 

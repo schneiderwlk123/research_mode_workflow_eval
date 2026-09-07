@@ -67,7 +67,7 @@ def test_judge_verdict_produces_binary_session_score(
     result = IntentRecognitionAccuracyEvaluator(judge).evaluate(_normalized_trace())
 
     assert result.metric_name == "intent_recognition_accuracy"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == expected
     assert result.metadata["judge_reason_code"] == reason_code

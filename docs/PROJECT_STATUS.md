@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 349 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 358 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -49,7 +49,8 @@ Schema 合法率、
   中间指纹不进入结果；新版 canvas 跨 Agent/message 扫描取代旧聊天队列解析，
   `subtask_redundancy_rate` 版本为 `1.1.0`。
 - 聊天与研究模式的意图证据规范化、严格三态 Judge 契约和 OpenAI-compatible 适配器；
-  `intent_recognition_accuracy` 版本为 `1.0.0`，原始 query、规划、回答和 Judge 响应不落盘。
+  新版 canvas 按调用 ID 去重并提取子 Agent、MCP 能力和最终回答证据，旧聊天解析已删除；
+  `intent_recognition_accuracy` 版本为 `1.1.0`，原始 query、规划、回答和 Judge 响应不落盘。
 - 聊天与研究模式的时间需求、工具参数和可复现时间锚点规范化，严格字段计数 Judge 契约
   及 OpenAI-compatible 适配器；`time_range_extraction_accuracy` 版本为 `1.0.0`，
   query、日期原文、参数值和 Judge 响应不落盘。
@@ -82,16 +83,16 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：路由 Recall。
-- 进行中的具体指标：子任务冗余率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：意图识别准确率的新版聊天 schema 适配。
-- 下一动作：展示子任务冗余率的双模式验证结果，验收后再进入意图识别准确率。
+- 最近完成并验收的新版聊天适配指标：子任务冗余率。
+- 进行中的具体指标：意图识别准确率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：时间范围提取准确率的新版聊天 schema 适配。
+- 下一动作：展示意图识别准确率的双模式验证结果，验收后再进入时间范围提取准确率。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
-  调用率、必填参数完整率、Schema 合法率、参数值准确率、路由 Precision/Recall 和子任务
-  冗余率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版
+  调用率、必填参数完整率、Schema 合法率、参数值准确率、路由 Precision/Recall、子任务
+  冗余率和意图识别准确率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版
   `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
@@ -117,7 +118,8 @@ Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规�
   意图片段，其中 24 个属于前置失败且不会送 Judge；未运行 Judge，无最终得分
 子任务冗余率: 253 条 Trace 可计算，81 条 no_subtasks，2 条 invalid_subtask_event；严格排除
   不可计算 Trace 后为 3/1194 ≈ 0.00251，含 2 次精确重复和 1 次高相似冗余
-意图识别准确率候选: 312/336 条 Trace 可提交 Judge，24 条 pre_intent_failure；无最终得分
+意图识别准确率候选: 312/336 条 Trace 可提交 Judge，24 条 pre_intent_failure；含 1505 个
+  去重行为证据和 950 个实际 MCP 能力，另有 2 个无文本子 Agent 诊断；无最终得分
 时间范围提取准确率候选: 312/336 条 Trace 可提交 Judge，含 2911 次手册覆盖调用；无最终得分
 证据查准率/陈述支持率/最终数值一致率: 缺生产证据工具目录且未运行 Judge，无最终得分
 MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，1355 次手册外调用被排除
@@ -125,7 +127,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 349 passed
+pytest: 358 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -156,7 +158,8 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 子任务冗余率聊天日志验算: 336 条中 253 条可计算，严格分母为 1194 个有效子任务；规则命中
   3 个冗余，微平均约 0.00251；81 条无子任务，2 条因无文本多模态子任务不可计算
 子任务冗余率研究日志: 当前缺少确认的结构化子任务契约，返回 missing_structured_subtasks
-意图识别准确率测试: 23 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+意图识别准确率定向测试: 32 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
+  evaluator 版本 `1.1.0`
 意图识别准确率聊天模式: 缺少 query 返回 missing_query；无行为证据返回 no_intent_evidence；
   固定前置服务失败返回 pre_intent_failure
 意图识别准确率研究模式: 缺少 query 返回 missing_query；缺少调用 ID 返回 missing_call_id；
