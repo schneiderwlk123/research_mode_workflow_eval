@@ -130,22 +130,48 @@ def _statement_evidence_error(error: object, *, observation_complete: bool) -> s
 def _chat_evidence_observation_complete(
     trace: Mapping[str, object], catalog: EvidenceSourceCatalog
 ) -> bool:
-    raw_queue = trace.get("tool_call_queue", ())
-    if not _is_sequence(raw_queue):
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
         return False
-    for event in raw_queue:
-        if not isinstance(event, Mapping) or event.get("event_type") != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping) or catalog.resolve(request.get("toolName")) is None:
-            continue
-        response = event.get("tool_response_result")
-        if not isinstance(response, Mapping) or not response:
+    raw_agents = canvas.get("agents", ())
+    if not _is_sequence(raw_agents):
+        return False
+    evidence_call_ids: set[str] = set()
+    terminal_call_ids: set[str] = set()
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
             return False
-        status = _text(response.get("status"))
-        if status is not None and status.lower() not in _TERMINAL_STATUSES:
+        raw_messages = raw_agent.get("messages", ())
+        if not _is_sequence(raw_messages):
             return False
-    return True
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                return False
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                return False
+            raw_calls = content.get("tool_call", ())
+            if not _is_sequence(raw_calls):
+                return False
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    return False
+                call_id = _text(raw_call.get("toolId"))
+                if call_id is not None and catalog.resolve(raw_call.get("toolName")) is not None:
+                    evidence_call_ids.add(call_id)
+            raw_results = content.get("tool_result", ())
+            if not _is_sequence(raw_results):
+                return False
+            for raw_result in raw_results:
+                if not isinstance(raw_result, Mapping):
+                    return False
+                call_id = _text(raw_result.get("toolId"))
+                if call_id is None:
+                    continue
+                status = _text(raw_result.get("status"))
+                if status is None or status.lower() in _TERMINAL_STATUSES:
+                    terminal_call_ids.add(call_id)
+    return evidence_call_ids.issubset(terminal_call_ids)
 
 
 def _research_evidence_observation_complete(

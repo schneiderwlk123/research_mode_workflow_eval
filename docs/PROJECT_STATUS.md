@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 367 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 379 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -56,8 +56,10 @@ Schema 合法率、
   evaluator，`time_range_extraction_accuracy` 版本为 `1.1.0`，
   query、日期原文、参数值和 Judge 响应不落盘。
 - 显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存证据去重；
-  `evidence_precision_rate` 版本为 `1.0.0`，不可拆分文本不估算，query、证据正文、摘要和
-  Judge 原始响应不落盘；显式证据工具范围生成稳定 `evidence_scope_version`。
+  新版 canvas 按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、孤立结果
+  及冲突生命周期，旧版聊天解析已删除；`evidence_precision_rate` 版本为 `1.1.0`，不可拆分
+  文本不估算，query、证据正文、摘要和 Judge 原始响应不落盘；显式证据工具范围生成稳定
+  `evidence_scope_version`。
 - 聊天最终回答和研究模式 `turn.end` 前最后一个 assistant 文本提取、空证据零分入口、严格
   原子陈述 Judge 契约及 OpenAI-compatible 适配器；`statement_support_rate` 版本为 `1.0.0`，
   query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
@@ -84,17 +86,17 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：意图识别准确率。
-- 进行中的具体指标：时间范围提取准确率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：证据查准率的新版聊天 schema 适配。
-- 下一动作：展示时间范围提取准确率的双模式验证结果，验收后再进入证据查准率。
+- 最近完成并验收的新版聊天适配指标：时间范围提取准确率。
+- 进行中的具体指标：证据查准率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：陈述支持率的新版聊天 schema 适配。
+- 下一动作：展示证据查准率的双模式验证结果，验收后再进入陈述支持率。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
   调用率、必填参数完整率、Schema 合法率、参数值准确率、路由 Precision/Recall、子任务
-  冗余率、意图识别准确率和时间范围提取准确率 collectors 已支持新版 canvas，其余指标
-  collectors 仍主要按旧版 `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
+  冗余率、意图识别准确率、时间范围提取准确率和证据查准率 collectors 已支持新版 canvas，
+  其余指标 collectors 仍主要按旧版字段读取，完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -123,13 +125,17 @@ Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规�
   去重行为证据和 950 个实际 MCP 能力，另有 2 个无文本子 Agent 诊断；无最终得分
 时间范围提取准确率候选: 312/336 条 Trace 可提交 Judge，24 条前置失败；336 条均使用
   canvas_meta 时间锚点，候选含 4266 次唯一调用，其中 2911 次被手册覆盖；无最终得分
-证据查准率/陈述支持率/最终数值一致率: 缺生产证据工具目录且未运行 Judge，无最终得分
+证据查准率结构上限: 缺生产证据工具目录且未运行 Judge，无最终得分；以手册全部 77 个工具
+  仅验证解析链路时，140/336 条形成候选，含 2911 次目录内调用、2820 次成功响应和 26564 个
+  结构化单元；120 条 incomplete_evidence_segmentation，65 条 no_evidence_calls，
+  10 条 no_stable_evidence_units，1 条 no_successful_evidence_responses
+陈述支持率/最终数值一致率: 缺生产证据工具目录且未运行 Judge，无最终得分
 MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，1355 次手册外调用被排除
 首次工具决策时延: 304 条 missing_tool_decision_timestamp，32 条 no_tool_decision，不可汇总
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 367 passed
+pytest: 379 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -177,16 +183,15 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 时间范围提取准确率模拟计算: 正确字段 6、错误字段 1，结果 6/7 ≈ 0.85714, computed
 时间范围提取准确率真实前 10 条聊天日志: 2 条可计算、1 条无时间需求、7 条前置模型服务
   失败；可计算日志正确字段 5、错误字段 2，微平均 5/7 ≈ 0.71429；Judge 失败 0
-证据查准率测试: 24 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
-证据查准率聊天日志结构验算: 106 条中 3 条形成 Judge 候选，共抽取 1263 个稳定结构化
-  证据单元；15 条因同时存在不可拆分响应返回 incomplete_evidence_segmentation，81 条没有
-  已登记证据调用，7 条仅有无法可靠拆分的响应
-证据查准率研究日志结构验算: 5 个已登记证据调用中抽取 7 个稳定证据单元，但另有 3 个
+证据查准率定向测试: 31 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；evaluator
+  版本 `1.1.0`
+证据查准率新版聊天结构上限验算: 使用手册全部 77 个工具仅验证解析链路，336 条中 140 条
+  形成 Judge 候选，2911 次目录内调用产生 2820 次成功响应和 26564 个稳定结构化单元；
+  120 条 incomplete_evidence_segmentation，65 条 no_evidence_calls，10 条
+  no_stable_evidence_units，1 条 no_successful_evidence_responses；另隔离 411 个孤立结果
+证据查准率研究日志结构上限验算: 5 个目录内调用中抽取 7 个稳定证据单元，但另有 3 个
   成功响应无稳定来源边界，因此返回 incomplete_evidence_segmentation，不缩小分母；未调用
   真实 Judge，未生成语义分数
-证据查准率真实单会话冒烟: 聊天模式 20 个稳定证据单元，Judge 判定 relevant 20、
-  irrelevant 0、not_assessable 0，结果 20/20 = 1.0, computed；Judge 模型 qwen-plus，
-  prompt 版本 1.0.0，证据范围版本 evidence-scope-623429fd8dffba76
 陈述支持率测试: 17 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
 陈述支持率聊天模式: 顶层 query/answer 可形成 Judge 候选；没有证据或明确空结果仍可得到
   0 分，固定服务失败、缺少回答、证据缺终态和部分响应不可拆分均返回稳定安全原因码

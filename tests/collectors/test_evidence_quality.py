@@ -28,32 +28,60 @@ def _catalog() -> EvidenceSourceCatalog:
     )
 
 
-def test_chat_extracts_structured_units_deduplicates_and_preserves_input() -> None:
-    trace: dict[str, object] = {
-        "traceId": "trace-1",
-        "query": "比较两家公司收入",
-        "tool_call_queue": [
-            {
-                "event_type": "tool_call",
-                "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                "tool_response_result": {
-                    "result": {
-                        "data": [
-                            {"record_id": "r1", "company": "甲", "revenue": 10},
-                            {"record_id": "r2", "company": "乙", "revenue": 20},
-                            {"record_id": "r1", "company": "甲", "revenue": 10},
-                        ]
-                    }
-                },
-            },
-            {
-                "event_type": "tool_call",
-                "tool_request_args": {"toolName": "formula"},
-                "tool_response_result": {"result": {"value": 2}},
-            },
-            {"event_type": "tool_call", "tool_request_args": {"toolName": "respond"}},
-        ],
+def _chat_trace(
+    query: str,
+    *,
+    calls: list[object] | None = None,
+    results: list[object] | None = None,
+) -> dict[str, object]:
+    messages: list[dict[str, object]] = []
+    if calls is not None:
+        messages.append({"content": {"tool_call": calls}})
+    if results is not None:
+        messages.append({"content": {"tool_result": results}})
+    return {
+        "canvas": {
+            "meta": {"traceId": "trace-1", "query": query},
+            "agents": [{"messages": messages}],
+        }
     }
+
+
+def _chat_call(call_id: str, tool_name: str) -> dict[str, object]:
+    return {"toolId": call_id, "toolName": tool_name, "arguments": {}}
+
+
+def _chat_result(
+    call_id: str, result: object, *, tool_name: str | None = None
+) -> dict[str, object]:
+    value: dict[str, object] = {"toolId": call_id, "result": result}
+    if tool_name is not None:
+        value["toolName"] = tool_name
+    return value
+
+
+def test_chat_extracts_structured_units_deduplicates_and_preserves_input() -> None:
+    trace = _chat_trace(
+        "比较两家公司收入",
+        calls=[
+            _chat_call("call-1", "search"),
+            _chat_call("call-2", "formula"),
+            _chat_call("call-3", "respond"),
+        ],
+        results=[
+            _chat_result(
+                "call-1",
+                {
+                    "data": [
+                        {"record_id": "r1", "company": "甲", "revenue": 10},
+                        {"record_id": "r2", "company": "乙", "revenue": 20},
+                        {"record_id": "r1", "company": "甲", "revenue": 10},
+                    ]
+                },
+            ),
+            _chat_result("call-2", {"value": 2}),
+        ],
+    )
     original = deepcopy(trace)
 
     normalized = normalize_chat_evidence(trace, _catalog())
@@ -74,45 +102,37 @@ def test_chat_extracts_structured_units_deduplicates_and_preserves_input() -> No
         "unsegmentable_evidence_response_count": 0,
         "duplicate_evidence_unit_count": 1,
         "duplicate_call_definition_count": 0,
+        "duplicate_result_observation_count": 0,
+        "orphan_result_count": 0,
     }
     assert trace == original
 
 
 def test_chat_parses_stringified_json_and_uses_stable_position_fallback() -> None:
     normalized = normalize_chat_evidence(
-        {
-            "query": "查询行情",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolName": "quote"},
-                    "tool_response_result": {"rawResult": '[{"price":10},{"price":11}]'},
-                }
-            ],
-        },
+        _chat_trace(
+            "查询行情",
+            calls=[_chat_call("call-1", "quote")],
+            results=[{"toolId": "call-1", "rawResult": '[{"price":10},{"price":11}]'}],
+        ),
         _catalog(),
     )
 
     candidate = normalized["candidate"]
     assert candidate is not None
     assert [unit.unit_id for unit in candidate.evidence_units] == [
-        "chat-call-0:0",
-        "chat-call-0:1",
+        "call-1:0",
+        "call-1:1",
     ]
 
 
 def test_identical_content_without_source_identity_is_not_merged() -> None:
     normalized = normalize_chat_evidence(
-        {
-            "query": "查询两条独立来源记录",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {"result": {"data": [{"value": 10}, {"value": 10}]}},
-                }
-            ],
-        },
+        _chat_trace(
+            "查询两条独立来源记录",
+            calls=[_chat_call("call-1", "search")],
+            results=[_chat_result("call-1", {"data": [{"value": 10}, {"value": 10}]})],
+        ),
         _catalog(),
     )
 
@@ -122,31 +142,20 @@ def test_identical_content_without_source_identity_is_not_merged() -> None:
 
 def test_chat_missing_inputs_and_unsegmentable_text_are_explicit() -> None:
     catalog = _catalog()
-    missing_query = normalize_chat_evidence({"tool_call_queue": []}, catalog)
-    no_calls = normalize_chat_evidence({"query": "查询行情", "tool_call_queue": []}, catalog)
+    missing_query = normalize_chat_evidence(
+        {"canvas": {"meta": {"traceId": "trace-1"}, "agents": []}}, catalog
+    )
+    no_calls = normalize_chat_evidence(_chat_trace("查询行情"), catalog)
     no_response = normalize_chat_evidence(
-        {
-            "query": "查询行情",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "quote"},
-                }
-            ],
-        },
+        _chat_trace("查询行情", calls=[_chat_call("call-1", "quote")]),
         catalog,
     )
     unsegmentable = normalize_chat_evidence(
-        {
-            "query": "查询报告",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {"result": "没有可靠边界的长文本"},
-                }
-            ],
-        },
+        _chat_trace(
+            "查询报告",
+            calls=[_chat_call("call-1", "search")],
+            results=[_chat_result("call-1", "没有可靠边界的长文本")],
+        ),
         catalog,
     )
 
@@ -159,21 +168,14 @@ def test_chat_missing_inputs_and_unsegmentable_text_are_explicit() -> None:
 
 def test_partial_unsegmentable_responses_do_not_silently_shrink_denominator() -> None:
     normalized = normalize_chat_evidence(
-        {
-            "query": "查询行情和研报",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "quote"},
-                    "tool_response_result": {"result": {"data": [{"price": 10}]}},
-                },
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-2", "toolName": "search"},
-                    "tool_response_result": {"result": "无法可靠拆分的报告合集"},
-                },
+        _chat_trace(
+            "查询行情和研报",
+            calls=[_chat_call("call-1", "quote"), _chat_call("call-2", "search")],
+            results=[
+                _chat_result("call-1", {"data": [{"price": 10}]}),
+                _chat_result("call-2", "无法可靠拆分的报告合集"),
             ],
-        },
+        ),
         _catalog(),
     )
 
@@ -184,22 +186,145 @@ def test_partial_unsegmentable_responses_do_not_silently_shrink_denominator() ->
 
 def test_successful_empty_result_has_no_evidence_units_without_segmentation_error() -> None:
     normalized = normalize_chat_evidence(
-        {
-            "query": "查询不存在的记录",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {"result": {"code": 0, "data": [], "msg": "ok"}},
-                }
-            ],
-        },
+        _chat_trace(
+            "查询不存在的记录",
+            calls=[_chat_call("call-1", "search")],
+            results=[_chat_result("call-1", {"code": 0, "data": [], "msg": "ok"})],
+        ),
         _catalog(),
     )
 
     assert normalized["candidate"] is None
     assert normalized["normalization_error"] == "no_evidence_units"
     assert normalized["diagnostics"]["unsegmentable_evidence_response_count"] == 0
+
+
+def test_chat_joins_cross_agent_results_and_ignores_orphans() -> None:
+    trace = {
+        "canvas": {
+            "meta": {"traceId": "trace-1", "query": "查询行情"},
+            "agents": [
+                {"messages": [{"content": {"tool_call": [_chat_call("call-1", "quote")]}}]},
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_result": [
+                                    _chat_result("call-1", {"data": [{"price": 10}]}),
+                                    _chat_result("orphan", {"data": [{"price": 99}]}),
+                                ]
+                            }
+                        }
+                    ]
+                },
+            ],
+        }
+    }
+
+    normalized = normalize_chat_evidence(trace, _catalog())
+
+    assert normalized["evidence_unit_count"] == 1
+    assert normalized["diagnostics"]["orphan_result_count"] == 1
+
+
+def test_chat_ignores_subagent_calls_without_counting_them_as_tools() -> None:
+    normalized = normalize_chat_evidence(
+        _chat_trace(
+            "查询行情",
+            calls=[
+                {"agentName": "worker", "arguments": {"query": "执行子任务"}},
+                _chat_call("call-1", "quote"),
+            ],
+            results=[_chat_result("call-1", {"data": [{"price": 10}]})],
+        ),
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is not None
+    assert normalized["diagnostics"]["evidence_call_count"] == 1
+    assert normalized["diagnostics"]["out_of_scope_tool_call_count"] == 0
+
+
+def test_chat_conflicting_call_definitions_are_not_computable() -> None:
+    normalized = normalize_chat_evidence(
+        _chat_trace(
+            "查询行情",
+            calls=[_chat_call("call-1", "quote"), _chat_call("call-1", "search")],
+            results=[_chat_result("call-1", {"data": [{"price": 10}]})],
+        ),
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "conflicting_call_definition"
+    assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
+
+
+def test_chat_duplicate_results_are_deduplicated_and_conflicts_are_rejected() -> None:
+    duplicate_result = _chat_result("call-1", {"data": [{"price": 10}]})
+    duplicate = normalize_chat_evidence(
+        _chat_trace(
+            "查询行情",
+            calls=[_chat_call("call-1", "quote")],
+            results=[duplicate_result, deepcopy(duplicate_result) | {"toolName": "quote"}],
+        ),
+        _catalog(),
+    )
+    conflicting = normalize_chat_evidence(
+        _chat_trace(
+            "查询行情",
+            calls=[_chat_call("call-1", "quote")],
+            results=[
+                duplicate_result,
+                _chat_result("call-1", {"data": [{"price": 11}]}),
+            ],
+        ),
+        _catalog(),
+    )
+
+    assert duplicate["evidence_unit_count"] == 1
+    assert duplicate["diagnostics"]["duplicate_result_observation_count"] == 1
+    assert conflicting["candidate"] is None
+    assert conflicting["normalization_error"] == "conflicting_call_result"
+
+
+@pytest.mark.parametrize(
+    ("trace", "reason"),
+    [
+        ({}, "invalid_chat_trace_structure"),
+        ({"canvas": {"meta": {}, "agents": []}}, "missing_trace_id"),
+        (
+            {"canvas": {"meta": {"traceId": "trace-1", "query": "查询"}, "agents": "bad"}},
+            "invalid_chat_trace_structure",
+        ),
+        (
+            _chat_trace("查询", calls=[{"toolName": "quote"}]),
+            "missing_call_id",
+        ),
+        (
+            _chat_trace("查询", calls=[{"toolId": "call-1"}]),
+            "missing_tool_name",
+        ),
+        (
+            _chat_trace("查询", results=[{"result": {"data": []}}]),
+            "missing_call_id",
+        ),
+    ],
+)
+def test_chat_invalid_structures_are_explicit(trace: dict[str, object], reason: str) -> None:
+    normalized = normalize_chat_evidence(trace, _catalog())
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == reason
+
+
+def test_legacy_chat_tool_call_queue_is_rejected() -> None:
+    normalized = normalize_chat_evidence(
+        {"traceId": "legacy", "query": "查询", "tool_call_queue": []},
+        _catalog(),
+    )
+
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
 
 
 def test_research_joins_completed_outputs_by_call_id_and_deduplicates_lifecycle() -> None:

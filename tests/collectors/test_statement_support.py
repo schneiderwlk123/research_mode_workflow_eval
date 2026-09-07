@@ -15,22 +15,43 @@ def _catalog() -> EvidenceSourceCatalog:
     )
 
 
+def _chat_trace(
+    query: str,
+    *,
+    answer: str | None = None,
+    calls: list[object] | None = None,
+    results: list[object] | None = None,
+) -> dict[str, object]:
+    messages: list[dict[str, object]] = []
+    if calls is not None:
+        messages.append({"content": {"tool_call": calls}})
+    if results is not None:
+        messages.append({"content": {"tool_result": results}})
+    trace: dict[str, object] = {
+        "query": query,
+        "canvas": {
+            "meta": {"traceId": "trace-1", "query": query},
+            "agents": [{"messages": messages}],
+        },
+    }
+    if answer is not None:
+        trace["answer"] = answer
+    return trace
+
+
 def test_chat_collects_answer_and_structured_evidence() -> None:
     normalized = normalize_chat_statement_support(
-        {
-            "traceId": "trace-1",
-            "query": "分析公司收入",
-            "answer": "公司 2025 年收入为 100 亿元。",
-            "tool_call_queue": [
+        _chat_trace(
+            "分析公司收入",
+            answer="公司 2025 年收入为 100 亿元。",
+            calls=[{"toolId": "call-1", "toolName": "search", "arguments": {}}],
+            results=[
                 {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {
-                        "result": {"data": [{"record_id": "r1", "revenue": 100}]}
-                    },
+                    "toolId": "call-1",
+                    "result": {"data": [{"record_id": "r1", "revenue": 100}]},
                 }
             ],
-        },
+        ),
         _catalog(),
     )
 
@@ -45,15 +66,15 @@ def test_chat_collects_answer_and_structured_evidence() -> None:
 
 def test_chat_without_evidence_is_still_judgeable_but_missing_answer_is_not() -> None:
     no_evidence = normalize_chat_statement_support(
-        {"query": "公司收入是多少", "answer": "公司收入为 100 亿元。"},
+        _chat_trace("公司收入是多少", answer="公司收入为 100 亿元。"),
         _catalog(),
     )
     missing_answer = normalize_chat_statement_support(
-        {"query": "公司收入是多少"},
+        _chat_trace("公司收入是多少"),
         _catalog(),
     )
     service_failure = normalize_chat_statement_support(
-        {"query": "公司收入是多少", "answer": "模型服务暂时不可用，请稍后重试。"},
+        _chat_trace("公司收入是多少", answer="模型服务暂时不可用，请稍后重试。"),
         _catalog(),
     )
 
@@ -66,16 +87,11 @@ def test_chat_without_evidence_is_still_judgeable_but_missing_answer_is_not() ->
 
 def test_chat_evidence_call_without_terminal_response_is_not_computable() -> None:
     normalized = normalize_chat_statement_support(
-        {
-            "query": "公司收入是多少",
-            "answer": "公司收入为 100 亿元。",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                }
-            ],
-        },
+        _chat_trace(
+            "公司收入是多少",
+            answer="公司收入为 100 亿元。",
+            calls=[{"toolId": "call-1", "toolName": "search", "arguments": {}}],
+        ),
         _catalog(),
     )
 
@@ -85,22 +101,18 @@ def test_chat_evidence_call_without_terminal_response_is_not_computable() -> Non
 
 def test_partial_unsegmentable_evidence_does_not_silently_shrink_support_basis() -> None:
     normalized = normalize_chat_statement_support(
-        {
-            "query": "分析公司收入",
-            "answer": "公司收入为 100 亿元。",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {"result": {"data": [{"revenue": 100}]}},
-                },
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-2", "toolName": "search"},
-                    "tool_response_result": {"result": "无法稳定拆分的长文本"},
-                },
+        _chat_trace(
+            "分析公司收入",
+            answer="公司收入为 100 亿元。",
+            calls=[
+                {"toolId": "call-1", "toolName": "search", "arguments": {}},
+                {"toolId": "call-2", "toolName": "search", "arguments": {}},
             ],
-        },
+            results=[
+                {"toolId": "call-1", "result": {"data": [{"revenue": 100}]}},
+                {"toolId": "call-2", "result": "无法稳定拆分的长文本"},
+            ],
+        ),
         _catalog(),
     )
 

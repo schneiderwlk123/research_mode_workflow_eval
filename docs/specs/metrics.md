@@ -834,7 +834,7 @@ incorrect = 1
   `not_assessable`，完整分母就无法可靠判断，返回
   `NOT_COMPUTABLE / incomplete_relevance_judgment`，不得将其当作无关或从分母删除。
 - Judge 异常和非法结构分别返回 `NOT_COMPUTABLE / judge_failure` 与
-  `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为 `1.0.0`，Judge 名称、模型、
+  `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为 `1.1.0`，Judge 名称、模型、
   prompt 和 MCP 手册版本进入安全元数据。
 
 ### 相关性口径
@@ -858,6 +858,10 @@ incorrect = 1
 - 响应在同一 Trace 内按 `toolId` 关联 `content.tool_result[]`，优先使用 `result`，为空时使用
   `rawResult`；失败状态、空响应和范围外工具不产生证据单元。结果侧孤立 Agent 返回不属于
   证据调用。
+- 同一 `toolId` 的重复请求和重复结果只观察一次；同 ID 不同工具返回
+  `conflicting_call_definition`，同 ID 不同终态结果返回 `conflicting_call_result`。缺少调用 ID、
+  工具名或非法容器均显式返回安全原因，不能退化为数组位置。
+- 旧版 `tool_call_queue` 不再支持，输入旧结构返回 `invalid_chat_trace_structure`。
 
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
@@ -878,8 +882,14 @@ query、证据正文、内容摘要与 Judge 原始响应只存在于内存中�
 相关性计数、安全诊断和版本标识。
 
 新版聊天日志重算状态：当前仓库仍没有生产版显式证据工具目录，且本次未运行证据 Judge，
-因此不能确定证据调用分母，也不产生 `evidence_precision_rate` 数值。不能把全部 2,911 次
-手册覆盖 MCP 调用都自动视为证据工具。
+因此不能确定证据调用分母，也不产生 `evidence_precision_rate` 数值。使用手册全部 77 个
+工具构造的非生产“结构上限目录”仅用于验证解析链路：336 条 Trace 中 140 条形成候选，
+共观察 2,911 次目录内调用、2,820 次成功响应和 26,564 个结构化单元；120 条因部分响应不可
+拆分而返回 `incomplete_evidence_segmentation`，另有 65 条 `no_evidence_calls`、10 条
+`no_stable_evidence_units` 和 1 条 `no_successful_evidence_responses`。该上限不能作为正式
+证据分母，也不能把全部手册覆盖 MCP 调用自动视为证据工具。研究日志在相同结构上限下包含
+5 个目录内调用、5 个成功响应和 7 个稳定单元，但另有 3 个响应不可拆分，因此返回
+`incomplete_evidence_segmentation`。
 
 ### 模拟计算
 

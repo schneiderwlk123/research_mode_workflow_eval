@@ -3,7 +3,12 @@ from collections.abc import Mapping
 
 import pytest
 
-from collectors.evidence_quality import EvidencePrecisionCandidate, EvidenceUnit
+from collectors.evidence_quality import (
+    EvidencePrecisionCandidate,
+    EvidenceUnit,
+    build_evidence_source_catalog,
+    normalize_chat_evidence,
+)
 from evaluators.base import EvaluationStatus
 from evaluators.evidence_precision import (
     EvidencePrecisionEvaluator,
@@ -49,6 +54,8 @@ def _normalized_trace(*, error: str | None = None) -> dict[str, object]:
             "unsegmentable_evidence_response_count": 0,
             "duplicate_evidence_unit_count": 0,
             "duplicate_call_definition_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 0,
         },
         "normalization_error": error,
     }
@@ -77,7 +84,7 @@ def test_relevant_units_divided_by_all_units() -> None:
     result = EvidencePrecisionEvaluator(judge).evaluate(_normalized_trace())
 
     assert result.metric_name == "evidence_precision_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.5
     assert result.metadata["relevant_evidence_unit_count"] == 1
@@ -85,6 +92,69 @@ def test_relevant_units_divided_by_all_units() -> None:
     assert result.metadata["evidence_unit_count"] == 2
     assert len(judge.requests) == 1
     assert "相关资料" not in repr(result.metadata)
+
+
+def test_canvas_collector_output_is_accepted_by_evaluator() -> None:
+    catalog = build_evidence_source_catalog(
+        {
+            "manual_version": "0.1.0",
+            "tools": [{"name": "search", "description": "检索资料", "parameters": []}],
+        },
+        evidence_tool_names={"search"},
+    )
+    normalized = normalize_chat_evidence(
+        {
+            "canvas": {
+                "meta": {"traceId": "trace-1", "query": "查询收入"},
+                "agents": [
+                    {
+                        "messages": [
+                            {
+                                "content": {
+                                    "tool_call": [
+                                        {
+                                            "toolId": "call-1",
+                                            "toolName": "search",
+                                            "arguments": {},
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "content": {
+                                    "tool_result": [
+                                        {
+                                            "toolId": "call-1",
+                                            "result": {"data": [{"record_id": "r1", "value": 10}]},
+                                        }
+                                    ]
+                                }
+                            },
+                        ]
+                    }
+                ],
+            }
+        },
+        catalog,
+    )
+    judge = FakeJudge(
+        {
+            "judgments": [
+                {
+                    "unit_id": "call-1:0",
+                    "verdict": "relevant",
+                    "reason_code": "supports_required_fact",
+                    "confidence": 0.95,
+                }
+            ]
+        }
+    )
+
+    result = EvidencePrecisionEvaluator(judge).evaluate(normalized)
+
+    assert result.status is EvaluationStatus.COMPUTED
+    assert result.value == 1.0
+    assert result.evaluator_version == "1.1.0"
 
 
 def test_not_assessable_unit_makes_full_denominator_not_computable() -> None:

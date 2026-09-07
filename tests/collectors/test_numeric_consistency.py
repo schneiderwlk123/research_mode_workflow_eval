@@ -16,22 +16,39 @@ def _catalog() -> EvidenceSourceCatalog:
     )
 
 
+def _chat_trace(
+    query: str,
+    answer: str,
+    *,
+    calls: list[object],
+    results: list[object] | None = None,
+) -> dict[str, object]:
+    messages: list[dict[str, object]] = [{"content": {"tool_call": calls}}]
+    if results is not None:
+        messages.append({"content": {"tool_result": results}})
+    return {
+        "query": query,
+        "answer": answer,
+        "canvas": {
+            "meta": {"traceId": "trace-1", "query": query},
+            "agents": [{"messages": messages}],
+        },
+    }
+
+
 def test_chat_reuses_final_answer_and_structured_evidence() -> None:
     normalized = normalize_chat_numeric_consistency(
-        {
-            "traceId": "trace-1",
-            "query": "分析收入",
-            "answer": "2025 年收入为 123.5 亿元。",
-            "tool_call_queue": [
+        _chat_trace(
+            "分析收入",
+            "2025 年收入为 123.5 亿元。",
+            calls=[{"toolId": "call-1", "toolName": "search", "arguments": {}}],
+            results=[
                 {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                    "tool_response_result": {
-                        "result": {"data": [{"record_id": "r1", "revenue": 123.46}]}
-                    },
+                    "toolId": "call-1",
+                    "result": {"data": [{"record_id": "r1", "revenue": 123.46}]},
                 }
             ],
-        },
+        ),
         _catalog(),
     )
 
@@ -63,16 +80,11 @@ def test_research_reuses_last_answer_selection() -> None:
 
 def test_incomplete_evidence_is_preserved_as_not_computable() -> None:
     normalized = normalize_chat_numeric_consistency(
-        {
-            "query": "分析收入",
-            "answer": "收入为 100 亿元。",
-            "tool_call_queue": [
-                {
-                    "event_type": "tool_call",
-                    "tool_request_args": {"toolId": "call-1", "toolName": "search"},
-                }
-            ],
-        },
+        _chat_trace(
+            "分析收入",
+            "收入为 100 亿元。",
+            calls=[{"toolId": "call-1", "toolName": "search", "arguments": {}}],
+        ),
         _catalog(),
     )
 

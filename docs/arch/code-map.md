@@ -43,8 +43,10 @@
 - `src/collectors/time_range_accuracy.py`：复用参数语义目录，聊天模式从新版 canvas 提取
   query、去重工具参数、最终回答和 `meta.create_time` 锚点，研究模式读取事件流；时间正文与
   参数值仅保留在内存 Judge 候选中。
-- `src/collectors/evidence_quality.py`：使用显式 MCP 证据工具目录连接聊天/研究调用与成功
-  响应，按来源原生结构拆分、内存去重证据单元；无边界长文本和派生工具不进入指标。
+- `src/collectors/evidence_quality.py`：使用显式 MCP 证据工具目录连接新版 canvas/研究调用与
+  成功响应；聊天模式按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、
+  孤立结果及冲突生命周期，旧版 `tool_call_queue` 不再支持；证据按来源原生结构拆分并在
+  内存去重，无边界长文本和派生工具不进入指标。
 - `src/collectors/statement_support.py`：复用证据单元抽取，提取聊天最终回答或研究模式
   `turn.end` 前最后一个 assistant 文本；区分空证据、缺终态和不完整证据拆分。
 - `src/collectors/numeric_consistency.py`：复用陈述支持率的最终回答选择和来源原生证据单元，
@@ -88,7 +90,7 @@
 - `src/evaluators/openai_compatible_time_range_judge.py`：将 query、相对时间锚点、工具参数及
   MCP 字段说明提交给 OpenAI-compatible Judge，并对供应商异常做脱敏隔离。
 - `src/evaluators/evidence_precision.py`：定义证据相关性 Judge 契约，严格校验逐单元三态
-  判断，在完整证据分母上计算 `evidence_precision_rate`。
+  判断，在完整证据分母上计算 `evidence_precision_rate`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_evidence_judge.py`：把不可信 query 与来源原生证据单元
   提交给 OpenAI-compatible Judge，并以固定 reason code 和通用异常隔离敏感正文。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
@@ -134,8 +136,9 @@
   模式回归测试。
 - `tests/collectors/test_time_range_accuracy.py`：新版 canvas/研究时间候选、锚点优先级、调用
   去重、缺失调用字段、非法结构、旧结构拒绝、无调用零分入口、前置失败和不完整参数观察测试。
-- `tests/collectors/test_evidence_quality.py`：显式证据工具范围、结构化单元拆分、内存去重、
-  聊天位置标识、研究调用关联、不可拆分响应和调用冲突测试。
+- `tests/collectors/test_evidence_quality.py`：显式证据工具范围、新版 canvas 跨 Agent/message
+  关联、子 Agent 与孤立结果排除、重复和冲突生命周期、旧结构拒绝、结构化单元拆分、内存
+  去重、不可拆分响应及研究回归测试。
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
   缺终态、部分不可拆分响应和成功产物无正文测试。
 - `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用及不完整证据隔离测试。

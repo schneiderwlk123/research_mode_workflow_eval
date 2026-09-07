@@ -84,6 +84,8 @@ class EvidenceDiagnostics(TypedDict):
     unsegmentable_evidence_response_count: int
     duplicate_evidence_unit_count: int
     duplicate_call_definition_count: int
+    duplicate_result_observation_count: int
+    orphan_result_count: int
 
 
 class NormalizedEvidenceTrace(TypedDict):
@@ -170,43 +172,168 @@ def build_evidence_source_catalog(
 def normalize_chat_evidence(
     trace: Mapping[str, object], catalog: EvidenceSourceCatalog
 ) -> NormalizedEvidenceTrace:
-    """提取聊天日志中成功返回且具有稳定结构边界的证据单元。"""
+    """按新版 canvas 跨 Agent 和消息关联证据请求与结果。"""
 
-    query = _text(trace.get("query"))
-    raw_queue = trace.get("tool_call_queue", ())
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    trace_id = _text(meta.get("traceId"))
+    if trace_id is None:
+        return _chat_structure_error(catalog, trace_id=None, reason="missing_trace_id")
+    query = _text(meta.get("query"))
+    if query is None:
+        return _chat_structure_error(catalog, trace_id=trace_id, reason="missing_query")
+
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _chat_structure_error(
+            catalog,
+            trace_id=trace_id,
+            reason="invalid_chat_trace_structure",
+        )
+
     malformed_count = 0
     out_of_scope_count = 0
-    evidence_call_count = 0
+    duplicate_call_count = 0
+    duplicate_result_count = 0
+    orphan_result_count = 0
+    normalization_error: str | None = None
+    calls: dict[str, tuple[str, str | None]] = {}
+    results: list[Mapping[str, object]] = []
+
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
+            malformed_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
+            continue
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            malformed_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
+            continue
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+            else:
+                for raw_call in raw_calls:
+                    if not isinstance(raw_call, Mapping):
+                        malformed_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    call_id = _text(raw_call.get("toolId"))
+                    raw_tool_name = _text(raw_call.get("toolName"))
+                    agent_name = _text(raw_call.get("agentName"))
+                    if call_id is None and raw_tool_name is None and agent_name is not None:
+                        continue
+                    if call_id is None and raw_tool_name is not None:
+                        malformed_count += 1
+                        normalization_error = normalization_error or "missing_call_id"
+                        continue
+                    if call_id is not None and raw_tool_name is None:
+                        malformed_count += 1
+                        normalization_error = normalization_error or "missing_tool_name"
+                        continue
+                    if call_id is None or raw_tool_name is None:
+                        malformed_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    tool_name = catalog.resolve(raw_tool_name)
+                    previous = calls.get(call_id)
+                    definition = (raw_tool_name, tool_name)
+                    if previous is not None:
+                        duplicate_call_count += 1
+                        if previous != definition:
+                            normalization_error = (
+                                normalization_error or "conflicting_call_definition"
+                            )
+                        continue
+                    calls[call_id] = definition
+                    if tool_name is None:
+                        out_of_scope_count += 1
+
+            raw_results = content.get("tool_result", ())
+            if raw_results is None:
+                raw_results = ()
+            if not _is_sequence(raw_results):
+                malformed_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+            else:
+                for raw_result in raw_results:
+                    if not isinstance(raw_result, Mapping):
+                        malformed_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    if not all(isinstance(key, str) for key in raw_result):
+                        malformed_count += 1
+                        normalization_error = normalization_error or "invalid_chat_trace_structure"
+                        continue
+                    if _text(raw_result.get("toolId")) is None:
+                        malformed_count += 1
+                        normalization_error = normalization_error or "missing_call_id"
+                        continue
+                    results.append({str(key): value for key, value in raw_result.items()})
+
+    evidence_calls = {
+        call_id: tool_name for call_id, (_, tool_name) in calls.items() if tool_name is not None
+    }
     successful_response_count = 0
     unsegmentable_count = 0
     duplicate_unit_count = 0
     units: list[EvidenceUnit] = []
     seen_source_units: set[str] = set()
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        raw_queue = ()
-        malformed_count += 1
-
-    for position, event in enumerate(raw_queue):
-        if not isinstance(event, Mapping):
-            malformed_count += 1
+    result_digests: dict[str, str] = {}
+    for response in results:
+        call_id = _text(response.get("toolId"))
+        assert call_id is not None
+        call_definition = calls.get(call_id)
+        if call_definition is None:
+            orphan_result_count += 1
             continue
-        if event.get("event_type") != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            malformed_count += 1
-            continue
-        tool_name = catalog.resolve(request.get("toolName"))
-        if tool_name is None:
-            out_of_scope_count += 1
-            continue
-        evidence_call_count += 1
-        response = event.get("tool_response_result")
-        if not isinstance(response, Mapping) or _is_failed_response(response):
-            continue
+        raw_tool_name, tool_name = call_definition
+        result_tool_name = _text(response.get("toolName"))
+        if result_tool_name is not None and result_tool_name != raw_tool_name:
+            normalization_error = normalization_error or "conflicting_call_definition"
         payload = _preferred_payload(response)
+        status = _text(response.get("status"))
+        response_digest = _canonical_digest(
+            {
+                "status": status.lower() if status is not None else None,
+                "payload": payload,
+            }
+        )
+        if response_digest is None:
+            normalization_error = normalization_error or "conflicting_call_result"
+            continue
+        previous_digest = result_digests.get(call_id)
+        if previous_digest is not None:
+            duplicate_result_count += 1
+            if previous_digest != response_digest:
+                normalization_error = normalization_error or "conflicting_call_result"
+            continue
+        result_digests[call_id] = response_digest
+        if tool_name is None or _is_failed_response(response):
+            continue
         if payload is None:
             continue
         successful_response_count += 1
@@ -214,9 +341,6 @@ def normalize_chat_evidence(
         if contents is None:
             unsegmentable_count += 1
             continue
-        call_id = (
-            _text(request.get("toolId")) or _text(response.get("toolId")) or f"chat-call-{position}"
-        )
         duplicate_unit_count += _append_unique_units(
             units,
             seen_source_units,
@@ -227,14 +351,14 @@ def normalize_chat_evidence(
 
     error = _normalization_error(
         query=query,
-        evidence_call_count=evidence_call_count,
+        evidence_call_count=len(evidence_calls),
         successful_response_count=successful_response_count,
         evidence_unit_count=len(units),
         unsegmentable_response_count=unsegmentable_count,
-        existing=None,
+        existing=normalization_error,
     )
     return _build_result(
-        trace_id=_text(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         schema_version=catalog.schema_version,
         scope_version=catalog.scope_version,
@@ -243,13 +367,43 @@ def normalize_chat_evidence(
         diagnostics={
             "malformed_event_count": malformed_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
-            "evidence_call_count": evidence_call_count,
+            "evidence_call_count": len(evidence_calls),
             "successful_evidence_response_count": successful_response_count,
             "unsegmentable_evidence_response_count": unsegmentable_count,
             "duplicate_evidence_unit_count": duplicate_unit_count,
-            "duplicate_call_definition_count": 0,
+            "duplicate_call_definition_count": duplicate_call_count,
+            "duplicate_result_observation_count": duplicate_result_count,
+            "orphan_result_count": orphan_result_count,
         },
         normalization_error=error,
+    )
+
+
+def _chat_structure_error(
+    catalog: EvidenceSourceCatalog,
+    *,
+    trace_id: str | None,
+    reason: str,
+) -> NormalizedEvidenceTrace:
+    return _build_result(
+        trace_id=trace_id,
+        mode="chat",
+        schema_version=catalog.schema_version,
+        scope_version=catalog.scope_version,
+        query=None,
+        units=[],
+        diagnostics={
+            "malformed_event_count": 1,
+            "out_of_scope_tool_call_count": 0,
+            "evidence_call_count": 0,
+            "successful_evidence_response_count": 0,
+            "unsegmentable_evidence_response_count": 0,
+            "duplicate_evidence_unit_count": 0,
+            "duplicate_call_definition_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 0,
+        },
+        normalization_error=reason,
     )
 
 
@@ -319,6 +473,8 @@ def normalize_research_evidence(
     successful_response_count = 0
     unsegmentable_count = 0
     duplicate_unit_count = 0
+    duplicate_result_count = 0
+    orphan_result_count = 0
     units: list[EvidenceUnit] = []
     seen_source_units: set[str] = set()
     seen_terminal_calls: set[str] = set()
@@ -335,8 +491,14 @@ def normalize_research_evidence(
         if call_id is None:
             normalization_error = normalization_error or "missing_call_id"
             continue
+        if call_id not in calls:
+            orphan_result_count += 1
+            continue
         tool_name = evidence_calls.get(call_id)
-        if tool_name is None or call_id in seen_terminal_calls:
+        if tool_name is None:
+            continue
+        if call_id in seen_terminal_calls:
+            duplicate_result_count += 1
             continue
         seen_terminal_calls.add(call_id)
         payload = _preferred_payload(state, primary="output", fallback="raw")
@@ -383,6 +545,8 @@ def normalize_research_evidence(
             "unsegmentable_evidence_response_count": unsegmentable_count,
             "duplicate_evidence_unit_count": duplicate_unit_count,
             "duplicate_call_definition_count": duplicate_call_count,
+            "duplicate_result_observation_count": duplicate_result_count,
+            "orphan_result_count": orphan_result_count,
         },
         normalization_error=normalization_error,
     )
@@ -474,6 +638,21 @@ def _stable_source_key(tool_name: str, content: str) -> str | None:
     identity = json.dumps(identifiers, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     content_digest = hashlib.sha256(content.encode()).hexdigest()
     return hashlib.sha256(f"{tool_name}\0{identity}\0{content_digest}".encode()).hexdigest()
+
+
+def _canonical_digest(value: object) -> str | None:
+    """仅为同一调用的重复结果生成内存指纹，不持久化响应正文。"""
+
+    try:
+        canonical = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _extract_stable_contents(payload: object) -> tuple[str, ...] | None:
