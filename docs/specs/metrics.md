@@ -3,6 +3,28 @@
 本文集中记录所有评测指标的定义和原始日志字段映射。后续指标按
 `docs/specs/metric-development-order.md` 的顺序追加，不再为单个指标创建独立规格文件。
 
+### 新版聊天模式统一口径与重算范围
+
+本文件中的聊天模式字段映射以新版 JSON 数组日志为准。重算样本为 336 条 Trace，原始日志
+只用于本地验算，不进入仓库。统一边界如下：
+
+- 单次执行标识：`canvas.meta.traceId`；多轮会话标识：`canvas.meta.sessionId`。指标默认以
+  `traceId` 为单次评测边界，不使用可能重复的 `chatId` 或 `recordId`。
+- 普通工具请求：`canvas.agents[].messages[].content.tool_call[]` 中同时具有非空
+  `toolId` 和 `toolName` 的对象；唯一调用键为 `traceId + toolId`。
+- 子 Agent 调用：同一数组中具有 `agentName` 且没有 `toolId` 的对象；它只进入子任务和
+  编排行为指标，不进入普通工具调用分母。
+- 工具结果：`canvas.agents[].messages[].content.tool_result[]`，在同一 Trace 内按
+  `toolId` 与请求关联。只出现于结果侧的 `direct_answer`、`worker_*` 返回是 Agent 返回，
+  不能反向生成普通工具调用。
+- 用户需求、请求时间和最终回答分别读取 `canvas.meta.query`、
+  `canvas.meta.create_time` 和 `canvas.answer.answer`。
+- MCP 范围只按 `tool_call[].toolName -> mcp_tool_manual.json.tools[].name` 精确解析；
+  `agentName` 和 `agentId` 都不是 MCP 工具标识。
+
+本次只对结构确定且不依赖外部 Judge 或生产 SLA 的指标给出真实数值。需要 Judge、显式证据
+工具目录或生产 SLA 的指标只重算候选范围和可计算性，不伪造最终得分。
+
 ## 1. 调用事件完整率
 
 ### 指标定义
@@ -25,13 +47,15 @@
 
 聊天模式：
 
-- 会话标识：`traceId`。
-- 调用候选：`tool_call_queue` 中 `event_type == "tool_call"` 的对象。
-- 唯一调用：当前没有统一 `callID`，一个 `tool_call` 对象视为一次调用，并按数组位置
-  生成会话内标识。
-- 请求已观察：存在且非空的 `tool_request_args`。
-- 终态已观察：存在且非空的 `tool_response_result`。
-- 缺少请求或响应的调用仍计入分母，但不计入分子。
+- 单次执行标识：`canvas.meta.traceId`。
+- 调用候选：`canvas.agents[].messages[].content.tool_call[]` 中具有
+  `toolId + toolName` 的普通工具请求。
+- 唯一调用：按 `traceId + toolId` 去重；新版样本中 4,266 个普通请求的 `toolId` 均非空且
+  唯一。
+- 请求已观察：存在上述普通工具请求定义。
+- 终态已观察：同一 Trace 的任意 `content.tool_result[]` 中存在相同 `toolId`。结果即使只
+  保留 `toolId` 也表示结果事件已观察，但不代表响应正文可比较。
+- 只出现于结果侧的 Agent 返回不进入分母；请求缺少匹配结果时仍计入分母但不计入分子。
 
 研究模式：
 
@@ -47,6 +71,10 @@
 规范化结果仅保留 `trace_id`、`mode`、`call_id`、`request_observed`、
 `terminal_observed`、`source_event_count` 和安全诊断计数，不保存请求参数、响应正文或
 `part.state.input/output/raw`。
+
+新版聊天日志微平均验算：296/336 条 Trace 含普通工具请求，唯一请求 4,266 次，其中
+4,251 次观察到同 `toolId` 结果，调用事件完整率 `4251 / 4266 ≈ 0.99648`；其余 40 条
+Trace 返回 `NOT_COMPUTABLE / no_tool_calls`。
 
 ## 2. 完全重复调用率
 
@@ -72,11 +100,13 @@
 
 聊天模式：
 
-- 会话标识：`traceId`。
-- 唯一调用：`tool_call_queue` 中每个 `event_type == "tool_call"` 的对象。
-- 工具名称：`tool_request_args.toolName`。
-- 参数：`tool_request_args.arguments`。
-- 响应内容：优先使用 `tool_response_result.result`，为空时使用 `rawResult`。
+- 单次执行标识：`canvas.meta.traceId`。
+- 唯一调用：普通请求 `content.tool_call[]`，按 `traceId + toolId` 标识。
+- 工具名称和参数：请求的 `toolName/arguments`。
+- 响应内容：在同一 Trace 内按 `toolId` 关联 `content.tool_result[]`，优先使用 `result`，
+  为空时使用 `rawResult`。
+- 找到结果事件但没有 `result/rawResult`，或请求没有匹配结果时，该调用进入总分母但不进入
+  可比较分母；结果侧孤立的 Agent 返回不生成调用。
 
 研究模式：
 
@@ -101,8 +131,9 @@
 完全重复调用率 = 1 ÷ 4 = 0.25
 ```
 
-真实日志微平均验算：聊天模式 `35 / 907 ≈ 0.03859`，研究模式
-`1 / 30 ≈ 0.03333`。
+真实日志微平均验算：新版聊天模式共有 4,266 次调用，其中 3,389 次响应可比较，完全重复的
+额外调用为 26 次，`26 / 4266 ≈ 0.00609`；877 次因缺少可比较响应正文只进入总分母。
+研究模式仍为 `1 / 30 ≈ 0.03333`。
 
 ## 3. 必填参数完整率
 
@@ -144,10 +175,9 @@ Schema：
 
 聊天模式：
 
-- 会话标识：`traceId`。
-- 唯一调用：`tool_call_queue` 中每个 `event_type == "tool_call"` 的对象。
-- 工具名称：`tool_request_args.toolName`。
-- 参数：`tool_request_args.arguments`；对象或可解析为对象的 JSON 字符串均可计算。
+- 单次执行标识：`canvas.meta.traceId`。
+- 唯一调用：普通请求 `content.tool_call[]`，按 `traceId + toolId` 去重。
+- 工具名称和参数：请求的 `toolName/arguments`；对象或可解析为对象的 JSON 字符串均可计算。
 
 研究模式：
 
@@ -173,7 +203,9 @@ Schema 覆盖调用数 = 4
 必填参数完整率 = 4 ÷ 6 ≈ 0.66667
 ```
 
-真实日志微平均验算：聊天模式 `696 / 832 ≈ 0.83654`；研究模式
+真实日志微平均验算：新版聊天模式 4,266 次调用中，2,911 次被当前 MCP 手册覆盖，2,450 次
+涉及至少一个顶层必填参数；已填 3,382 个、要求 4,015 个，
+`3382 / 4015 ≈ 0.84234`。另有 1,355 次手册外调用和 461 次零必填参数调用。研究模式仍为
 `10 / 11 ≈ 0.90909`。
 
 ## 4. Schema 合法率
@@ -213,10 +245,9 @@ Schema：
 
 聊天模式：
 
-- 会话标识：`traceId`。
-- 唯一调用：`tool_call_queue` 中每个 `event_type == "tool_call"` 的对象。
-- 工具名称：`tool_request_args.toolName`。
-- 参数：`tool_request_args.arguments`。
+- 单次执行标识：`canvas.meta.traceId`。
+- 唯一调用：普通请求 `content.tool_call[]`，按 `traceId + toolId` 去重。
+- 工具名称和参数：请求的 `toolName/arguments`。
 
 研究模式：
 
@@ -244,8 +275,9 @@ Schema 覆盖调用数 = 4
 Schema 合法率 = 2 ÷ 4 = 0.5
 ```
 
-真实日志微平均验算：聊天模式 `642 / 643 ≈ 0.99844`，其中 1 个调用类型不合法，
-13 个调用携带额外字段但按当前口径仍合法；研究模式 `5 / 5 = 1.0`。
+真实日志微平均验算：新版聊天模式 2,911 次手册覆盖调用中 2,880 次合法、31 次非法，
+`2880 / 2911 ≈ 0.98935`；违规诊断为 27 次类型违规、4 次枚举违规、0 次嵌套必填缺失，
+另有 2 次调用携带额外字段但按当前口径仍合法。研究模式仍为 `5 / 5 = 1.0`。
 
 ## 5. 参数值准确率
 
@@ -314,10 +346,10 @@ MCP 手册：
 
 聊天模式：
 
-- 用户需求：`query`。
-- 会话标识：`traceId`。
-- 调用标识：`tool_call_queue[].tool_request_args.toolId`。
-- 工具名称和参数：`tool_request_args.toolName/arguments`。
+- 用户需求：`canvas.meta.query`。
+- 单次执行标识：`canvas.meta.traceId`。
+- 调用标识：普通请求的 `toolId`，与 `traceId` 组成复合键。
+- 工具名称和参数：普通请求的 `toolName/arguments`。
 
 研究模式：
 
@@ -355,6 +387,9 @@ Judge 可判定覆盖率和 Schema 覆盖率不计算，也不得写入最终结
 OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
 固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
 其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
+
+新版聊天日志重算状态：4,266 次普通调用中可构造 2,911 个手册覆盖 Judge 候选，覆盖 271 条
+Trace。当前未执行真实 Judge，因此本次不产生 `parameter_value_accuracy_rate` 数值。
 
 ## 6-7. 路由 Precision 与路由 Recall
 
@@ -431,10 +466,11 @@ MCP 手册：
 
 聊天模式：
 
-- 整体意图：`query`。
-- 子任务意图：`tool_call_queue[]` 中 `event_type == "call_sub_agent_begin"` 的
-  `request_payload.taskName` 和 `request_payload.arguments.query`，按文本去重。
-- 实际能力：`event_type == "tool_call"` 的 `tool_request_args.toolName`。
+- 整体意图：`canvas.meta.query`。
+- 子任务意图：`content.tool_call[]` 中具有 `agentName` 且没有 `toolId` 的子 Agent 调用；
+  从 `arguments.query` 或 `arguments.task` 提取并按正文去重。`agentName` 只表示 worker 类型，
+  不能单独作为任务语义。
+- 实际能力：普通工具请求的 `toolName`，按 MCP 手册解析并在 Trace 内形成能力集合。
 
 研究模式：
 
@@ -454,6 +490,10 @@ MCP 手册：
 存储会去除完全重复记录，并支持按意图签名 Jaccard 相似度查找历史映射。映射表不得保存
 原始 query、子任务正文、实体、参数、响应、Trace ID 或 Judge 原始输出。读取或写入映射表
 失败只记录安全诊断，不改变已经生成的标准能力集合和指标结果。
+
+新版聊天日志重算状态：312/336 条 Trace 可构造路由 Judge 候选，24 条为明确路由前失败；
+可评估候选中实际 MCP 能力集合按 Trace 去重后合计 950 项，意图片段合计 1,502 项。由于本次
+未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
 
 ### 模拟计算
 
@@ -499,11 +539,11 @@ FN = 1
 
 聊天模式：
 
-- 会话标识：`traceId`。
-- 子任务候选：`tool_call_queue[]` 中 `event_type == "call_sub_agent_begin"` 的事件。
+- 单次执行标识：`canvas.meta.traceId`。
+- 子任务候选：`content.tool_call[]` 中具有 `agentName` 且没有 `toolId` 的子 Agent 调用。
 - 一个候选事件对应一个实际子任务，不在比较前去重。
-- 子任务文本：组合 `request_payload.taskName` 和 `request_payload.arguments.query`；兼容
-  现有日志中的 `taskDescription` 和 `arguments.task`。标题与正文均为空时事件非法。
+- 子任务文本：优先读取 `arguments.query`，兼容 `arguments.task`。`agentName` 仅表示
+  `worker_search/worker_validation/...` 类型，不作为子任务正文。两者均为空时事件非法。
 
 研究模式：
 
@@ -528,6 +568,10 @@ T3 的时间约束不同，不属于冗余。
 冗余子任务数 = 1
 子任务冗余率 = 1 ÷ 3 ≈ 0.33333
 ```
+
+新版聊天日志微平均验算：1,199 次子 Agent 调用中 1,197 次具有结构化任务文本；识别出 2 次
+精确重复和 1 次高相似冗余，`3 / 1197 ≈ 0.00251`。另 2 次多模态调用只有图片参数，涉及的
+Trace 返回 `NOT_COMPUTABLE / invalid_subtask_event`，不得把图片内容猜测为任务文本。
 
 ## 9. 意图识别准确率
 
@@ -557,10 +601,10 @@ T3 的时间约束不同，不属于冗余。
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 必需用户意图：顶层 `query`；缺失时返回 `missing_query`。
-- 代理证据：`call_sub_agent_begin.request_payload.taskName`，兼容 `taskDescription`；
-  `request_payload.arguments.query`，兼容 `arguments.task`；已解析到 MCP 目录的
-  `tool_call.tool_request_args.toolName`；以及顶层 `answer`。
+- 必需用户意图：`canvas.meta.query`；缺失时返回 `missing_query`。
+- 代理证据：子 Agent 调用的 `arguments.query` 或 `arguments.task`；已解析到 MCP 目录的普通
+  工具请求 `toolName`；以及 `canvas.answer.answer`。`agentName` 只可作为行为类型诊断，不能
+  替代任务正文。
 - 完全相同的证据正文仅保留第一次出现的位置和类型；未知框架工具只进入范围外诊断。
 - 只有 query、没有任何子任务、MCP 能力或最终回答证据时返回 `no_intent_evidence`。
 - 当没有其他代理证据且回答为固定模型服务失败文本时返回 `pre_intent_failure`。
@@ -577,6 +621,10 @@ T3 的时间约束不同，不属于冗余。
 两种模式的 query、子任务、规划、回答、调用参数和 Judge 原始响应都只存在于内存请求中，
 不得进入评测结果或持久化介质。结果只保留模式、版本、证据与能力数量、诊断计数、Judge
 安全 reason code 和 confidence。
+
+新版聊天日志重算状态：312/336 条 Trace 可构造意图 Judge 候选，24 条为明确前置失败；候选
+包含 1,505 个去重行为证据片段和按 Trace 去重后合计 950 个实际 MCP 能力。未运行 Judge，
+因此本次不产生 `intent_recognition_accuracy` 数值。
 
 ### Judge 判定口径
 
@@ -636,11 +684,12 @@ incorrect = 1
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 用户需求：顶层 `query`；缺失时返回 `missing_query`。
-- 实际时间证据：`tool_call_queue[].tool_request_args.arguments`，并结合 MCP 工具和参数说明。
-- 相对时间锚点：调用方显式值优先，否则取首个工具请求的
-  `tool_request_args.create_time`；无法取得时保留为空，由 Judge 判断是否需要。
-- 调用按 `toolId` 去重；参数无法完整解析时返回 `incomplete_time_observation`。
+- 用户需求：`canvas.meta.query`；缺失时返回 `missing_query`。
+- 实际时间证据：普通工具请求的 `arguments`，并结合 `toolName` 对应的 MCP 参数说明。
+- 相对时间锚点：调用方显式值优先，否则使用 `canvas.meta.create_time`。新版请求对象没有
+  独立 `create_time`，不得从数组位置推断调用时间。
+- 调用按 `traceId + toolId` 去重；参数无法完整解析时返回
+  `incomplete_time_observation`。
 - 没有工具调用但用户存在明确时间要求时仍调用 Judge，缺失的预期字段可计算为零分；固定
   模型服务失败则返回 `pre_time_extraction_failure`。
 
@@ -655,6 +704,10 @@ incorrect = 1
 
 两种模式的 query、reference time、参数值、日期原文和 Judge 原始响应只允许在内存中存在。
 持久化结果仅保留字段计数、调用与异常诊断、版本标识、reference time 是否存在及其来源。
+
+新版聊天日志重算状态：312/336 条 Trace 可构造时间范围 Judge 候选，24 条为明确前置失败；
+候选中包含 2,911 次手册覆盖工具调用。当前未执行时间 Judge，因此本次不产生
+`time_range_extraction_accuracy` 数值。
 
 ### 模拟计算
 
@@ -714,13 +767,14 @@ incorrect = 1
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 会话标识：`traceId`；用户需求：顶层 `query`，缺失时返回 `missing_query`。
-- 调用候选：`tool_call_queue[]` 中 `event_type == "tool_call"` 的事件；工具名称来自
-  `tool_request_args.toolName`，只有显式证据工具目录中的 MCP 工具进入范围。
-- 调用标识优先使用 `tool_request_args.toolId`，其次使用 `tool_response_result.toolId`；均
-  缺失时使用会话内数组位置生成稳定标识。
-- 响应优先使用 `tool_response_result.result`，为空时使用 `rawResult`；失败状态、空响应和
-  范围外工具不产生证据单元。
+- 单次执行标识：`canvas.meta.traceId`；用户需求：`canvas.meta.query`，缺失时返回
+  `missing_query`。
+- 调用候选：具有 `toolId + toolName` 的普通工具请求；只有显式证据工具目录中的 MCP 工具
+  进入范围。
+- 调用标识：请求的 `toolId`，与 `traceId` 组成复合键；新版样本不允许退化为数组位置。
+- 响应在同一 Trace 内按 `toolId` 关联 `content.tool_result[]`，优先使用 `result`，为空时使用
+  `rawResult`；失败状态、空响应和范围外工具不产生证据单元。结果侧孤立 Agent 返回不属于
+  证据调用。
 
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
@@ -739,6 +793,10 @@ incorrect = 1
 已拆分子集计算并静默缩小分母。
 query、证据正文、内容摘要与 Judge 原始响应只存在于内存中；最终结果仅保留单位数量、
 相关性计数、安全诊断和版本标识。
+
+新版聊天日志重算状态：当前仓库仍没有生产版显式证据工具目录，且本次未运行证据 Judge，
+因此不能确定证据调用分母，也不产生 `evidence_precision_rate` 数值。不能把全部 2,911 次
+手册覆盖 MCP 调用都自动视为证据工具。
 
 ### 模拟计算
 
@@ -805,7 +863,8 @@ Judge 请求包含原始 query、最终回答和证据查准率定义的来源�
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 会话标识：顶层 `traceId`；用户需求：顶层 `query`；最终回答：顶层 `answer`。
+- 单次执行标识：`canvas.meta.traceId`；用户需求：`canvas.meta.query`；最终回答：
+  `canvas.answer.answer`。
 - 固定“模型服务暂时不可用，请稍后重试”回答返回 `pre_answer_failure`；缺少最终回答返回
   `missing_final_answer`。
 - 证据复用显式 `EvidenceSourceCatalog` 和证据查准率的结构化证据单元抽取。
@@ -826,6 +885,9 @@ Judge 请求包含原始 query、最终回答和证据查准率定义的来源�
 两种模式只要部分成功证据响应无法稳定拆分，均返回
 `NOT_COMPUTABLE / incomplete_evidence_segmentation`，不得只使用可拆分子集判断支持率。
 query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响应不得进入持久化结果。
+
+新版聊天日志重算状态：336 条 Trace 中 335 条具有非空最终回答，1 条缺少可用最终回答；但
+生产版证据工具目录和陈述 Judge 均未配置，因此本次不产生 `statement_support_rate` 数值。
 
 ### 模拟计算
 
@@ -876,8 +938,10 @@ Judge 只负责拆分数值声明，按主体、指标、时间、统计范围�
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 会话标识、需求和最终回答：顶层 `traceId/query/answer`。
-- 证据复用显式 `EvidenceSourceCatalog`，从 `tool_call_queue` 中关联已登记证据工具的成功响应。
+- 会话标识、需求和最终回答：`canvas.meta.traceId`、`canvas.meta.query` 和
+  `canvas.answer.answer`。
+- 证据复用显式 `EvidenceSourceCatalog`，从普通工具请求中筛选已登记证据工具，并按
+  `traceId + toolId` 关联 `content.tool_result[]` 的成功响应。
 - 缺少最终回答、证据终态或稳定证据边界时沿用 `missing_final_answer`、
   `incomplete_evidence_observation` 和 `incomplete_evidence_segmentation`。
 
@@ -900,6 +964,9 @@ Judge 只负责拆分数值声明，按主体、指标、时间、统计范围�
 
 最终数值与召回证据一致率 = 2 ÷ 3 ≈ 0.66667
 ```
+
+新版聊天日志重算状态：最终回答字段可直接读取，但没有生产版证据工具目录，也未运行数值
+对齐 Judge，因此本次不产生 `retrieved_numeric_consistency_rate` 数值。
 
 ## 14. MCP 工具调用膨胀率
 
@@ -929,9 +996,9 @@ MCP 工具调用膨胀率 = (N - U) ÷ N
 
 聊天模式：`DIRECTLY_COMPUTABLE`。
 
-- 任务边界：每条 JSONL 记录；会话标识：顶层 `traceId`。
-- 调用事件：`tool_call_queue[].event_type == "tool_call"`。
-- 调用 ID、工具名和入参：`tool_request_args.toolId/toolName/arguments`。
+- 任务边界：JSON 数组中的每个元素；单次执行标识：`canvas.meta.traceId`。
+- 调用事件：具有 `toolId + toolName` 的普通 `content.tool_call[]` 请求。
+- 调用 ID、工具名和入参：请求的 `toolId/toolName/arguments`。
 - 缺少调用 ID 或入参分别返回 `missing_call_id`、`missing_call_arguments`；非法队列或事件返回
   `invalid_tool_call_queue`、`invalid_tool_call_events`。
 
@@ -962,6 +1029,10 @@ MCP 调用总数 N = 4
 MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 ```
 
+新版聊天日志微平均验算：4,266 次普通工具调用中 2,911 次精确匹配当前 MCP 手册，按 Trace
+统计得到 2,878 个不同请求签名和 33 次膨胀调用，`33 / 2911 ≈ 0.01134`；1,355 次手册外
+调用不进入分子和分母。271/336 条 Trace 至少包含一次已登记 MCP 调用。
+
 ## 15. 首次工具决策时延
 
 ### 指标定义
@@ -973,20 +1044,20 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 首次工具决策时延（毫秒） = 最早有效决策时间 - 当前请求开始时间
 ```
 
-聊天日志不能机械读取 JSON 中第二次出现的 `create_time`，也不能固定使用队列第一项；必须遍历
-全部有效决策节点并按时间取最小值。研究日志使用工具 `pending` 事件，而不是工具执行开始时间或
-可能晚于工具完成才写入的 `llm.response.result.toolCalls` 时间。
+新版聊天日志只保留请求起点，没有子 Agent 或工具决策节点的绝对时间，因此当前不可计算。
+研究日志仍使用工具 `pending` 事件，而不是工具执行开始时间或可能晚于工具完成才写入的
+`llm.response.result.toolCalls` 时间。
 
 ### 分模式可计算性与字段映射
 
-聊天模式：`DIRECTLY_COMPUTABLE`。
+聊天模式：`NOT_COMPUTABLE`。
 
-- 当前请求开始：顶层 `create_time`。
-- 子 Agent 决策：`tool_call_queue[].event_type == "call_sub_agent_begin"` 的
-  `request_payload.create_time`。
-- 工具调用决策：`tool_call_queue[].event_type == "tool_call"` 的
-  `tool_request_args.create_time`。
-- 对全部有效决策时间取最小值；数组顺序不作为时间顺序依据。
+- 当前请求开始可读取 `canvas.meta.create_time`。
+- 子 Agent 和普通工具决策可从 `content.tool_call[]` 识别，但对象都没有独立绝对时间戳。
+- `message.content.durationSeconds` 是当前 Agent 消息或步骤自身耗时，不能反推该消息或其中
+  首个调用的绝对发生时间；数组位置也不能替代时间。
+- 只要存在决策节点就返回 `NOT_COMPUTABLE / missing_tool_decision_timestamp`；完全没有
+  子 Agent 或普通工具决策时返回 `NOT_COMPUTABLE / no_tool_decision`。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
 
@@ -996,16 +1067,18 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 - 相同 `callID` 的重复 pending 事件只保留最早时间，并记录重复计数。
 - `part.state.time.start` 是执行开始时间，不用于本指标。
 
-两种模式都以 `trace_id` 为单次评测边界，结果单位固定为毫秒。没有决策、缺少起点、缺少
-pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_tool_decision`、
-`missing_turn_start_time`、`missing_tool_decision_time`、
-`incomplete_tool_decision_observation` 或 `missing_call_id`。非法时间戳和负时延分别返回
-`ERROR / invalid_timestamp` 与 `ERROR / invalid_event_order`，不得填零或裁剪长尾。
+两种模式都以 `trace_id` 为单次评测边界，结果单位固定为毫秒。没有决策、缺少起点、聊天
+决策时间戳、研究 pending 时间、观察不完整或研究调用 ID 时，分别返回
+`no_tool_decision`、`missing_turn_start_time`、`missing_tool_decision_timestamp`、
+`missing_tool_decision_time`、`incomplete_tool_decision_observation` 或 `missing_call_id`。
+非法时间戳和负时延分别返回 `ERROR / invalid_timestamp` 与 `ERROR / invalid_event_order`，
+不得填零或裁剪长尾。
 
 ### 模拟计算
 
 ```text
-聊天请求 create_time = 10:00:00.000
+若未来聊天 schema 增加决策时间：
+请求 create_time = 10:00:00.000
 首个子 Agent 决策时间 = 10:00:06.000
 首个 tool_call 决策时间 = 10:00:09.000
 
@@ -1016,6 +1089,10 @@ pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_
 
 首次工具决策时延 = 28859 毫秒
 ```
+
+新版聊天日志重算状态：304/336 条 Trace 存在子 Agent 或普通工具决策，但全部缺少决策绝对
+时间，因此返回 `missing_tool_decision_timestamp`；其余 32 条返回 `no_tool_decision`。新版
+聊天模式不能汇总该指标的毫秒值。
 
 ## 20. 超时率
 
@@ -1028,7 +1105,7 @@ pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_
 单次调用超时 =
   终态属于策略配置的 timeout / timed_out
   或完整调用耗时 > 对应工具 timeout_ms
-  或对应工具已有 SLA、但缺少开始时间或结束时间
+  或对应工具已有 SLA、但缺少完整调用耗时观测
 
 超时率 = 超时唯一调用数 ÷ 唯一调用总数
 ```
@@ -1042,13 +1119,14 @@ pending 时间、观察不完整或缺少研究调用 ID 时，分别返回 `no_
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 唯一调用：每个 `tool_call_queue[].event_type == "tool_call"` 对象；优先保留请求或响应
-  `toolId`，缺少时使用会话内位置标识。
-- 工具名称：优先读取 `tool_request_args.toolName`，缺失时读取
-  `tool_response_result.toolName`；两者冲突返回 `conflicting_call_definition`。
-- 开始时间：`tool_request_args.create_time`。
-- 结束时间：`tool_response_result.create_time`。
-- 显式超时：响应顶层或结构化 `result/rawResult` 中的 `status/state` 命中策略状态集合。
+- 唯一调用：具有 `toolId + toolName` 的普通工具请求，按 `traceId + toolId` 标识。
+- 工具名称：请求的 `toolName`；匹配结果提供非空 `toolName` 时必须一致，否则返回
+  `conflicting_call_definition`。
+- 完整调用耗时：同 `toolId` 的 `content.tool_result[].durationSeconds × 1000`。该字段是单次
+  工具执行耗时，不与 `message.content.durationSeconds` 相加或相减。
+- 显式超时：匹配结果顶层或结构化 `result/rawResult` 中的 `status/state` 命中策略状态集合。
+- 缺少匹配结果或结果缺少合法 `durationSeconds` 时，在该工具已有 SLA 的前提下按
+  `missing_time_timeout` 分类；结果侧孤立 Agent 返回不进入调用分母。
 
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
@@ -1065,13 +1143,17 @@ timeout 就输出 0%。无调用、缺少研究调用 ID、非法队列或未知
 负时序和调用定义冲突分别返回 `ERROR / invalid_timestamp`、`ERROR / invalid_event_order`、
 `ERROR / conflicting_call_definition`。
 
+新版聊天日志重算状态：4,266 次普通请求中 3,443 次具有可用工具执行耗时，823 次缺少完整
+耗时观测。当前仓库没有生产 SLA 目录，因此总体仍为
+`NOT_COMPUTABLE / missing_tool_sla`，不得把 823 次直接判为超时，也不得输出 0%。
+
 ### 模拟计算
 
 ```text
 工具 A：耗时 4000 ms，SLA 5000 ms       -> 未超时
 工具 B：耗时 3000 ms，SLA 2000 ms       -> SLA 超时
 工具 A：终态 timed_out                  -> 显式超时
-工具 A：缺少结束时间，SLA 已配置         -> 观测缺失超时
+工具 A：缺少完整调用耗时，SLA 已配置     -> 观测缺失超时
 
 超时调用数 = 3
 唯一调用总数 = 4
