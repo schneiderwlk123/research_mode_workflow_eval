@@ -47,7 +47,7 @@ def test_evaluator_calculates_only_schema_validity_metric() -> None:
     result = ToolArgumentSchemaValidityEvaluator().evaluate(trace)
 
     assert result.metric_name == "tool_argument_schema_validity_rate"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(4 / 6)
     assert "schema_coverage_rate" not in result.metadata

@@ -268,8 +268,20 @@ Schema：
 聊天模式：
 
 - 单次执行标识：`canvas.meta.traceId`。
-- 唯一调用：普通请求 `content.tool_call[]`，按 `traceId + toolId` 去重。
-- 工具名称和参数：请求的 `toolName/arguments`。
+- 调用候选：扫描 `canvas.agents[].messages[].content.tool_call[]`。具有 `agentName` 且没有
+  `toolId` 的对象属于子 Agent 调用，不进入范围；其余具有 `toolId`、`toolName` 或
+  `arguments` 任一普通请求字段的对象按普通工具请求校验完整性。
+- 唯一调用：按 `traceId + toolId` 去重。同一 `toolId` 的重复请求定义中，工具名称和
+  规范化参数一致时合并为一次调用并记录重复定义；两者任一不一致时返回
+  `NOT_COMPUTABLE / conflicting_call_definition`。
+- 工具名称和参数：普通请求的 `toolName/arguments`。参数为对象或可解析为对象的 JSON
+  字符串时进入 Schema 校验；不能解析为对象时，该 Schema 已覆盖调用计为非法并记录
+  `malformed_arguments_call_count`。
+- 缺少 `traceId`、`toolId`、`toolName` 或 `arguments` 时分别返回
+  `NOT_COMPUTABLE / missing_trace_id`、`missing_call_id`、`missing_tool_name` 或
+  `missing_call_arguments`；不得使用数组位置补造调用 ID。
+- `canvas`、`agents`、`messages`、`content` 或 `tool_call` 的容器类型不符合约定时返回
+  `NOT_COMPUTABLE / invalid_chat_trace_structure`。本指标不读取 `tool_result`。
 
 研究模式：
 

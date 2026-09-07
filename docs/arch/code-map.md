@@ -23,7 +23,8 @@
   按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按 `toolCallId` 去重，
   统计 Schema 覆盖和非空顶层必填参数；旧版聊天结构不再支持，输出不含参数值或摘要。
 - `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
-  Schema，按调用输出合法/非法与违规类别聚合计数；额外字段仅诊断，不使调用非法。
+  Schema；聊天模式按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按
+  `toolCallId` 去重；旧版聊天结构不再支持，额外字段仅诊断，不使调用非法。
 - `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录，按稳定
   调用 ID 提取聊天/研究 query 和参数的内存候选；长期结果不得保留 query 或参数值。
 - `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
@@ -109,8 +110,9 @@
 - `tests/collectors/test_required_parameters.py`：必填参数目录解析、新版 canvas/研究参数计数、
   子 Agent 排除、跨消息去重、冲突定义、缺失字段、非法结构、占位值、未知 Schema、零必填
   参数及旧版聊天结构拒绝测试。
-- `tests/collectors/test_tool_argument_schema.py`：Schema 类型、数组元素、枚举、嵌套必填、
-  额外字段、未知工具、参数解析和研究调用去重测试。
+- `tests/collectors/test_tool_argument_schema.py`：新版 canvas/研究 Schema 校验、子 Agent
+  排除、跨消息去重、冲突定义、缺失字段、非法结构、旧版聊天拒绝、类型、数组元素、枚举、
+  嵌套必填、额外字段、未知工具和参数解析测试。
 - `tests/collectors/test_parameter_value_accuracy.py`：聊天/研究 query 与调用候选提取、手册
   描述目录、稳定 ID、研究去重、定义冲突和内存参数不可变测试。
 - `tests/collectors/test_routing.py`：聊天整体/子任务意图提取、MCP 能力范围、研究前缀映射、

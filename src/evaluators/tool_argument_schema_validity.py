@@ -14,7 +14,7 @@ class ToolArgumentSchemaValidityEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         """使用规范化阶段产生的安全聚合计数计算指标。"""

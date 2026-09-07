@@ -110,42 +110,114 @@ def build_tool_argument_schema_catalog(
 def normalize_chat_tool_argument_schema(
     trace: Mapping[str, object], catalog: ToolArgumentSchemaCatalog
 ) -> NormalizedToolArgumentSchemaTrace:
-    """对聊天工具调用执行 Schema 校验，未知工具只进入覆盖率诊断。"""
+    """按新版 canvas 的 `traceId + toolId` 去重后执行 Schema 校验。"""
+
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    trace_id = _identifier(meta.get("traceId"))
+    if trace_id is None:
+        return _chat_structure_error(catalog, trace_id=None, reason="missing_trace_id")
 
     normalized = _empty_result(
-        trace_id=_identifier(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         manual_version=catalog.manual_version,
     )
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        normalized["diagnostics"]["malformed_event_count"] = 1
-        normalized["normalization_error"] = "invalid_tool_call_queue"
-        return normalized
-
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
-            normalized["diagnostics"]["malformed_event_count"] += 1
-            continue
-        if event.get("event_type") != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            normalized["total_call_count"] += 1
-            normalized["diagnostics"]["malformed_event_count"] += 1
-            normalized["normalization_error"] = (
-                normalized["normalization_error"] or "missing_tool_request"
-            )
-            continue
-        _accumulate_call(
-            normalized,
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _chat_structure_error(
             catalog,
-            tool_name=request.get("toolName"),
-            arguments=request.get("arguments", _MISSING),
+            trace_id=trace_id,
+            reason="invalid_chat_trace_structure",
         )
+
+    definition_digests_by_id: dict[str, str | None] = {}
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
+            _record_chat_error(normalized, "invalid_chat_trace_structure")
+            continue
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            _record_chat_error(normalized, "invalid_chat_trace_structure")
+            continue
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    _record_chat_error(normalized, "invalid_chat_trace_structure")
+                    continue
+                call_id = _identifier(raw_call.get("toolId"))
+                tool_name = _identifier(raw_call.get("toolName"))
+                agent_name = _identifier(raw_call.get("agentName"))
+                if call_id is None and tool_name is None and agent_name is not None:
+                    continue
+                if call_id is None and (tool_name is not None or "arguments" in raw_call):
+                    _record_chat_error(normalized, "missing_call_id")
+                    continue
+                if call_id is not None and tool_name is None:
+                    _record_chat_error(normalized, "missing_tool_name")
+                    continue
+                if call_id is None or tool_name is None:
+                    _record_chat_error(normalized, "invalid_chat_trace_structure")
+                    continue
+                if "arguments" not in raw_call:
+                    _record_chat_error(normalized, "missing_call_arguments")
+                    continue
+
+                arguments = raw_call["arguments"]
+                definition_digest = _chat_definition_digest(tool_name, arguments)
+                if call_id in definition_digests_by_id:
+                    normalized["diagnostics"]["duplicate_call_definition_count"] += 1
+                    if definition_digests_by_id[call_id] != definition_digest:
+                        normalized["normalization_error"] = (
+                            normalized["normalization_error"] or "conflicting_call_definition"
+                        )
+                    continue
+                definition_digests_by_id[call_id] = definition_digest
+                _accumulate_call(normalized, catalog, tool_name=tool_name, arguments=arguments)
     return normalized
+
+
+def _chat_structure_error(
+    catalog: ToolArgumentSchemaCatalog,
+    *,
+    trace_id: str | None,
+    reason: str,
+) -> NormalizedToolArgumentSchemaTrace:
+    normalized = _empty_result(
+        trace_id=trace_id,
+        mode="chat",
+        manual_version=catalog.manual_version,
+    )
+    _record_chat_error(normalized, reason)
+    return normalized
+
+
+def _record_chat_error(normalized: NormalizedToolArgumentSchemaTrace, reason: str) -> None:
+    """保留首个稳定原因，并累计不含参数正文的异常事件数量。"""
+
+    normalized["diagnostics"]["malformed_event_count"] += 1
+    normalized["normalization_error"] = normalized["normalization_error"] or reason
 
 
 def normalize_research_tool_argument_schema(
@@ -389,6 +461,14 @@ def _definition_digest(tool_name: object, arguments: object) -> str | None:
     except (TypeError, ValueError):
         return None
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _chat_definition_digest(tool_name: str, arguments: object) -> str | None:
+    """统一对象与等价 JSON 对象字符串，避免重复定义被误判为冲突。"""
+
+    parsed_arguments = _parse_arguments(arguments)
+    comparable_arguments = parsed_arguments if parsed_arguments is not None else arguments
+    return _definition_digest(tool_name, comparable_arguments)
 
 
 def _empty_result(
