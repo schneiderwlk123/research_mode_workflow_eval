@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+import pytest
+
 from collectors.parameter_value_accuracy import build_parameter_value_catalog
 from collectors.time_range_accuracy import (
     normalize_chat_time_range,
@@ -174,6 +176,70 @@ def test_missing_query_conflict_and_malformed_arguments_are_explicit() -> None:
     assert missing_query["normalization_error"] == "missing_query"
     assert conflicting["normalization_error"] == "conflicting_call_definition"
     assert malformed["normalization_error"] == "incomplete_time_observation"
+
+
+@pytest.mark.parametrize(
+    ("trace", "reason"),
+    [
+        ({}, "invalid_chat_trace_structure"),
+        ({"canvas": {"meta": {}, "agents": []}}, "missing_trace_id"),
+        (
+            {
+                "canvas": {
+                    "meta": {"traceId": "trace-1", "query": "查询 2025 年数据"},
+                    "agents": "invalid",
+                }
+            },
+            "invalid_chat_trace_structure",
+        ),
+        (
+            {
+                "canvas": {
+                    "meta": {"traceId": "trace-1", "query": "查询 2025 年数据"},
+                    "agents": [{"messages": [{"content": {"tool_call": "invalid"}}]}],
+                }
+            },
+            "invalid_chat_trace_structure",
+        ),
+    ],
+)
+def test_chat_invalid_canvas_structure_is_isolated(trace: dict[str, object], reason: str) -> None:
+    normalized = normalize_chat_time_range(trace, build_parameter_value_catalog(_manual()))
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == reason
+
+
+@pytest.mark.parametrize(
+    ("call", "reason"),
+    [
+        ({"toolName": "quote", "arguments": {}}, "missing_call_id"),
+        ({"toolId": "call-1", "arguments": {}}, "missing_tool_name"),
+        ({"toolId": "call-1", "toolName": "quote"}, "missing_call_arguments"),
+    ],
+)
+def test_chat_missing_call_fields_are_not_computable(call: dict[str, object], reason: str) -> None:
+    normalized = normalize_chat_time_range(
+        _chat_trace("查询 2025 年数据", [call]),
+        build_parameter_value_catalog(_manual()),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == reason
+
+
+def test_legacy_chat_tool_call_queue_is_not_supported() -> None:
+    normalized = normalize_chat_time_range(
+        {
+            "traceId": "legacy",
+            "query": "查询 2025 年数据",
+            "tool_call_queue": [_chat_call("call-1", {"start_date": "2025-01-01"})],
+        },
+        build_parameter_value_catalog(_manual()),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
 
 
 def _chat_call(call_id: str, arguments: object) -> dict[str, object]:

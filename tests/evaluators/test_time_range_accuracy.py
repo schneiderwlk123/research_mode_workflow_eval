@@ -3,8 +3,11 @@ from collections.abc import Mapping
 
 import pytest
 
-from collectors.parameter_value_accuracy import ParameterValueCandidate
-from collectors.time_range_accuracy import TimeRangeCandidate
+from collectors.parameter_value_accuracy import (
+    ParameterValueCandidate,
+    build_parameter_value_catalog,
+)
+from collectors.time_range_accuracy import TimeRangeCandidate, normalize_chat_time_range
 from evaluators.base import EvaluationStatus
 from evaluators.time_range_accuracy import (
     TimeRangeAccuracyEvaluator,
@@ -80,11 +83,31 @@ def _assessed_response() -> dict[str, object]:
     }
 
 
+def _manual() -> dict[str, object]:
+    return {
+        "manual_version": "0.1.0",
+        "tools": [
+            {
+                "name": "quote",
+                "description": "查询指定时间范围内的行情。",
+                "parameters": [
+                    {
+                        "name": "start_date",
+                        "type": "string",
+                        "required": False,
+                        "description": "开始日期。",
+                    }
+                ],
+            }
+        ],
+    }
+
+
 def test_assessed_fields_produce_primary_accuracy_and_safe_counts() -> None:
     result = TimeRangeAccuracyEvaluator(FakeJudge(_assessed_response())).evaluate(_trace())
 
     assert result.metric_name == "time_range_extraction_accuracy"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(6 / 7)
     assert result.metadata["correct_field_count"] == 6
@@ -92,6 +115,45 @@ def test_assessed_fields_produce_primary_accuracy_and_safe_counts() -> None:
     assert result.metadata["assessable_field_count"] == 7
     assert "query" not in result.metadata
     assert "arguments" not in result.metadata
+
+
+def test_canvas_collector_output_with_meta_reference_time_is_accepted() -> None:
+    normalized = normalize_chat_time_range(
+        {
+            "canvas": {
+                "meta": {
+                    "traceId": "trace-1",
+                    "query": "查询近三年行情",
+                    "create_time": "2026-09-03T10:00:00+08:00",
+                },
+                "agents": [
+                    {
+                        "messages": [
+                            {
+                                "content": {
+                                    "tool_call": [
+                                        {
+                                            "toolId": "call-1",
+                                            "toolName": "quote",
+                                            "arguments": {"start_date": "2023-09-03"},
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+        build_parameter_value_catalog(_manual()),
+    )
+
+    result = TimeRangeAccuracyEvaluator(FakeJudge(_assessed_response())).evaluate(normalized)
+
+    assert result.status is EvaluationStatus.COMPUTED
+    assert result.evaluator_version == "1.1.0"
+    assert result.metadata["reference_time_source"] == "canvas_meta"
+    assert result.metadata["reference_time_present"] is True
 
 
 def test_no_calls_can_be_scored_as_total_omission() -> None:

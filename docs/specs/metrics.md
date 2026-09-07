@@ -748,7 +748,7 @@ incorrect = 1
   `insufficient_time_evidence`，结果为 `NOT_COMPUTABLE`。
 - Judge 调用异常或输出非法分别返回 `NOT_COMPUTABLE / judge_failure` 和
   `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.0.0`；Judge、模型、prompt 和 MCP 手册版本进入安全元数据。
+- evaluator 版本为 `1.1.0`；Judge、模型、prompt 和 MCP 手册版本进入安全元数据。
 
 ### 相对时间规则
 
@@ -767,6 +767,8 @@ incorrect = 1
 - 实际时间证据：普通工具请求的 `arguments`，并结合 `toolName` 对应的 MCP 参数说明。
 - 相对时间锚点：调用方显式值优先，否则使用 `canvas.meta.create_time`。新版请求对象没有
   独立 `create_time`，不得从数组位置推断调用时间。
+- `reference_time_source` 记录为 `provided`、`canvas_meta`、`event` 或 `missing`；旧聊天
+  请求级来源 `tool_request` 不再接受。
 - 调用按 `traceId + toolId` 去重；参数无法完整解析时返回
   `incomplete_time_observation`。
 - 没有工具调用但用户存在明确时间要求时仍调用 Judge，缺失的预期字段可计算为零分；固定
@@ -785,8 +787,10 @@ incorrect = 1
 持久化结果仅保留字段计数、调用与异常诊断、版本标识、reference time 是否存在及其来源。
 
 新版聊天日志重算状态：312/336 条 Trace 可构造时间范围 Judge 候选，24 条为明确前置失败；
-候选中包含 2,911 次手册覆盖工具调用。当前未执行时间 Judge，因此本次不产生
-`time_range_extraction_accuracy` 数值。
+336 条均具有可解析的 `canvas.meta.create_time`，候选中包含 4,266 次唯一普通工具调用，
+其中 2,911 次被手册覆盖、1,355 次为未知 Schema。当前未执行时间 Judge，因此本次不产生
+`time_range_extraction_accuracy` 数值。研究日志形成 1 个候选，30 次唯一调用中 5 次被手册
+覆盖，时间锚点来源为 `event`。
 
 ### 模拟计算
 

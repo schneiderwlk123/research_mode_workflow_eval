@@ -68,7 +68,7 @@ class TimeRangeAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -249,7 +249,7 @@ def _parse_trace(
         or mode is None
         or manual_version is None
         or tool_call_count is None
-        or reference_time_source not in {"provided", "tool_request", "event", "missing"}
+        or reference_time_source not in {"provided", "canvas_meta", "event", "missing"}
         or (candidate_value is not None and not isinstance(candidate_value, TimeRangeCandidate))
         or not isinstance(diagnostics_value, Mapping)
         or (error_value is not None and _text(error_value) is None)

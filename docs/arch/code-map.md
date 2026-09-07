@@ -83,7 +83,8 @@
 - `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
   OpenAI-compatible Judge；使用 JSON 响应模式，并以通用异常隔离供应商响应和密钥。
 - `src/evaluators/time_range_accuracy.py`：严格校验时间字段聚合计数、三态可计算边界和安全
-  reason code，计算 `time_range_extraction_accuracy`。
+  reason code，接受 `provided/canvas_meta/event/missing` 时间锚点来源并计算
+  `time_range_extraction_accuracy`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_time_range_judge.py`：将 query、相对时间锚点、工具参数及
   MCP 字段说明提交给 OpenAI-compatible Judge，并对供应商异常做脱敏隔离。
 - `src/evaluators/evidence_precision.py`：定义证据相关性 Judge 契约，严格校验逐单元三态
@@ -132,7 +133,7 @@
   MCP 能力提取，JSON 参数、证据与调用去重、前置失败、非法结构、旧结构拒绝，以及研究
   模式回归测试。
 - `tests/collectors/test_time_range_accuracy.py`：新版 canvas/研究时间候选、锚点优先级、调用
-  去重、无调用零分入口、前置失败和不完整参数观察测试。
+  去重、缺失调用字段、非法结构、旧结构拒绝、无调用零分入口、前置失败和不完整参数观察测试。
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、结构化单元拆分、内存去重、
   聊天位置标识、研究调用关联、不可拆分响应和调用冲突测试。
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
