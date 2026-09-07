@@ -192,6 +192,12 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 证据查准率研究日志结构上限验算: 5 个目录内调用中抽取 7 个稳定证据单元，但另有 3 个
   成功响应无稳定来源边界，因此返回 incomplete_evidence_segmentation，不缩小分母；未调用
   真实 Judge，未生成语义分数
+证据查准率真实前 10 条聊天日志: 使用仅覆盖样本内明确外部检索、行情、财务、公告和文档
+  来源的临时 17 工具目录 `evidence-scope-8ce42ba0453c432e`；1 条 computed，50 个证据单元中
+  relevant 37、irrelevant 13，结果 37/50 = 0.74；1 条因 24 个单元中存在 1 个
+  not_assessable 返回 incomplete_relevance_judgment；1 条含 205 个单元的请求返回
+  judge_failure；5 条 incomplete_evidence_segmentation，2 条 no_evidence_calls。该临时目录
+  未进入生产配置，结果不得作为正式生产基线
 陈述支持率测试: 17 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
 陈述支持率聊天模式: 顶层 query/answer 可形成 Judge 候选；没有证据或明确空结果仍可得到
   0 分，固定服务失败、缺少回答、证据缺终态和部分响应不可拆分均返回稳定安全原因码

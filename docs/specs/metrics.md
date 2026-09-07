@@ -891,6 +891,12 @@ query、证据正文、内容摘要与 Judge 原始响应只存在于内存中�
 5 个目录内调用、5 个成功响应和 7 个稳定单元，但另有 3 个响应不可拆分，因此返回
 `incomplete_evidence_segmentation`。
 
+真实前 10 条聊天日志使用临时 17 工具证据目录执行 Judge：1 条得到
+`37/50 = 0.74`；1 条因 1 个 `not_assessable` 返回 `incomplete_relevance_judgment`；1 条包含
+205 个证据单元的请求返回 `judge_failure`；其余为 5 条 `incomplete_evidence_segmentation`
+和 2 条 `no_evidence_calls`。临时目录版本为 `evidence-scope-8ce42ba0453c432e`，未进入生产
+配置，因此该结果只用于真实调用冒烟，不作为正式生产指标。
+
 ### 模拟计算
 
 ```text
