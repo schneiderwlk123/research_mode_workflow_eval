@@ -1083,8 +1083,16 @@ Judge 只负责拆分数值声明，按主体、指标、时间、统计范围�
 `evidence-scope-8ce42ba0453c432e` 仅验证结构链路时，336 条 Trace 中 192 条形成 Judge 候选，
 118 条返回 `incomplete_evidence_segmentation`，25 条返回 `pre_answer_failure`，1 条返回
 `missing_final_answer`，合计观察 18,257 个稳定证据单元。前 10 条中第 2、3、8、9 条形成候选，
-证据单元数分别为 24、0、205、50。生产证据工具目录尚未确认，本次未运行数值对齐 Judge，
-因此不产生正式 `retrieved_numeric_consistency_rate` 数值。
+证据单元数分别为 24、0、205、50。生产证据工具目录尚未确认，全量 336 条未运行数值对齐
+Judge，因此不产生正式 `retrieved_numeric_consistency_rate` 数值。
+
+真实前 10 条新版聊天日志使用同一临时 17 工具目录执行数值对齐 Judge：10 条均为
+`NOT_COMPUTABLE`。其中 4 条 `incomplete_evidence_segmentation`，2 条
+`invalid_judge_output`，1 条 `no_retrieved_numeric_claims`，1 条 `missing_final_answer`，
+1 条 `pre_answer_failure`，另有 1 条包含 205 个证据单元的请求在约 120.334 秒时返回
+`judge_failure`。两条非法 Judge 输出分别对应 24 和 50 个证据单元，请求耗时约 104.128 秒和
+14.474 秒；空证据候选在约 0.599 秒内合法返回无直接召回数值。没有可计算 Trace，因此不生成
+微平均数值。该临时目录未进入生产配置，本次结果只用于真实链路冒烟。
 
 ## 14. MCP 工具调用膨胀率
 

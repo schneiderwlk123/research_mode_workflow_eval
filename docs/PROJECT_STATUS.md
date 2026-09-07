@@ -225,7 +225,12 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 最终数值与召回证据一致率新版聊天结构验算: 使用临时 17 工具目录时，336 条中 192 条形成
   Judge 候选，共观察 18257 个稳定证据单元；118 条 incomplete_evidence_segmentation，25 条
   pre_answer_failure，1 条 missing_final_answer。前 10 条中第 2、3、8、9 条形成候选，分别有
-  24、0、205、50 个证据单元；尚未调用真实数值对齐 Judge，不生成正式语义分数
+  24、0、205、50 个证据单元；全量 336 条尚未调用真实数值对齐 Judge，不生成正式语义分数
+最终数值与召回证据一致率真实前 10 条新版聊天日志: 10 条均为 NOT_COMPUTABLE；4 条
+  incomplete_evidence_segmentation，2 条 invalid_judge_output，1 条
+  no_retrieved_numeric_claims，1 条 missing_final_answer，1 条 pre_answer_failure，1 条含
+  205 个证据单元的请求在约 120.334 秒时返回 judge_failure。两条非法 Judge 输出耗时约
+  104.128 秒和 14.474 秒；没有可计算 Trace，不生成微平均值，结果只用于真实链路冒烟
 首次工具决策时延测试: 19 项通过；聊天与研究模式均为 DIRECTLY_COMPUTABLE
 首次工具决策时延聊天日志验算: 106 条中 40 条可计算，66 条返回 no_tool_decision；可计算样本
   最小 2000 ms、中位数 5500 ms、平均 78550 ms、最大 1939000 ms，3 条超过 60 秒，
