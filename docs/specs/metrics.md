@@ -1014,87 +1014,7 @@ C2 同比增长 10% -> unsupported
 陈述支持率 = 1 ÷ 2 = 0.5
 ```
 
-## 13. 最终数值与召回证据一致率
-
-### 指标定义
-
-本指标只评估最终回答中声称直接来自中间召回证据的事实数值。用户输入数字、日期、证券代码、
-序号、模型自行计算的合计或比率以及非事实数字均排除，避免与公式计算准确率混淆。
-
-```text
-最终数值与召回证据一致率 =
-  一致的直接召回数值声明数 ÷ 可验证的直接召回数值声明总数
-```
-
-Judge 只负责拆分数值声明，按主体、指标、时间、统计范围、单位、币种和明确来源完成语义对齐，
-并返回答案值、证据值、统一单位和倍率。evaluator 使用 `Decimal` 确定性比较，不接受 Judge 直接
-给出“一致/不一致”结论。
-
-```text
-答案规范值 = answer_value × answer_scale
-证据规范值 = evidence_value × evidence_scale
-舍入容差 = 0.5 × 10^(-answer_decimal_places) × answer_scale
-
-一致条件 = |答案规范值 - 证据规范值| <= 舍入容差
-```
-
-- `aligned_evidence` 必须引用至少一个真实 `evidence_unit_id`，并同时提供双方数值、正倍率、
-  统一单位和答案展示小数位。
-- 完整证据中没有对应值时使用 `no_matching_retrieved_value`，该声明计入分母并判为不一致。
-- 用户输入、日期或编号、派生计算和非事实数字分别以固定 reason code 排除。
-- 来源冲突、单位不明、数值声明歧义或证据不完整返回 `not_assessable`；只要存在此类声明，
-  整个会话返回 `NOT_COMPUTABLE / incomplete_numeric_judgment`，不得缩小分母。
-- 最终回答没有直接召回数值时返回 `NOT_COMPUTABLE / no_retrieved_numeric_claims`。
-- 数值、回答、证据正文和 Judge 原始响应只存在于内存中；持久化结果仅包含计数和版本信息。
-- 新版 canvas 适配的 evaluator 版本为 `1.1.0`，并保留重复结果观察与孤立结果诊断计数。
-
-### 分模式可计算性与字段映射
-
-聊天模式：`CONDITIONALLY_COMPUTABLE`。
-
-- 会话标识、需求和最终回答：`canvas.meta.traceId`、`canvas.meta.query` 和
-  `canvas.answer.answer`。
-- 证据复用显式 `EvidenceSourceCatalog`，从普通工具请求中筛选已登记证据工具，并按
-  `traceId + toolId` 关联 `content.tool_result[]` 的成功响应。
-- 缺少最终回答、证据终态或稳定证据边界时沿用 `missing_final_answer`、
-  `incomplete_evidence_observation` 和 `incomplete_evidence_segmentation`。
-
-研究模式：`CONDITIONALLY_COMPUTABLE`。
-
-- 会话标识：`sessionID + userMessageID`。
-- 最终回答选择 `turn.end` 前最后一个 assistant 文本；证据按 `callID` 连接工具定义和成功终态。
-- 成功生成产物但日志没有最终正文时返回 `missing_final_artifact_content`；接入产物读取能力前
-  不检查文件内部数值。
-
-### 模拟计算
-
-```text
-证据：收入 123.46 亿元；净利润 10.20 亿元；毛利率 25.3%
-回答：收入 123.5 亿元；净利润 12.2 亿元；毛利率 25.3%
-
-收入：正常舍入，一致
-净利润：不一致
-毛利率：一致
-
-最终数值与召回证据一致率 = 2 ÷ 3 ≈ 0.66667
-```
-
-新版聊天日志重算状态：使用临时 17 工具证据目录
-`evidence-scope-8ce42ba0453c432e` 仅验证结构链路时，336 条 Trace 中 192 条形成 Judge 候选，
-118 条返回 `incomplete_evidence_segmentation`，25 条返回 `pre_answer_failure`，1 条返回
-`missing_final_answer`，合计观察 18,257 个稳定证据单元。前 10 条中第 2、3、8、9 条形成候选，
-证据单元数分别为 24、0、205、50。生产证据工具目录尚未确认，全量 336 条未运行数值对齐
-Judge，因此不产生正式 `retrieved_numeric_consistency_rate` 数值。
-
-真实前 10 条新版聊天日志使用同一临时 17 工具目录执行数值对齐 Judge：10 条均为
-`NOT_COMPUTABLE`。其中 4 条 `incomplete_evidence_segmentation`，2 条
-`invalid_judge_output`，1 条 `no_retrieved_numeric_claims`，1 条 `missing_final_answer`，
-1 条 `pre_answer_failure`，另有 1 条包含 205 个证据单元的请求在约 120.334 秒时返回
-`judge_failure`。两条非法 Judge 输出分别对应 24 和 50 个证据单元，请求耗时约 104.128 秒和
-14.474 秒；空证据候选在约 0.599 秒内合法返回无直接召回数值。没有可计算 Trace，因此不生成
-微平均数值。该临时目录未进入生产配置，本次结果只用于真实链路冒烟。
-
-## 14. MCP 工具调用膨胀率
+## 13. MCP 工具调用膨胀率
 
 ### 指标定义
 
@@ -1159,7 +1079,7 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 统计得到 2,878 个不同请求签名和 33 次膨胀调用，`33 / 2911 ≈ 0.01134`；1,355 次手册外
 调用不进入分子和分母。271/336 条 Trace 至少包含一次已登记 MCP 调用。
 
-## 15. 首次工具决策时延
+## 14. 首次工具决策时延
 
 ### 指标定义
 
@@ -1220,7 +1140,7 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 时间，因此返回 `missing_tool_decision_timestamp`；其余 32 条返回 `no_tool_decision`。新版
 聊天模式不能汇总该指标的毫秒值。
 
-## 20. 超时率
+## 19. 超时率
 
 ### 指标定义
 
