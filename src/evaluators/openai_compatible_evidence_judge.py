@@ -1,22 +1,23 @@
 """通过 OpenAI-compatible Chat Completions API 判断证据相关性。"""
 
 import json
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Mapping
-from typing import cast
+from collections.abc import Mapping
 
 from evaluators.evidence_precision import EvidenceRelevanceJudgeRequest
+from evaluators.openai_compatible_judge_runtime import (
+    JudgeTransport,
+    OpenAICompatibleJudgeClient,
+)
 from evaluators.openai_compatible_parameter_judge import JudgeSettings
 
-EvidenceJudgeTransport = Callable[[str, bytes, Mapping[str, str], float], bytes]
+EvidenceJudgeTransport = JudgeTransport
 
 
 class OpenAICompatibleEvidenceRelevanceJudge:
-    """提交来源原生证据单元，并隔离供应商异常中的正文与密钥。"""
+    """分批提交来源证据单元，并隔离供应商异常中的正文与密钥。"""
 
     judge_name = "openai-compatible-evidence-relevance"
-    prompt_version = "1.0.0"
+    prompt_version = "1.1.0"
 
     def __init__(
         self,
@@ -24,90 +25,78 @@ class OpenAICompatibleEvidenceRelevanceJudge:
         *,
         transport: EvidenceJudgeTransport | None = None,
         timeout_seconds: float = 90,
+        max_request_bytes: int = 512 * 1024,
+        max_attempts: int = 2,
+        batch_size: int = 40,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds 必须大于零")
-        self._settings = settings
-        self._transport = transport or _post_json
-        self._timeout_seconds = timeout_seconds
+        if batch_size <= 0:
+            raise ValueError("batch_size 必须大于零")
+        self._client = OpenAICompatibleJudgeClient(
+            settings,
+            transport=transport,
+            timeout_seconds=timeout_seconds,
+            max_request_bytes=max_request_bytes,
+            max_attempts=max_attempts,
+        )
+        self._batch_size = batch_size
         self.judge_version = settings.model
 
     def judge(self, request: EvidenceRelevanceJudgeRequest) -> Mapping[str, object]:
-        """请求每个证据单元的严格相关、无关或不可判定结果。"""
+        """分批判断全部证据；任一批失败时不返回部分结果。"""
 
-        user_payload = {
-            "query": request.query,
-            "evidence_units": [
-                {
-                    "unit_id": unit.unit_id,
-                    "tool_name": unit.tool_name,
-                    "content": json.loads(unit.content),
-                }
-                for unit in request.evidence_units
-            ],
-        }
-        payload = {
-            "model": self._settings.model,
-            "temperature": 0,
-            "max_tokens": 4096,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":")),
-                },
-            ],
-        }
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self._settings.api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            raw_response = self._transport(
-                _chat_completions_endpoint(self._settings.api_url),
-                body,
-                headers,
-                self._timeout_seconds,
+        judgments: list[object] = []
+        units = request.evidence_units
+        for offset in range(0, len(units), self._batch_size):
+            batch = units[offset : offset + self._batch_size]
+            user_payload = {
+                "query": request.query,
+                "evidence_units": [
+                    {
+                        "unit_id": unit.unit_id,
+                        "tool_name": unit.tool_name,
+                        "content": json.loads(unit.content),
+                    }
+                    for unit in batch
+                ],
+            }
+            response = self._client.request(
+                system_prompt=_SYSTEM_PROMPT,
+                user_payload=user_payload,
+                schema_name="evidence_relevance",
+                response_schema=_RESPONSE_SCHEMA,
+                max_tokens=4096,
             )
-            envelope = json.loads(raw_response)
-            if not isinstance(envelope, Mapping) or envelope.get("error") is not None:
-                raise ValueError("invalid provider envelope")
-            choices = envelope.get("choices")
-            if not isinstance(choices, list) or not choices:
-                raise ValueError("missing choices")
-            first = choices[0]
-            if not isinstance(first, Mapping):
-                raise ValueError("invalid choice")
-            message = first.get("message")
-            if not isinstance(message, Mapping):
-                raise ValueError("missing message")
-            content = message.get("content")
-            if not isinstance(content, str):
-                raise ValueError("missing content")
-            parsed = json.loads(content)
-            if not isinstance(parsed, Mapping):
-                raise ValueError("invalid Judge content")
-            return cast(Mapping[str, object], parsed)
-        except Exception:
-            raise RuntimeError("证据相关性 Judge 请求失败") from None
+            raw_judgments = response.get("judgments")
+            if not isinstance(raw_judgments, list):
+                return response
+            judgments.extend(raw_judgments)
+        return {"judgments": judgments}
 
 
-def _post_json(url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float) -> bytes:
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return cast(bytes, response.read())
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        raise RuntimeError("证据相关性 Judge 请求失败") from None
-
-
-def _chat_completions_endpoint(api_url: str) -> str:
-    normalized = api_url.strip().rstrip("/")
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
+_RESPONSE_SCHEMA: Mapping[str, object] = {
+    "type": "object",
+    "properties": {
+        "judgments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "unit_id": {"type": "string"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["relevant", "irrelevant", "not_assessable"],
+                    },
+                    "reason_code": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["unit_id", "verdict", "reason_code", "confidence"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["judgments"],
+    "additionalProperties": False,
+}
 
 
 _SYSTEM_PROMPT = """你是严格的证据检索相关性评测器。

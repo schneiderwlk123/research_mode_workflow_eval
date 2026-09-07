@@ -119,7 +119,12 @@ def test_judge_sends_json_mode_request_and_parses_field_verdicts() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["model"] == "test-model"
-    assert body["response_format"] == {"type": "json_object"}
+    response_format = body["response_format"]
+    assert isinstance(response_format, dict)
+    assert response_format["type"] == "json_schema"
+    json_schema = response_format["json_schema"]
+    assert isinstance(json_schema, dict)
+    assert json_schema["strict"] is True
     assert response["fields"][0]["field_path"] == "querys"  # type: ignore[index]
 
 

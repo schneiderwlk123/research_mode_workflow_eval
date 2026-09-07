@@ -1,18 +1,16 @@
 """通过 OpenAI-compatible Chat Completions API 调用参数值 Judge。"""
 
-import json
 import os
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
 from urllib.parse import urlparse
 
+from evaluators.openai_compatible_judge_runtime import (
+    JudgeTransport,
+    OpenAICompatibleJudgeClient,
+)
 from evaluators.parameter_value_accuracy import ParameterValueJudgeRequest
-
-JudgeTransport = Callable[[str, bytes, Mapping[str, str], float], bytes]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +64,7 @@ class OpenAICompatibleParameterValueJudge:
     """将参数值评测请求转换为结构化 Chat Completions 调用。"""
 
     judge_name = "openai-compatible"
-    prompt_version = "1.0.0"
+    prompt_version = "1.1.0"
 
     def __init__(
         self,
@@ -74,96 +72,34 @@ class OpenAICompatibleParameterValueJudge:
         *,
         transport: JudgeTransport | None = None,
         timeout_seconds: float = 90,
+        max_request_bytes: int = 512 * 1024,
+        max_attempts: int = 2,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds 必须大于零")
-        self._settings = settings
-        self._transport = transport or _post_json
-        self._timeout_seconds = timeout_seconds
+        self._client = OpenAICompatibleJudgeClient(
+            settings,
+            transport=transport,
+            timeout_seconds=timeout_seconds,
+            max_request_bytes=max_request_bytes,
+            max_attempts=max_attempts,
+        )
         self.judge_version = settings.model
 
     def judge(self, request: ParameterValueJudgeRequest) -> Mapping[str, object]:
         """调用 Judge 并只返回经过 JSON 解码的结构化结果。"""
 
-        payload = {
-            "model": self._settings.model,
-            "max_tokens": 2048,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "query": request.query,
-                            "tool_name": request.tool_name,
-                            "tool_description": request.tool_description,
-                            "parameter_descriptions": dict(request.parameter_descriptions),
-                            "arguments": _plain_value(request.arguments),
-                        },
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
-                },
-            ],
-        }
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self._settings.api_key}",
-            "Content-Type": "application/json",
-        }
-        endpoint = _chat_completions_endpoint(self._settings.api_url)
-        try:
-            raw_response = self._transport(
-                endpoint,
-                body,
-                headers,
-                self._timeout_seconds,
-            )
-            envelope = json.loads(raw_response)
-            if not isinstance(envelope, Mapping) or envelope.get("error") is not None:
-                raise ValueError("invalid provider envelope")
-            choices = envelope.get("choices")
-            if not isinstance(choices, list) or not choices:
-                raise ValueError("missing choices")
-            first_choice = choices[0]
-            if not isinstance(first_choice, Mapping):
-                raise ValueError("invalid choice")
-            message = first_choice.get("message")
-            if not isinstance(message, Mapping):
-                raise ValueError("missing message")
-            content = message.get("content")
-            if not isinstance(content, str):
-                raise ValueError("missing content")
-            parsed = json.loads(content)
-            if not isinstance(parsed, Mapping):
-                raise ValueError("Judge content must be an object")
-            return cast(Mapping[str, object], parsed)
-        except Exception as error:
-            if isinstance(error, RuntimeError) and str(error) == "Judge 请求失败":
-                raise
-            raise RuntimeError("Judge 请求失败") from None
-
-
-def _post_json(
-    url: str,
-    body: bytes,
-    headers: Mapping[str, str],
-    timeout_seconds: float,
-) -> bytes:
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return cast(bytes, response.read())
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
-        raise RuntimeError("Judge 请求失败") from None
-
-
-def _chat_completions_endpoint(api_url: str) -> str:
-    normalized = api_url.strip().rstrip("/")
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
+        return self._client.request(
+            system_prompt=_SYSTEM_PROMPT,
+            user_payload={
+                "query": request.query,
+                "tool_name": request.tool_name,
+                "tool_description": request.tool_description,
+                "parameter_descriptions": dict(request.parameter_descriptions),
+                "arguments": _plain_value(request.arguments),
+            },
+            schema_name="parameter_value_accuracy",
+            response_schema=_RESPONSE_SCHEMA,
+            max_tokens=2048,
+        )
 
 
 def _plain_value(value: object) -> object:
@@ -172,6 +108,32 @@ def _plain_value(value: object) -> object:
     if isinstance(value, tuple):
         return [_plain_value(item) for item in value]
     return value
+
+
+_RESPONSE_SCHEMA: Mapping[str, object] = {
+    "type": "object",
+    "properties": {
+        "fields": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "field_path": {"type": "string"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["correct", "incorrect", "not_assessable"],
+                    },
+                    "reason_code": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["field_path", "verdict", "reason_code", "confidence"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["fields"],
+    "additionalProperties": False,
+}
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:

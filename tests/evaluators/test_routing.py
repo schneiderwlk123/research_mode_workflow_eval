@@ -4,6 +4,7 @@ import pytest
 
 from collectors.routing import CapabilityCatalog, build_capability_catalog
 from evaluators.base import EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 from evaluators.routing import (
     ReusableIntentRouteMapping,
     RoutingJudgeRequest,
@@ -122,10 +123,10 @@ def test_one_judge_assessment_drives_precision_recall_and_reusable_table() -> No
     assert len(judge.requests) == 1
     assert judge.requests[0].reusable_mappings == store.loaded
     assert precision.metric_name == "routing_precision"
-    assert precision.evaluator_version == "1.1.0"
+    assert precision.evaluator_version == "1.2.0"
     assert precision.value == 1.0
     assert recall.metric_name == "routing_recall"
-    assert recall.evaluator_version == "1.1.0"
+    assert recall.evaluator_version == "1.2.0"
     assert recall.value == pytest.approx(2 / 3)
     assert precision.metadata["true_positive_count"] == 2
     assert precision.metadata["false_positive_count"] == 0
@@ -226,6 +227,18 @@ def test_judge_failure_does_not_echo_intent() -> None:
     assert result.status is EvaluationStatus.NOT_COMPUTABLE
     assert result.metadata["reason"] == "judge_failure"
     assert "secret query" not in repr(result.metadata)
+
+
+def test_shared_judge_failure_reason_is_preserved() -> None:
+    assessment = build_routing_assessment(
+        _candidate("quote"),
+        _catalog(),
+        FakeJudge(JudgeExecutionError("judge_connection_error", {"judge_attempt_count": 2})),
+    )
+
+    result = RoutingRecallEvaluator().evaluate(assessment)
+
+    assert result.metadata["reason"] == "judge_connection_error"
 
 
 def test_mapping_store_failure_does_not_change_metric_result() -> None:

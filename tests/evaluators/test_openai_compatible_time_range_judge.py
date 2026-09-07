@@ -70,7 +70,12 @@ def test_time_range_judge_sends_schema_context_and_parses_response() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["temperature"] == 0
-    assert body["response_format"] == {"type": "json_object"}
+    response_format = body["response_format"]
+    assert isinstance(response_format, dict)
+    assert response_format["type"] == "json_schema"
+    json_schema = response_format["json_schema"]
+    assert isinstance(json_schema, dict)
+    assert json_schema["strict"] is True
     user_payload = json.loads(body["messages"][1]["content"])
     assert user_payload["reference_time"] == "2026-09-03T00:00:00Z"
     assert user_payload["tool_calls"][0]["arguments"]["start_date"] == "2023-09-03"

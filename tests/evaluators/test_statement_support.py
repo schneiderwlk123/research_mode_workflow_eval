@@ -5,6 +5,7 @@ import pytest
 from collectors.evidence_quality import EvidenceUnit, build_evidence_source_catalog
 from collectors.statement_support import StatementSupportCandidate, normalize_chat_statement_support
 from evaluators.base import EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 from evaluators.statement_support import StatementSupportEvaluator, StatementSupportJudgeRequest
 
 
@@ -88,7 +89,7 @@ def test_supported_verifiable_claims_divided_by_all_verifiable_claims(mode: str)
     result = StatementSupportEvaluator(judge).evaluate(_trace(mode=mode))
 
     assert result.metric_name == "statement_support_rate"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.5
     assert result.metadata["verifiable_claim_count"] == 2
@@ -145,7 +146,7 @@ def test_canvas_collector_output_is_accepted_by_evaluator() -> None:
 
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 1.0
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
 
 
 def test_no_evidence_can_produce_zero_and_no_verifiable_claims_is_not_computable() -> None:
@@ -204,3 +205,16 @@ def test_normalization_and_judge_failures_do_not_persist_sensitive_text() -> Non
     assert "敏感正文" not in repr(failed.metadata)
     assert missing.metadata["reason"] == "incomplete_evidence_observation"
     assert len(judge.requests) == 1
+
+
+def test_shared_judge_failure_keeps_safe_reason_and_diagnostics() -> None:
+    error = JudgeExecutionError(
+        "judge_input_too_large",
+        {"request_byte_count": 815437, "max_request_bytes": 524288, "judge_attempt_count": 0},
+    )
+
+    result = StatementSupportEvaluator(FakeJudge(error)).evaluate(_trace())
+
+    assert result.metadata["reason"] == "judge_input_too_large"
+    assert result.metadata["request_byte_count"] == 815437
+    assert result.metadata["max_request_bytes"] == 524288

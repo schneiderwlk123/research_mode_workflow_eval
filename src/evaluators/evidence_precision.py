@@ -8,6 +8,7 @@ from typing import Protocol
 
 from collectors.evidence_quality import EvidencePrecisionCandidate, EvidenceUnit
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import judge_error_metadata
 
 _ALLOWED_REASON_CODES = {
     "relevant": frozenset(
@@ -74,7 +75,7 @@ class EvidencePrecisionEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -125,8 +126,10 @@ class EvidencePrecisionEvaluator(BaseEvaluator):
         )
         try:
             response = self._judge.judge(request)
-        except Exception:
-            metadata["reason"] = "judge_failure"
+        except Exception as judge_error:
+            reason, safe_metadata = judge_error_metadata(judge_error)
+            metadata.update(safe_metadata)
+            metadata["reason"] = reason
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
         judgments = _parse_judgments(response, candidate.evidence_units)
         if judgments is None:

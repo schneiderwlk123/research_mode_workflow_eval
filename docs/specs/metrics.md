@@ -25,6 +25,23 @@
 本次只对结构确定且不依赖外部 Judge 或生产 SLA 的指标给出真实数值。需要 Judge、显式证据
 工具目录或生产 SLA 的指标只重算候选范围和可计算性，不伪造最终得分。
 
+### OpenAI-compatible Judge 统一执行约定
+
+参数值准确率、路由 Precision/Recall、意图识别准确率、时间范围提取准确率、证据查准率和
+陈述支持率共用同一 Judge 运行时：
+
+- 首选严格 `response_format.type = json_schema`；仅当供应商以 HTTP 400 拒绝该格式时，回退
+  一次 `json_object`。无论供应商是否执行 Schema，evaluator 都必须再次校验业务约束。
+- 默认单个请求体上限为 512 KiB，超过上限不发送网络请求，返回
+  `judge_input_too_large`。默认最多尝试 2 次，对超时、连接失败、HTTP 429 和 HTTP 5xx
+  执行指数退避重试；其他 HTTP 错误不重试。
+- `finish_reason = length` 显式归类为 `judge_output_truncated`，不得把截断 JSON 混同为普通
+  Schema 错误。传输和响应错误使用稳定原因码：`judge_timeout`、`judge_rate_limited`、
+  `judge_http_5xx`、`judge_http_error`、`judge_connection_error`、`judge_transport_error`、
+  `judge_invalid_json`、`judge_invalid_response`、`judge_empty_response`。
+- 持久化诊断仅允许请求/响应字节数、尝试次数、请求上限和 HTTP 状态码；不得记录请求正文、
+  响应正文、密钥或供应商错误正文。
+
 ## 1. 调用事件完整率
 
 ### 指标定义
@@ -409,7 +426,9 @@ MCP 手册：
 字段时分别返回 `no_tool_calls`、`no_schema_covered_calls` 或 `no_assessable_fields`。
 
 单个 Judge 超时、异常或返回非法结构时增加 `judge_failed_call_count`，其他调用继续计算；
-全部候选调用失败时返回 `ERROR / judge_failure`。结果只保留聚合计数、原因类别及版本，不得
+全部候选调用失败且原因唯一时返回对应稳定原因码；混合失败时返回
+`ERROR / judge_failure`。非法业务输出记为 `invalid_judge_output`。结果只保留聚合计数、
+失败原因计数及版本，不得
 持久化 query、参数值、Judge 原始响应或模型推导出的标准答案。
 
 ### 模拟计算
@@ -433,6 +452,7 @@ Judge 可判定覆盖率和 Schema 覆盖率不计算，也不得写入最终结
 OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
 固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
 其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
+evaluator 版本为 `1.3.0`，Judge prompt 版本为 `1.1.0`。
 
 新版聊天日志重算状态：4,266 次普通调用中可构造 2,911 个手册覆盖 Judge 候选，覆盖 271 条
 Trace。当前未执行真实 Judge，因此本次不产生 `parameter_value_accuracy_rate` 数值。
@@ -554,7 +574,9 @@ MCP 手册：
 本次未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
 
 新版聊天适配按两个批次分别验收 Precision 与 Recall；两者共用一次 Judge 和 TP/FP/FN
-计数，`routing_precision` 与 `routing_recall` 的 evaluator 版本现均为 `1.1.0`。
+计数，`routing_precision` 与 `routing_recall` 的 evaluator 版本现均为 `1.2.0`；Judge
+prompt 版本为 `1.1.0`。共享运行时失败会保留对应稳定原因码，不再统一折叠为
+`judge_failure`。
 
 ### 模拟计算
 
@@ -661,9 +683,11 @@ T3 的时间约束不同，不属于冗余。
 - Judge 输出必须且只能包含 `verdict`、`reason_code`、`confidence`。`confidence` 必须是
   `[0, 1]` 内的有限数值，且 verdict 与 reason code 必须匹配固定白名单。
 - `not_assessable` 返回 `NOT_COMPUTABLE / insufficient_intent_evidence`，不进入准确率分母。
-- Judge 调用异常返回 `NOT_COMPUTABLE / judge_failure`；结构化输出非法返回
+- Judge 调用异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码；非共享 Judge 的未知异常
+  仍返回 `judge_failure`。结构化输出非法返回
   `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.1.0`；Judge 名称、模型版本和 prompt 版本进入安全元数据。
+- evaluator 版本为 `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge 名称、模型版本和 prompt
+  版本进入安全元数据。
 
 ### 分模式可计算性与字段映射
 
@@ -746,9 +770,11 @@ incorrect = 1
 - Judge 返回 `not_assessable` 时，使用 `no_temporal_requirement`、
   `missing_reference_time`、`ambiguous_temporal_requirement` 或
   `insufficient_time_evidence`，结果为 `NOT_COMPUTABLE`。
-- Judge 调用异常或输出非法分别返回 `NOT_COMPUTABLE / judge_failure` 和
+- Judge 调用异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码，未知异常仍归为
+  `judge_failure`；输出非法返回
   `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.1.0`；Judge、模型、prompt 和 MCP 手册版本进入安全元数据。
+- evaluator 版本为 `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge、模型、prompt 和 MCP
+  手册版本进入安全元数据。
 
 ### 相对时间规则
 
@@ -833,9 +859,12 @@ incorrect = 1
 - Judge 必须为每个单元返回一次 `relevant`、`irrelevant` 或 `not_assessable`。只要存在
   `not_assessable`，完整分母就无法可靠判断，返回
   `NOT_COMPUTABLE / incomplete_relevance_judgment`，不得将其当作无关或从分母删除。
-- Judge 异常和非法结构分别返回 `NOT_COMPUTABLE / judge_failure` 与
-  `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为 `1.1.0`，Judge 名称、模型、
-  prompt 和 MCP 手册版本进入安全元数据。
+- Judge 输入默认按每批 40 个证据单元安全分批，所有批次成功后才合并；任一批失败时整条
+  Trace 不可计算，不返回部分分数，也不缩小完整证据分母。
+- Judge 异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码，未知异常仍归为
+  `judge_failure`；非法结构返回 `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为
+  `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge 名称、模型、prompt 和 MCP 手册版本进入
+  安全元数据。
 
 ### 相关性口径
 
@@ -928,9 +957,13 @@ irrelevant 证据单元数 = 2
   可验证事实应判为 `unsupported`，因此指标可以正常得到 `0`，不得因分子为零而不可计算。
 - 任一可验证陈述为 `not_assessable` 时返回
   `NOT_COMPUTABLE / incomplete_claim_judgment`，不得将其当作不支持或从分母删除。
-- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。Judge 异常和非法
-  结构分别返回 `judge_failure` 与 `invalid_judge_output`。新版 canvas 适配的 evaluator 版本为
+- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。Judge 异常返回
+  统一运行时的稳定原因码，未知异常仍归为 `judge_failure`；非法结构返回
+  `invalid_judge_output`。新版 canvas 适配的 evaluator 版本为 `1.2.0`，Judge prompt 版本为
   `1.1.0`。
+- 本指标必须同时看到完整回答与全部证据，不能按证据批次独立判定后合并，否则会遗漏跨证据
+  组合支持。请求体超过默认 512 KiB 时快速返回 `judge_input_too_large`，不发送网络请求，
+  不估算部分结果。
 
 ### Judge 契约
 

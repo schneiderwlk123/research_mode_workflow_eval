@@ -9,6 +9,7 @@ from collectors.parameter_value_accuracy import (
 )
 from collectors.time_range_accuracy import TimeRangeCandidate, normalize_chat_time_range
 from evaluators.base import EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 from evaluators.time_range_accuracy import (
     TimeRangeAccuracyEvaluator,
     TimeRangeJudgeRequest,
@@ -107,7 +108,7 @@ def test_assessed_fields_produce_primary_accuracy_and_safe_counts() -> None:
     result = TimeRangeAccuracyEvaluator(FakeJudge(_assessed_response())).evaluate(_trace())
 
     assert result.metric_name == "time_range_extraction_accuracy"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(6 / 7)
     assert result.metadata["correct_field_count"] == 6
@@ -151,7 +152,7 @@ def test_canvas_collector_output_with_meta_reference_time_is_accepted() -> None:
     result = TimeRangeAccuracyEvaluator(FakeJudge(_assessed_response())).evaluate(normalized)
 
     assert result.status is EvaluationStatus.COMPUTED
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.metadata["reference_time_source"] == "canvas_meta"
     assert result.metadata["reference_time_present"] is True
 
@@ -239,6 +240,15 @@ def test_judge_failure_and_normalization_error_are_isolated() -> None:
     assert normalization_error.status is EvaluationStatus.NOT_COMPUTABLE
     assert normalization_error.metadata["reason"] == "missing_query"
     assert judge.requests == []
+
+
+def test_shared_judge_failure_reason_is_preserved() -> None:
+    result = TimeRangeAccuracyEvaluator(
+        FakeJudge(JudgeExecutionError("judge_output_truncated", {"response_byte_count": 2048}))
+    ).evaluate(_trace())
+
+    assert result.metadata["reason"] == "judge_output_truncated"
+    assert result.metadata["response_byte_count"] == 2048
 
 
 def test_invalid_normalized_trace_is_error() -> None:

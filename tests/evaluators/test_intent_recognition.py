@@ -10,6 +10,7 @@ from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudgeRequest,
 )
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 
 
 class FakeJudge:
@@ -67,7 +68,7 @@ def test_judge_verdict_produces_binary_session_score(
     result = IntentRecognitionAccuracyEvaluator(judge).evaluate(_normalized_trace())
 
     assert result.metric_name == "intent_recognition_accuracy"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == expected
     assert result.metadata["judge_reason_code"] == reason_code
@@ -123,6 +124,15 @@ def test_judge_failure_does_not_echo_sensitive_input() -> None:
     assert result.metadata["reason"] == "judge_failure"
     assert "敏感供应商错误" not in repr(result.metadata)
     assert "分析公司行情" not in repr(result.metadata)
+
+
+def test_shared_judge_failure_reason_is_preserved() -> None:
+    result = IntentRecognitionAccuracyEvaluator(
+        FakeJudge(JudgeExecutionError("judge_rate_limited", {"http_status": 429}))
+    ).evaluate(_normalized_trace())
+
+    assert result.metadata["reason"] == "judge_rate_limited"
+    assert result.metadata["http_status"] == 429
 
 
 def test_normalization_error_skips_judge() -> None:

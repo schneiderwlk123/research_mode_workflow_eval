@@ -8,6 +8,7 @@ from typing import Protocol
 from collectors.intent_recognition import IntentEvidenceFragment, IntentRecognitionCandidate
 from collectors.routing import CapabilityDefinition
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import judge_error_metadata
 
 _ALLOWED_REASON_CODES = {
     "correct": frozenset({"material_intents_aligned", "normalized_equivalent"}),
@@ -55,7 +56,7 @@ class IntentRecognitionAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -100,8 +101,10 @@ class IntentRecognitionAccuracyEvaluator(BaseEvaluator):
         )
         try:
             response = self._judge.judge(request)
-        except Exception:
-            metadata["reason"] = "judge_failure"
+        except Exception as judge_error:
+            reason, safe_metadata = judge_error_metadata(judge_error)
+            metadata.update(safe_metadata)
+            metadata["reason"] = reason
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
         verdict = _parse_judge_response(response)
         if verdict is None:

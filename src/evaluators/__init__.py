@@ -16,6 +16,11 @@ from evaluators.intent_recognition import (
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
 from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
+from evaluators.openai_compatible_judge_runtime import (
+    JudgeExecutionError,
+    OpenAICompatibleJudgeClient,
+    judge_error_metadata,
+)
 from evaluators.openai_compatible_parameter_judge import (
     JudgeSettings,
     OpenAICompatibleParameterValueJudge,
@@ -69,11 +74,13 @@ __all__ = [
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
+    "JudgeExecutionError",
     "McpToolCallInflationEvaluator",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleEvidenceRelevanceJudge",
     "OpenAICompatibleIntentRecognitionJudge",
+    "OpenAICompatibleJudgeClient",
     "OpenAICompatibleRoutingJudge",
     "OpenAICompatibleStatementSupportJudge",
     "OpenAICompatibleTimeRangeJudge",
@@ -100,4 +107,5 @@ __all__ = [
     "ToolArgumentSchemaValidityEvaluator",
     "load_judge_settings",
     "build_routing_assessment",
+    "judge_error_metadata",
 ]

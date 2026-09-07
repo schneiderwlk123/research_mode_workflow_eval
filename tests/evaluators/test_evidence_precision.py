@@ -14,6 +14,7 @@ from evaluators.evidence_precision import (
     EvidencePrecisionEvaluator,
     EvidenceRelevanceJudgeRequest,
 )
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 
 
 class FakeJudge:
@@ -84,7 +85,7 @@ def test_relevant_units_divided_by_all_units() -> None:
     result = EvidencePrecisionEvaluator(judge).evaluate(_normalized_trace())
 
     assert result.metric_name == "evidence_precision_rate"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.5
     assert result.metadata["relevant_evidence_unit_count"] == 1
@@ -154,7 +155,7 @@ def test_canvas_collector_output_is_accepted_by_evaluator() -> None:
 
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 1.0
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
 
 
 def test_not_assessable_unit_makes_full_denominator_not_computable() -> None:
@@ -305,3 +306,15 @@ def test_judge_failure_does_not_echo_sensitive_content() -> None:
     assert result.metadata["reason"] == "judge_failure"
     assert "供应商泄露正文" not in repr(result.metadata)
     assert "相关资料" not in repr(result.metadata)
+
+
+def test_shared_judge_failure_keeps_safe_reason_and_diagnostics() -> None:
+    error = JudgeExecutionError(
+        "judge_timeout", {"request_byte_count": 1024, "judge_attempt_count": 2}
+    )
+
+    result = EvidencePrecisionEvaluator(FakeJudge(error)).evaluate(_normalized_trace())
+
+    assert result.metadata["reason"] == "judge_timeout"
+    assert result.metadata["request_byte_count"] == 1024
+    assert result.metadata["judge_attempt_count"] == 2

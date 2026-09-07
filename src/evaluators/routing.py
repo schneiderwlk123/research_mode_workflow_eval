@@ -7,6 +7,7 @@ from typing import Protocol, TypedDict, TypeGuard, cast
 
 from collectors.routing import CapabilityCatalog, CapabilityDefinition
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import judge_error_metadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,8 +121,9 @@ def build_routing_assessment(
     )
     try:
         raw_response = judge.judge(request)
-    except Exception:
-        base["normalization_error"] = "judge_failure"
+    except Exception as judge_error:
+        reason, _ = judge_error_metadata(judge_error)
+        base["normalization_error"] = reason
         return base
 
     parsed_response = _parse_judge_response(raw_response, catalog, judge)
@@ -149,7 +151,7 @@ class RoutingPrecisionEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_assessment(trace)
@@ -182,7 +184,7 @@ class RoutingRecallEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_assessment(trace)

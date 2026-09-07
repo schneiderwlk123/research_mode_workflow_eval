@@ -67,44 +67,51 @@
 - `src/evaluators/tool_argument_schema_validity.py`：在 Schema 已覆盖调用上计算参数类型、
   枚举和嵌套结构合法率，仅保留安全诊断计数。
 - `src/evaluators/parameter_value_accuracy.py`：定义可注入的版本化 Judge 接口，校验逐字段
-  三态输出，隔离单调用失败，并仅输出参数值准确率主指标和安全诊断计数。
+  三态输出，隔离单调用失败并聚合稳定失败原因，仅输出参数值准确率主指标和安全诊断计数；
+  evaluator 版本为 `1.3.0`。
+- `src/evaluators/openai_compatible_judge_runtime.py`：所有 OpenAI-compatible Judge 的共享
+  请求边界；负责严格 JSON Schema、兼容回退、请求大小上限、瞬态重试、输出截断检测和
+  脱敏错误分类。
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
   TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；两个指标的新版
-  canvas 适配版本均为 `1.1.0`。
+  canvas 适配版本均为 `1.2.0`。
 - `src/evaluators/subtask_redundancy.py`：校验规则版本、固定阈值和安全聚合计数，计算
   `subtask_redundancy_rate`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
   和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
 - `src/evaluators/intent_recognition.py`：定义意图对齐 Judge 契约，严格校验三态 verdict、
   reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`；
-  新版 canvas 适配版本为 `1.1.0`。
+  新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
-  OpenAI-compatible Judge；使用 JSON 响应模式，并以通用异常隔离供应商响应和密钥。
+  OpenAI-compatible Judge；使用共享严格结构化运行时并隔离供应商响应和密钥。
 - `src/evaluators/time_range_accuracy.py`：严格校验时间字段聚合计数、三态可计算边界和安全
   reason code，接受 `provided/canvas_meta/event/missing` 时间锚点来源并计算
-  `time_range_extraction_accuracy`；新版 canvas 适配版本为 `1.1.0`。
+  `time_range_extraction_accuracy`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/openai_compatible_time_range_judge.py`：将 query、相对时间锚点、工具参数及
   MCP 字段说明提交给 OpenAI-compatible Judge，并对供应商异常做脱敏隔离。
 - `src/evaluators/evidence_precision.py`：定义证据相关性 Judge 契约，严格校验逐单元三态
-  判断，在完整证据分母上计算 `evidence_precision_rate`；新版 canvas 适配版本为 `1.1.0`。
+  判断，在完整证据分母上计算 `evidence_precision_rate`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/openai_compatible_evidence_judge.py`：把不可信 query 与来源原生证据单元
-  提交给 OpenAI-compatible Judge，并以固定 reason code 和通用异常隔离敏感正文。
+  按默认 40 单元安全分批提交；全部批次成功后才合并，任一失败不返回部分结果。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
-  三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.1.0`。
+  三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/first_tool_decision_latency.py`：校验规范化时间边界，以毫秒确定性计算
   `first_tool_decision_latency_ms`，并隔离缺失、非法和负时延。
 - `src/evaluators/tool_timeout_rate.py`：校验策略版本、唯一调用及分类诊断计数，计算
   `tool_timeout_rate`；缺少工具 SLA 时不估算。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
-  证据单元提交给 OpenAI-compatible Judge，禁止输出陈述正文并隔离供应商异常。
+  全部证据单元整体提交给 OpenAI-compatible Judge；超过请求上限时快速失败，避免不安全的
+  语义分批，禁止输出陈述正文并隔离供应商异常。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
   子任务类型与能力集合，并支持 Jaccard 相似映射检索。
 - `src/storage/__init__.py`：导出安全意图路由映射存储入口。
 - `tests/evaluators/test_base_evaluator.py`：评测器公共契约的行为测试。
+- `tests/evaluators/test_openai_compatible_judge_runtime.py`：严格 Schema、400 兼容回退、请求
+  上限、瞬态重试和输出截断的共享运行时测试。
 - `tests/collectors/test_tool_call_events.py`：新版 canvas 和研究工具事件规范化、跨消息关联、
   重复观察、孤立结果、严格调用 ID、定义冲突和敏感正文隔离测试。
 - `tests/collectors/test_exact_duplicate_calls.py`：新版 canvas/研究完全重复识别、跨消息关联、

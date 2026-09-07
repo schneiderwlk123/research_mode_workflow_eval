@@ -8,6 +8,7 @@ from typing import Protocol, TypeGuard
 
 from collectors.parameter_value_accuracy import ParameterValueCandidate
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import judge_error_metadata
 
 _ALLOWED_REASON_CODES_BY_VERDICT = {
     "correct": frozenset(
@@ -86,7 +87,7 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.2.0"
+        return "1.3.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -135,6 +136,7 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
         not_assessable_count = 0
         judged_call_count = 0
         judge_failed_call_count = 0
+        judge_failure_reasons: Counter[str] = Counter()
         reason_codes: Counter[str] = Counter()
         for candidate in candidates:
             request = ParameterValueJudgeRequest(
@@ -149,9 +151,16 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
             )
             try:
                 response = self._judge.judge(request)
-                counts = _parse_judge_response(response, candidate)
-            except Exception:
+            except Exception as judge_error:
                 # Judge 是外部边界；单调用失败只进入安全计数，不能泄露响应或参数正文。
+                reason, _ = judge_error_metadata(judge_error)
+                judge_failure_reasons[reason] += 1
+                judge_failed_call_count += 1
+                continue
+            try:
+                counts = _parse_judge_response(response, candidate)
+            except ValueError:
+                judge_failure_reasons["invalid_judge_output"] += 1
                 judge_failed_call_count += 1
                 continue
             judged_call_count += 1
@@ -170,10 +179,15 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
                 "not_assessable_field_count": not_assessable_count,
                 "assessable_field_count": assessable_field_count,
                 "judge_reason_code_counts": dict(sorted(reason_codes.items())),
+                "judge_failure_reason_counts": dict(sorted(judge_failure_reasons.items())),
             }
         )
         if judge_failed_call_count == eligible_count:
-            metadata["reason"] = "judge_failure"
+            metadata["reason"] = (
+                next(iter(judge_failure_reasons))
+                if len(judge_failure_reasons) == 1
+                else "judge_failure"
+            )
             return self._result(None, EvaluationStatus.ERROR, metadata)
         if assessable_field_count == 0:
             metadata["reason"] = "no_assessable_fields"

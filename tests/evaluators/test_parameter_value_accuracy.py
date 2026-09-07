@@ -4,6 +4,7 @@ import pytest
 
 from collectors.parameter_value_accuracy import ParameterValueCandidate
 from evaluators.base import EvaluationStatus
+from evaluators.openai_compatible_judge_runtime import JudgeExecutionError
 from evaluators.parameter_value_accuracy import (
     ParameterValueAccuracyEvaluator,
     ParameterValueJudgeRequest,
@@ -116,7 +117,7 @@ def test_evaluator_returns_only_primary_accuracy_and_diagnostic_counts() -> None
     result = evaluator.evaluate(trace)
 
     assert result.metric_name == "parameter_value_accuracy_rate"
-    assert result.evaluator_version == "1.2.0"
+    assert result.evaluator_version == "1.3.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(2 / 4)
     assert result.metadata["correct_field_count"] == 2
@@ -232,8 +233,24 @@ def test_invalid_judge_output_isolated_as_error(response: Mapping[str, object]) 
 
     assert result.status is EvaluationStatus.ERROR
     assert result.value is None
-    assert result.metadata["reason"] == "judge_failure"
+    assert result.metadata["reason"] == "invalid_judge_output"
     assert result.metadata["judge_failed_call_count"] == 1
+
+
+def test_shared_judge_failure_reason_is_aggregated_safely() -> None:
+    result = ParameterValueAccuracyEvaluator(
+        FakeJudge(
+            {
+                "call-1": JudgeExecutionError(
+                    "judge_timeout", {"request_byte_count": 4096, "judge_attempt_count": 2}
+                )
+            }
+        )
+    ).evaluate(_trace(_candidate("call-1", {"symbol": "ABC"})))
+
+    assert result.status is EvaluationStatus.ERROR
+    assert result.metadata["reason"] == "judge_timeout"
+    assert result.metadata["judge_failure_reason_counts"] == {"judge_timeout": 1}
 
 
 @pytest.mark.parametrize(

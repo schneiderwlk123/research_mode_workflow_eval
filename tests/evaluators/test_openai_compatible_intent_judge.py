@@ -54,7 +54,12 @@ def test_intent_judge_sends_structured_request_and_parses_response() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["temperature"] == 0
-    assert body["response_format"] == {"type": "json_object"}
+    response_format = body["response_format"]
+    assert isinstance(response_format, dict)
+    assert response_format["type"] == "json_schema"
+    json_schema = response_format["json_schema"]
+    assert isinstance(json_schema, dict)
+    assert json_schema["strict"] is True
     user_payload = json.loads(body["messages"][1]["content"])
     assert user_payload["query"] == "分析某公司的行情"
     assert user_payload["evidence_fragments"][0]["kind"] == "subtask_query"
