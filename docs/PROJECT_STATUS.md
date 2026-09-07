@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 382 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 385 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -65,7 +65,8 @@ Schema 合法率、
   `meta.query/answer.answer` 提取聊天输入，旧版顶层字段不再支持；`statement_support_rate`
   版本为 `1.1.0`，query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
 - 聊天与研究最终回答、来源原生证据单元和严格数值对齐 Judge 契约；
-  `retrieved_numeric_consistency_rate` 版本为 `1.0.0`，数值比较由 `Decimal` 确定性完成，
+  新版 canvas 复用陈述支持率的输入与证据链路，旧版顶层聊天字段不再支持；
+  `retrieved_numeric_consistency_rate` 版本为 `1.1.0`，数值比较由 `Decimal` 确定性完成，
   回答、证据、数值和 Judge 原始响应不落盘。
 - 聊天请求到最早子 Agent/工具决策、研究回合到最早工具 pending 事件的安全时间规范化；
   `first_tool_decision_latency_ms` 版本为 `1.0.0`，按时间取最小值且不裁剪长尾。
@@ -87,17 +88,19 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：证据查准率。
-- 进行中的具体指标：陈述支持率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：最终数值与召回证据一致率的新版聊天 schema 适配。
-- 下一动作：展示陈述支持率的双模式验证结果，验收后再进入最终数值与召回证据一致率。
+- 最近完成并验收的新版聊天适配指标：陈述支持率。
+- 进行中的具体指标：最终数值与召回证据一致率的新版聊天 schema 适配，已实现并完成验证，
+  等待验收。
+- 下一指标：单次工具调用时延。
+- 下一动作：展示最终数值与召回证据一致率的双模式验证结果，验收后再进入下一指标。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
   调用率、必填参数完整率、Schema 合法率、参数值准确率、路由 Precision/Recall、子任务
-  冗余率、意图识别准确率、时间范围提取准确率、证据查准率和陈述支持率 collectors 已支持
-  新版 canvas，其余指标 collectors 仍主要按旧版字段读取，完整统一 Trace 模型尚未实现。
+  冗余率、意图识别准确率、时间范围提取准确率、证据查准率、陈述支持率和最终数值一致率
+  collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版字段读取，完整统一 Trace
+  模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -136,7 +139,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 382 passed
+pytest: 385 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -215,11 +218,14 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   incomplete_evidence_segmentation，1 条 missing_final_answer，1 条 pre_answer_failure，
   1 条 invalid_judge_output，2 条在 120 秒超时边界返回 judge_failure。成功请求耗时约
   95.446 秒；临时目录未进入生产配置，结果不作为正式生产基线
-最终数值与召回证据一致率测试: 19 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+最终数值与召回证据一致率定向测试: 20 项通过；聊天与研究模式均为
+  CONDITIONALLY_COMPUTABLE；evaluator 版本 `1.1.0`
 最终数值与召回证据一致率模拟计算: 2 个直接召回数值中 1 个正常舍入一致、1 个不一致，
   另有 1 个派生值被排除，结果 1/2 = 0.5, computed；两种模式 evaluator 路径均通过
-最终数值与召回证据一致率真实日志: 尚未调用真实 Judge；当前未配置稳定的生产证据工具名单，
-  不使用临时工具范围生成语义分数
+最终数值与召回证据一致率新版聊天结构验算: 使用临时 17 工具目录时，336 条中 192 条形成
+  Judge 候选，共观察 18257 个稳定证据单元；118 条 incomplete_evidence_segmentation，25 条
+  pre_answer_failure，1 条 missing_final_answer。前 10 条中第 2、3、8、9 条形成候选，分别有
+  24、0、205、50 个证据单元；尚未调用真实数值对齐 Judge，不生成正式语义分数
 首次工具决策时延测试: 19 项通过；聊天与研究模式均为 DIRECTLY_COMPUTABLE
 首次工具决策时延聊天日志验算: 106 条中 40 条可计算，66 条返回 no_tool_decision；可计算样本
   最小 2000 ms、中位数 5500 ms、平均 78550 ms、最大 1939000 ms，3 条超过 60 秒，

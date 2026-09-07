@@ -72,7 +72,7 @@ class RetrievedNumericConsistencyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -350,6 +350,8 @@ def _parse_trace(
         "unsegmentable_evidence_response_count",
         "duplicate_evidence_unit_count",
         "duplicate_call_definition_count",
+        "duplicate_result_observation_count",
+        "orphan_result_count",
     ):
         value = _non_negative_int(raw_diagnostics.get(name))
         if value is None:

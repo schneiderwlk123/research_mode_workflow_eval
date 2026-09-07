@@ -2,8 +2,11 @@ from collections.abc import Mapping
 
 import pytest
 
-from collectors.evidence_quality import EvidenceUnit
-from collectors.numeric_consistency import NumericConsistencyCandidate
+from collectors.evidence_quality import EvidenceUnit, build_evidence_source_catalog
+from collectors.numeric_consistency import (
+    NumericConsistencyCandidate,
+    normalize_chat_numeric_consistency,
+)
 from evaluators.base import EvaluationStatus
 from evaluators.numeric_consistency import (
     NumericConsistencyJudgeRequest,
@@ -47,6 +50,8 @@ def _trace(*, mode: str = "chat", error: str | None = None) -> dict[str, object]
             "unsegmentable_evidence_response_count": 0,
             "duplicate_evidence_unit_count": 0,
             "duplicate_call_definition_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 0,
         },
         "normalization_error": error,
     }
@@ -117,13 +122,88 @@ def test_deterministic_comparison_handles_scaling_rounding_and_mismatch(mode: st
     result = RetrievedNumericConsistencyEvaluator(judge).evaluate(_trace(mode=mode))
 
     assert result.metric_name == "retrieved_numeric_consistency_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.5)
     assert result.metadata["consistent_numeric_claim_count"] == 1
     assert result.metadata["inconsistent_numeric_claim_count"] == 1
     assert result.metadata["excluded_numeric_claim_count"] == 1
     assert "123.5" not in repr(result.metadata)
+
+
+def test_canvas_collector_output_is_accepted_with_lifecycle_diagnostics() -> None:
+    catalog = build_evidence_source_catalog(
+        {
+            "manual_version": "0.1.0",
+            "tools": [{"name": "search", "description": "检索", "parameters": []}],
+        },
+        evidence_tool_names={"search"},
+    )
+    result_payload = {
+        "toolId": "call-1",
+        "result": {"data": [{"record_id": "r1", "revenue": 123.46}]},
+    }
+    normalized = normalize_chat_numeric_consistency(
+        {
+            "canvas": {
+                "meta": {"traceId": "trace-1", "query": "分析收入"},
+                "agents": [
+                    {
+                        "messages": [
+                            {
+                                "content": {
+                                    "tool_call": [
+                                        {
+                                            "toolId": "call-1",
+                                            "toolName": "search",
+                                            "arguments": {},
+                                        }
+                                    ],
+                                    "tool_result": [result_payload],
+                                }
+                            },
+                            {
+                                "content": {
+                                    "tool_result": [
+                                        result_payload,
+                                        {"toolId": "orphan", "result": {"data": []}},
+                                    ]
+                                }
+                            },
+                        ]
+                    }
+                ],
+                "answer": {"answer": "公司收入为 123.5 亿元。"},
+            }
+        },
+        catalog,
+    )
+    judge = FakeJudge(
+        {
+            "claims": [
+                _claim(
+                    "c1",
+                    "direct_retrieval",
+                    "aligned_evidence",
+                    answer_value="123.5",
+                    evidence_value="123.46",
+                    canonical_unit="CNY",
+                    answer_scale="100000000",
+                    evidence_scale="100000000",
+                    answer_decimal_places=1,
+                    evidence_unit_ids=["call-1:0"],
+                )
+            ]
+        }
+    )
+
+    result = RetrievedNumericConsistencyEvaluator(judge).evaluate(normalized)
+
+    assert result.status is EvaluationStatus.COMPUTED
+    assert result.value == 1.0
+    assert result.evaluator_version == "1.1.0"
+    assert result.metadata["duplicate_result_observation_count"] == 1
+    assert result.metadata["orphan_result_count"] == 1
 
 
 def test_equivalent_scales_compare_in_canonical_units() -> None:

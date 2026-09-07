@@ -89,3 +89,28 @@ def test_incomplete_evidence_is_preserved_as_not_computable() -> None:
 
     assert normalized["candidate"] is None
     assert normalized["normalization_error"] == "incomplete_evidence_observation"
+
+
+def test_chat_rejects_legacy_top_level_query_answer_and_queue() -> None:
+    normalized = normalize_chat_numeric_consistency(
+        {
+            "traceId": "legacy",
+            "query": "分析收入",
+            "answer": "收入为 100 亿元。",
+            "tool_call_queue": [],
+        },
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
+
+
+def test_chat_missing_trace_id_is_not_hidden_by_missing_answer() -> None:
+    normalized = normalize_chat_numeric_consistency(
+        {"canvas": {"meta": {"query": "分析收入"}, "agents": [], "answer": {}}},
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "missing_trace_id"

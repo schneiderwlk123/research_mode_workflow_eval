@@ -1046,6 +1046,7 @@ Judge 只负责拆分数值声明，按主体、指标、时间、统计范围�
   整个会话返回 `NOT_COMPUTABLE / incomplete_numeric_judgment`，不得缩小分母。
 - 最终回答没有直接召回数值时返回 `NOT_COMPUTABLE / no_retrieved_numeric_claims`。
 - 数值、回答、证据正文和 Judge 原始响应只存在于内存中；持久化结果仅包含计数和版本信息。
+- 新版 canvas 适配的 evaluator 版本为 `1.1.0`，并保留重复结果观察与孤立结果诊断计数。
 
 ### 分模式可计算性与字段映射
 
@@ -1078,8 +1079,12 @@ Judge 只负责拆分数值声明，按主体、指标、时间、统计范围�
 最终数值与召回证据一致率 = 2 ÷ 3 ≈ 0.66667
 ```
 
-新版聊天日志重算状态：最终回答字段可直接读取，但没有生产版证据工具目录，也未运行数值
-对齐 Judge，因此本次不产生 `retrieved_numeric_consistency_rate` 数值。
+新版聊天日志重算状态：使用临时 17 工具证据目录
+`evidence-scope-8ce42ba0453c432e` 仅验证结构链路时，336 条 Trace 中 192 条形成 Judge 候选，
+118 条返回 `incomplete_evidence_segmentation`，25 条返回 `pre_answer_failure`，1 条返回
+`missing_final_answer`，合计观察 18,257 个稳定证据单元。前 10 条中第 2、3、8、9 条形成候选，
+证据单元数分别为 24、0、205、50。生产证据工具目录尚未确认，本次未运行数值对齐 Judge，
+因此不产生正式 `retrieved_numeric_consistency_rate` 数值。
 
 ## 14. MCP 工具调用膨胀率
 

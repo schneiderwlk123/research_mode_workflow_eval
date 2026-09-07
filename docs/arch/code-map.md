@@ -97,7 +97,8 @@
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
   三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/numeric_consistency.py`：定义直接召回数值对齐 Judge 契约，以 `Decimal` 统一
-  单位倍率和展示精度，确定性计算 `retrieved_numeric_consistency_rate`。
+  单位倍率和展示精度，确定性计算 `retrieved_numeric_consistency_rate`；新版 canvas 适配版本为
+  `1.1.0`，并保留重复结果观察与孤立结果诊断。
 - `src/evaluators/openai_compatible_numeric_consistency_judge.py`：将最终回答和来源证据提交给
   OpenAI-compatible Judge，只返回结构化数值对齐信息并隔离供应商异常。
 - `src/evaluators/first_tool_decision_latency.py`：校验规范化时间边界，以毫秒确定性计算
@@ -142,7 +143,8 @@
   去重、不可拆分响应及研究回归测试。
 - `tests/collectors/test_statement_support.py`：新版 canvas/研究最终回答选择、空证据可计算、
   前置失败、缺终态、部分不可拆分响应、旧结构拒绝和成功产物无正文测试。
-- `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用及不完整证据隔离测试。
+- `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用、不完整证据隔离、
+  旧版聊天结构拒绝和结构错误优先级测试。
 - `tests/collectors/test_first_tool_decision_latency.py`：聊天乱序决策、子 Agent/工具时间选择、
   研究 pending 去重及缺失时间边界测试。
 - `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、聊天/研究字段映射、生命周期去重、
@@ -182,7 +184,7 @@
 - `tests/evaluators/test_statement_support.py`：支持率、正常零分、无可验证陈述、不可判定、
   Judge 完整性、证据引用和敏感正文隔离测试。
 - `tests/evaluators/test_numeric_consistency.py`：单位倍率、正常舍入、缺失召回值、排除项、
-  不可判定、非法 Judge 输出和敏感正文隔离测试。
+  不可判定、非法 Judge 输出、Canvas collector 集成、生命周期诊断和敏感正文隔离测试。
 - `tests/evaluators/test_first_tool_decision_latency.py`：双模式毫秒计算、不可计算原因、非法
   规范化输入和负时延隔离测试。
 - `tests/evaluators/test_tool_timeout_rate.py`：双模式超时率、超时分类计数、缺失 SLA、非法
