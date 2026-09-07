@@ -11,8 +11,9 @@
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
   `JUDGE_MODEL`，真实密钥只允许写入被忽略的 `.env`。
-- `src/collectors/tool_call_events.py`：把聊天 `tool_call_queue` 与研究
-  `message.part.updated` 工具状态规范化为不含请求、响应正文的统一调用事件。
+- `src/collectors/tool_call_events.py`：按 `traceId + toolId` 合并新版聊天 `canvas` 中跨消息的
+  普通工具请求与结果，同时兼容旧版 `tool_call_queue` 和研究 `message.part.updated`；孤立
+  Agent 返回只进入安全诊断，不反向生成调用，也不保留请求、参数或响应正文。
 - `src/collectors/exact_duplicate_calls.py`：在内存中规范化工具名、参数和响应并比较摘要，
   输出完全重复调用聚合计数，不保留原始正文或摘要。
 - `src/collectors/mcp_tool_call_inflation.py`：按版本化 MCP 目录过滤聊天/研究调用，以调用 ID
@@ -47,7 +48,8 @@
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
-  调用事件完整率；研究模式缺少 `callID` 时严格返回不可计算。
+  调用事件完整率，并输出重复请求、重复结果和孤立结果计数；聊天调用定义冲突及研究模式
+  缺少 `callID` 时严格返回不可计算。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
   MCP 且相同入参的后续调用占比。
@@ -95,8 +97,8 @@
   子任务类型与能力集合，并支持 Jaccard 相似映射检索。
 - `src/storage/__init__.py`：导出安全意图路由映射存储入口。
 - `tests/evaluators/test_base_evaluator.py`：评测器公共契约的行为测试。
-- `tests/collectors/test_tool_call_events.py`：聊天/研究工具事件规范化、去重、严格
-  `callID` 和敏感正文隔离测试。
+- `tests/collectors/test_tool_call_events.py`：新版 canvas、旧版聊天及研究工具事件规范化、
+  跨消息关联、重复观察、孤立结果、严格调用 ID、定义冲突和敏感正文隔离测试。
 - `tests/collectors/test_exact_duplicate_calls.py`：聊天/研究完全重复识别、生命周期去重、
   缺失字段和敏感正文隔离测试。
 - `tests/collectors/test_mcp_tool_call_inflation.py`：MCP 范围过滤、规范化入参签名、调用 ID

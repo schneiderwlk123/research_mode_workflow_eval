@@ -17,6 +17,9 @@ def _normalized_trace(
         "tool_calls": calls,
         "diagnostics": {
             "duplicate_state_event_count": 1,
+            "duplicate_request_observation_count": 2,
+            "duplicate_result_observation_count": 3,
+            "orphan_result_count": 4,
             "malformed_event_count": 0,
         },
         "normalization_error": normalization_error,
@@ -46,7 +49,7 @@ def test_evaluator_calculates_complete_calls_over_unique_calls() -> None:
     result = ToolCallEventCompletenessEvaluator().evaluate(trace)
 
     assert result.metric_name == "tool_call_event_completeness_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.5)
     assert result.metadata == {
@@ -56,6 +59,9 @@ def test_evaluator_calculates_complete_calls_over_unique_calls() -> None:
         "unique_call_count": 4,
         "incomplete_call_count": 2,
         "duplicate_state_event_count": 1,
+        "duplicate_request_observation_count": 2,
+        "duplicate_result_observation_count": 3,
+        "orphan_result_count": 4,
         "malformed_event_count": 0,
     }
     assert trace == original

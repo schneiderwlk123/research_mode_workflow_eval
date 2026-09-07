@@ -14,12 +14,13 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 294 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 298 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
-- 聊天与研究工具调用事件的最小规范化切片，不保留工具参数或响应正文。
-- `tool_call_event_completeness_rate` 评测器，版本 `1.0.0`。
+- 新版 canvas、旧版聊天和研究工具调用事件的最小规范化切片，不保留工具参数或响应正文；
+  新版聊天按 `traceId + toolId` 跨消息关联请求与结果，并隔离孤立 Agent 返回。
+- `tool_call_event_completeness_rate` 评测器，版本 `1.1.0`。
 - 聊天与研究调用的安全摘要比较规范化，不持久化参数、响应或摘要值。
 - `exact_duplicate_tool_call_rate` 评测器，版本 `1.0.0`。
 - `mcp_tool_call_inflation_rate` 评测器，版本 `1.0.0`；只统计手册内 MCP，同任务内相同能力
@@ -73,14 +74,15 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 进行中的具体指标：超时率，已实现并完成验证，等待验收。
-- 下一指标：单次工具调用时延。
-- 下一动作：展示超时率实现与双模式验证结果；生产 SLA 目录补齐后再运行真实数值验算。
+- 进行中的具体指标：调用事件完整率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：完全重复调用率的新版聊天 schema 适配。
+- 下一动作：展示调用事件完整率实现与新版聊天真实日志验证结果，验收后再进入下一指标。
 
 ## 已知缺口
 
-- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档，但生产 collectors 仍按旧版
-  `tool_call_queue` 聊天结构读取；新版聊天 adapter 和完整统一 Trace 模型尚未实现。
+- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率 collector 已
+  支持新版 canvas，其余指标 collectors 仍主要按旧版 `tool_call_queue` 读取，完整统一 Trace
+  模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -111,7 +113,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 294 passed
+pytest: 298 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -190,4 +192,7 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   failed/error/cancelled 不自动等同超时，duration == SLA 不超时
 超时率真实日志结构冒烟: 聊天与研究模式在未配置生产 SLA 时均返回 missing_tool_sla，
   未使用示例阈值估算或输出伪 0%
+调用事件完整率新版聊天实现验算: 4266 次唯一普通工具请求中 4251 次观察到匹配结果，
+  4251/4266 ≈ 0.99648；411 条孤立 Agent 返回被排除，296 条 Trace computed，
+  40 条 no_tool_calls，重复请求/结果和 malformed 均为 0
 ```

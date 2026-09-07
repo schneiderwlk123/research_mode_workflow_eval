@@ -52,12 +52,184 @@ def test_chat_tool_calls_preserve_incomplete_events_without_sensitive_payloads()
         ),
         "diagnostics": {
             "duplicate_state_event_count": 0,
+            "duplicate_request_observation_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 0,
             "malformed_event_count": 0,
         },
         "normalization_error": None,
     }
     assert "不得进入规范化结果" not in repr(normalized)
     assert "不得保留" not in repr(normalized)
+
+
+def test_canvas_chat_calls_are_joined_by_tool_id_across_messages() -> None:
+    trace = {
+        "userId": "user-redacted",
+        "canvas": {
+            "meta": {"traceId": "trace-canvas-001"},
+            "agents": [
+                {
+                    "messages": [
+                        {
+                            "role": "assistant",
+                            "content": {
+                                "tool_call": [
+                                    {
+                                        "toolId": "tool-1",
+                                        "toolName": "search",
+                                        "arguments": {"query": "不得保留的请求"},
+                                    },
+                                    {
+                                        "taskId": "worker-1",
+                                        "agentName": "worker_search",
+                                        "arguments": {"query": "不得保留的子任务"},
+                                    },
+                                    {
+                                        "toolId": "tool-2",
+                                        "toolName": "quote",
+                                        "arguments": {},
+                                    },
+                                ]
+                            },
+                        },
+                        {
+                            "role": "assistant",
+                            "content": {
+                                "tool_result": [
+                                    {"toolId": "tool-1", "result": {"secret": "不得保留"}},
+                                    {
+                                        "toolId": "worker-result-1",
+                                        "toolName": "direct_answer",
+                                    },
+                                ]
+                            },
+                        },
+                    ]
+                }
+            ],
+            "answer": {},
+        },
+    }
+
+    normalized = normalize_chat_tool_call_events(trace)
+
+    assert normalized == {
+        "trace_id": "trace-canvas-001",
+        "mode": "chat",
+        "tool_calls": (
+            {
+                "call_id": "tool-1",
+                "request_observed": True,
+                "terminal_observed": True,
+                "source_event_count": 2,
+            },
+            {
+                "call_id": "tool-2",
+                "request_observed": True,
+                "terminal_observed": False,
+                "source_event_count": 1,
+            },
+        ),
+        "diagnostics": {
+            "duplicate_state_event_count": 0,
+            "duplicate_request_observation_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 1,
+            "malformed_event_count": 0,
+        },
+        "normalization_error": None,
+    }
+    assert "不得保留" not in repr(normalized)
+
+
+def test_canvas_chat_duplicate_observations_do_not_inflate_unique_calls() -> None:
+    request = {"toolId": "tool-1", "toolName": "search", "arguments": {}}
+    trace = {
+        "canvas": {
+            "meta": {"traceId": "trace-canvas-002"},
+            "agents": [
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_call": [request, dict(request)],
+                                "tool_result": [
+                                    {"toolId": "tool-1"},
+                                    {"toolId": "tool-1", "toolName": "search"},
+                                ],
+                            }
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+
+    normalized = normalize_chat_tool_call_events(trace)
+
+    assert normalized["tool_calls"] == (
+        {
+            "call_id": "tool-1",
+            "request_observed": True,
+            "terminal_observed": True,
+            "source_event_count": 4,
+        },
+    )
+    assert normalized["diagnostics"]["duplicate_request_observation_count"] == 1
+    assert normalized["diagnostics"]["duplicate_result_observation_count"] == 1
+
+
+def test_canvas_chat_conflicting_tool_name_invalidates_trace() -> None:
+    trace = {
+        "canvas": {
+            "meta": {"traceId": "trace-canvas-003"},
+            "agents": [
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_call": [
+                                    {"toolId": "tool-1", "toolName": "search", "arguments": {}}
+                                ],
+                                "tool_result": [{"toolId": "tool-1", "toolName": "quote"}],
+                            }
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+
+    normalized = normalize_chat_tool_call_events(trace)
+
+    assert normalized["normalization_error"] == "conflicting_call_definition"
+
+
+def test_canvas_chat_requires_trace_and_tool_identifiers() -> None:
+    missing_trace: dict[str, object] = {"canvas": {"meta": {}, "agents": []}}
+    missing_call_id = {
+        "canvas": {
+            "meta": {"traceId": "trace-canvas-004"},
+            "agents": [{"messages": [{"content": {"tool_call": [{"toolName": "search"}]}}]}],
+        }
+    }
+    missing_tool_name = {
+        "canvas": {
+            "meta": {"traceId": "trace-canvas-005"},
+            "agents": [{"messages": [{"content": {"tool_call": [{"toolId": "tool-1"}]}}]}],
+        }
+    }
+
+    assert normalize_chat_tool_call_events(missing_trace)["normalization_error"] == (
+        "missing_trace_id"
+    )
+    assert normalize_chat_tool_call_events(missing_call_id)["normalization_error"] == (
+        "missing_call_id"
+    )
+    assert normalize_chat_tool_call_events(missing_tool_name)["normalization_error"] == (
+        "missing_tool_name"
+    )
 
 
 def test_research_tool_calls_are_deduplicated_and_failure_is_terminal() -> None:
@@ -95,6 +267,9 @@ def test_research_tool_calls_are_deduplicated_and_failure_is_terminal() -> None:
     )
     assert normalized["diagnostics"] == {
         "duplicate_state_event_count": 1,
+        "duplicate_request_observation_count": 0,
+        "duplicate_result_observation_count": 0,
+        "orphan_result_count": 0,
         "malformed_event_count": 0,
     }
     assert normalized["normalization_error"] is None
@@ -128,6 +303,9 @@ def test_research_tool_event_without_call_id_invalidates_the_session() -> None:
     assert normalized["normalization_error"] == "missing_call_id"
     assert normalized["diagnostics"] == {
         "duplicate_state_event_count": 0,
+        "duplicate_request_observation_count": 0,
+        "duplicate_result_observation_count": 0,
+        "orphan_result_count": 0,
         "malformed_event_count": 1,
     }
 

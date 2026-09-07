@@ -15,7 +15,7 @@ class ToolCallEventCompletenessEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         """计算会话级完整率，并把格式问题隔离为安全状态。"""
@@ -33,6 +33,11 @@ class ToolCallEventCompletenessEvaluator(BaseEvaluator):
             "trace_id": trace_id,
             "mode": mode,
             "duplicate_state_event_count": diagnostics["duplicate_state_event_count"],
+            "duplicate_request_observation_count": diagnostics[
+                "duplicate_request_observation_count"
+            ],
+            "duplicate_result_observation_count": diagnostics["duplicate_result_observation_count"],
+            "orphan_result_count": diagnostics["orphan_result_count"],
             "malformed_event_count": diagnostics["malformed_event_count"],
         }
 
@@ -124,8 +129,21 @@ def _parse_trace(
     if not isinstance(diagnostics_value, Mapping):
         return None
     duplicate_count = _non_negative_int(diagnostics_value.get("duplicate_state_event_count"))
+    duplicate_request_count = _non_negative_int(
+        diagnostics_value.get("duplicate_request_observation_count", 0)
+    )
+    duplicate_result_count = _non_negative_int(
+        diagnostics_value.get("duplicate_result_observation_count", 0)
+    )
+    orphan_result_count = _non_negative_int(diagnostics_value.get("orphan_result_count", 0))
     malformed_count = _non_negative_int(diagnostics_value.get("malformed_event_count"))
-    if duplicate_count is None or malformed_count is None:
+    if (
+        duplicate_count is None
+        or duplicate_request_count is None
+        or duplicate_result_count is None
+        or orphan_result_count is None
+        or malformed_count is None
+    ):
         return None
 
     calls_value = trace.get("tool_calls")
@@ -166,6 +184,9 @@ def _parse_trace(
         tuple(calls),
         {
             "duplicate_state_event_count": duplicate_count,
+            "duplicate_request_observation_count": duplicate_request_count,
+            "duplicate_result_observation_count": duplicate_result_count,
+            "orphan_result_count": orphan_result_count,
             "malformed_event_count": malformed_count,
         },
         normalization_error.strip() if isinstance(normalization_error, str) else None,
