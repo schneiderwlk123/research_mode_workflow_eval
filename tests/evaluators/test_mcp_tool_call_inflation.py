@@ -37,7 +37,7 @@ def test_evaluator_calculates_inflated_mcp_calls_over_all_mcp_calls() -> None:
     result = McpToolCallInflationEvaluator().evaluate(trace)
 
     assert result.metric_name == "mcp_tool_call_inflation_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.25)
     assert result.metadata == {

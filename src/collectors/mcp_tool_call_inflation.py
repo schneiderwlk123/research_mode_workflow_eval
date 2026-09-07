@@ -32,70 +32,137 @@ class NormalizedMcpToolCallInflationTrace(TypedDict):
 def normalize_chat_mcp_tool_call_inflation(
     trace: Mapping[str, object], catalog: CapabilityCatalog
 ) -> NormalizedMcpToolCallInflationTrace:
-    """按调用 ID 去重聊天事件，并比较 MCP 名称与规范化入参。"""
+    """扫描新版 canvas，并按 `traceId + toolId` 去重普通 MCP 调用。"""
 
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
         return _result(
-            trace_id=_optional_identifier(trace.get("traceId")),
+            trace_id=None,
             mode="chat",
             manual_version=catalog.schema_version,
-            normalization_error="invalid_tool_call_queue",
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _result(
+            trace_id=None,
+            mode="chat",
+            manual_version=catalog.schema_version,
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    trace_id = _optional_identifier(meta.get("traceId"))
+    if trace_id is None:
+        return _result(
+            trace_id=None,
+            mode="chat",
+            manual_version=catalog.schema_version,
+            normalization_error="missing_trace_id",
+            malformed_event_count=1,
+        )
+
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _result(
+            trace_id=trace_id,
+            mode="chat",
+            manual_version=catalog.schema_version,
+            normalization_error="invalid_chat_trace_structure",
             malformed_event_count=1,
         )
 
     calls: dict[str, str] = {}
+    definitions: dict[str, str] = {}
+    out_of_scope_call_ids: set[str] = set()
     malformed_event_count = 0
-    out_of_scope_tool_call_count = 0
     duplicate_call_observation_count = 0
     normalization_error: str | None = None
 
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
-            malformed_event_count += 1
-            normalization_error = normalization_error or "invalid_tool_call_events"
-            continue
-        if event.get("event_type") != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            malformed_event_count += 1
-            normalization_error = normalization_error or "invalid_tool_call_events"
-            continue
+    def record_error(reason: str) -> None:
+        nonlocal malformed_event_count, normalization_error
+        malformed_event_count += 1
+        normalization_error = normalization_error or reason
 
-        capability_id = catalog.resolve(request.get("toolName"))
-        if capability_id is None:
-            out_of_scope_tool_call_count += 1
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
+            record_error("invalid_chat_trace_structure")
             continue
-        call_id = _optional_identifier(request.get("toolId"))
-        if call_id is None:
-            normalization_error = normalization_error or "missing_call_id"
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            record_error("invalid_chat_trace_structure")
             continue
-        if "arguments" not in request:
-            normalization_error = normalization_error or "missing_call_arguments"
-            continue
-        signature = _request_signature(capability_id, request["arguments"])
-        if signature is None:
-            normalization_error = normalization_error or "unserializable_call_arguments"
-            continue
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                record_error("invalid_chat_trace_structure")
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                record_error("invalid_chat_trace_structure")
+                continue
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                record_error("invalid_chat_trace_structure")
+                continue
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    record_error("invalid_chat_trace_structure")
+                    continue
 
-        existing = calls.get(call_id)
-        if existing is None:
-            calls[call_id] = signature
-        elif existing == signature:
-            duplicate_call_observation_count += 1
-        else:
-            normalization_error = normalization_error or "conflicting_call_definition"
+                call_id = _optional_identifier(raw_call.get("toolId"))
+                tool_name = _optional_identifier(raw_call.get("toolName"))
+                agent_name = _optional_identifier(raw_call.get("agentName"))
+                if call_id is None and tool_name is None and agent_name is not None:
+                    # 子 Agent 调用与 MCP 工具调用不是同一类事件，不能进入分母。
+                    continue
+                if call_id is None and (tool_name is not None or "arguments" in raw_call):
+                    record_error("missing_call_id")
+                    continue
+                if call_id is not None and tool_name is None:
+                    record_error("missing_tool_name")
+                    continue
+                if call_id is None or tool_name is None:
+                    record_error("invalid_chat_trace_structure")
+                    continue
+                if "arguments" not in raw_call:
+                    record_error("missing_call_arguments")
+                    continue
+
+                capability_id = catalog.resolve(tool_name)
+                definition_identity = capability_id or f"out_of_scope:{tool_name}"
+                signature = _request_signature(definition_identity, raw_call["arguments"])
+                if signature is None:
+                    record_error("unserializable_call_arguments")
+                    continue
+
+                existing = definitions.get(call_id)
+                if existing is None:
+                    definitions[call_id] = signature
+                elif existing == signature:
+                    duplicate_call_observation_count += 1
+                    continue
+                else:
+                    normalization_error = normalization_error or "conflicting_call_definition"
+                    continue
+
+                if capability_id is None:
+                    out_of_scope_call_ids.add(call_id)
+                else:
+                    calls[call_id] = signature
 
     return _result(
-        trace_id=_optional_identifier(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         manual_version=catalog.schema_version,
         calls=calls,
         malformed_event_count=malformed_event_count,
-        out_of_scope_tool_call_count=out_of_scope_tool_call_count,
+        out_of_scope_tool_call_count=len(out_of_scope_call_ids),
         duplicate_call_observation_count=duplicate_call_observation_count,
         normalization_error=normalization_error,
     )
@@ -127,26 +194,32 @@ def normalize_research_mcp_tool_call_inflation(
         call_id_value: object,
         arguments_present: bool,
         arguments: object,
-        observation_key: str,
         definition_priority: int,
     ) -> None:
         nonlocal duplicate_call_observation_count, normalization_error
-        capability_id = catalog.resolve(tool_name)
         call_id = _optional_identifier(call_id_value)
-        if capability_id is None:
-            out_of_scope_call_keys.add(call_id or observation_key)
-            return
         if call_id is None:
             normalization_error = normalization_error or "missing_call_id"
             return
+        normalized_tool_name = _optional_identifier(tool_name)
+        if normalized_tool_name is None:
+            normalization_error = normalization_error or "missing_tool_name"
+            return
 
-        observed_mcp_call_ids.add(call_id)
+        capability_id = catalog.resolve(normalized_tool_name)
+        call_identity = capability_id or f"out_of_scope:{normalized_tool_name}"
+
         existing_capability = capabilities_by_call_id.get(call_id)
         if existing_capability is None:
-            capabilities_by_call_id[call_id] = capability_id
-        elif existing_capability != capability_id:
+            capabilities_by_call_id[call_id] = call_identity
+        elif existing_capability != call_identity:
             normalization_error = normalization_error or "conflicting_call_definition"
             return
+        if capability_id is None:
+            out_of_scope_call_keys.add(call_id)
+            return
+
+        observed_mcp_call_ids.add(call_id)
         if not arguments_present:
             return
 
@@ -169,7 +242,7 @@ def normalize_research_mcp_tool_call_inflation(
         else:
             normalization_error = normalization_error or "conflicting_call_definition"
 
-    for event_index, event in enumerate(events):
+    for event in events:
         if not isinstance(event, Mapping):
             malformed_event_count += 1
             normalization_error = normalization_error or "invalid_tool_call_events"
@@ -183,7 +256,7 @@ def normalize_research_mcp_tool_call_inflation(
         if isinstance(result, Mapping):
             raw_tool_calls = result.get("toolCalls")
             if _is_sequence(raw_tool_calls):
-                for call_index, raw_call in enumerate(raw_tool_calls):
+                for raw_call in raw_tool_calls:
                     if not isinstance(raw_call, Mapping):
                         malformed_event_count += 1
                         normalization_error = normalization_error or "invalid_tool_call_events"
@@ -193,7 +266,6 @@ def normalize_research_mcp_tool_call_inflation(
                         call_id_value=raw_call.get("toolCallId"),
                         arguments_present="input" in raw_call,
                         arguments=raw_call.get("input"),
-                        observation_key=f"definition:{event_index}:{call_index}",
                         definition_priority=2,
                     )
 
@@ -220,7 +292,6 @@ def normalize_research_mcp_tool_call_inflation(
             call_id_value=part.get("callID"),
             arguments_present=arguments_present,
             arguments=state.get("input") if isinstance(state, Mapping) else None,
-            observation_key=f"lifecycle:{event_index}",
             definition_priority=1,
         )
 

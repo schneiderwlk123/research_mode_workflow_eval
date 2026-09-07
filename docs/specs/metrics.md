@@ -1076,10 +1076,14 @@ MCP 工具调用膨胀率 = (N - U) ÷ N
 聊天模式：`DIRECTLY_COMPUTABLE`。
 
 - 任务边界：JSON 数组中的每个元素；单次执行标识：`canvas.meta.traceId`。
-- 调用事件：具有 `toolId + toolName` 的普通 `content.tool_call[]` 请求。
+- 调用事件：遍历 `canvas.agents[].messages[].content.tool_call[]`，只接收具有
+  `toolId + toolName` 的普通工具请求；只有 `agentName`、没有 `toolId` 的子 Agent 调用不进入
+  分子或分母。
 - 调用 ID、工具名和入参：请求的 `toolId/toolName/arguments`。
-- 缺少调用 ID 或入参分别返回 `missing_call_id`、`missing_call_arguments`；非法队列或事件返回
-  `invalid_tool_call_queue`、`invalid_tool_call_events`。
+- 同一 `toolId` 跨 Agent 或消息重复出现时只观察一次；相同定义累计安全诊断，不重复计数。
+- 缺少调用 ID、工具名或入参分别返回 `missing_call_id`、`missing_tool_name`、
+  `missing_call_arguments`；缺少 canvas、meta、agents 或消息容器时返回
+  `invalid_chat_trace_structure`。旧版顶层 `tool_call_queue` 不再支持。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
 
@@ -1087,12 +1091,14 @@ MCP 工具调用膨胀率 = (N - U) ÷ N
 - 调用定义：`result.toolCalls[].toolCallId/toolName/input`。
 - 生命周期补充：`message.part.updated.part.callID/tool/state.input`；按 `callID` 合并
   `pending/running/completed`，不得把状态事件条数当成调用次数。
+- 调用缺少 `callID/toolCallId` 或工具名时分别返回 `missing_call_id`、`missing_tool_name`。
 - 已观察到手册内 MCP 生命周期但没有任何可用入参定义时返回 `missing_call_arguments`。
 
 两种模式均使用版本化 `CapabilityCatalog` 解析手册直接名称和 `mcp__...__工具名`。入参无法
 稳定序列化时返回 `unserializable_call_arguments`；没有手册内 MCP 时返回
 `NOT_COMPUTABLE / no_registered_mcp_calls`。结果只保留 `manual_version`、调用计数、签名计数、
-膨胀计数和安全诊断，不保留工具名、入参、摘要或响应正文。
+膨胀计数和安全诊断，不保留工具名、入参、摘要或响应正文。新版 canvas 适配的 evaluator
+版本为 `1.1.0`。
 
 ### 模拟计算
 

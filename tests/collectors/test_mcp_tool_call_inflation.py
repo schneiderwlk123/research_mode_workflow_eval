@@ -21,16 +21,44 @@ def _catalog() -> CapabilityCatalog:
     )
 
 
+def _chat_trace(
+    *agents: dict[str, object], trace_id: str | None = "trace-001"
+) -> dict[str, object]:
+    return {
+        "canvas": {
+            "meta": {"traceId": trace_id},
+            "agents": list(agents),
+        },
+    }
+
+
+def _chat_message(*calls: dict[str, object]) -> dict[str, object]:
+    return {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": {"tool_call": list(calls)},
+            }
+        ]
+    }
+
+
+def _chat_call(call_id: str, tool_name: str, arguments: object) -> dict[str, object]:
+    return {"toolId": call_id, "toolName": tool_name, "arguments": arguments}
+
+
 def test_chat_counts_same_mcp_and_canonical_arguments_after_first_call_as_inflated() -> None:
-    trace = {
-        "traceId": "trace-001",
-        "tool_call_queue": [
+    trace = _chat_trace(
+        _chat_message(
             _chat_call("call-1", "quote", {"symbol": "AAA", "window": 1}),
             _chat_call("call-2", "mcp__finance__quote", {"window": 1, "symbol": "AAA"}),
+        ),
+        _chat_message(
             _chat_call("call-3", "quote", {"symbol": "BBB", "window": 1}),
             _chat_call("call-4", "respond", {"text": "sensitive"}),
-        ],
-    }
+            {"taskId": "worker-1", "agentName": "worker_search", "arguments": {}},
+        ),
+    )
     original = deepcopy(trace)
 
     normalized = normalize_chat_mcp_tool_call_inflation(trace, _catalog())
@@ -54,10 +82,10 @@ def test_chat_counts_same_mcp_and_canonical_arguments_after_first_call_as_inflat
 
 
 def test_chat_deduplicates_same_call_id_before_counting_inflation() -> None:
-    event = _chat_call("call-1", "quote", '{"symbol":"AAA"}')
+    call = _chat_call("call-1", "quote", '{"symbol":"AAA"}')
 
     normalized = normalize_chat_mcp_tool_call_inflation(
-        {"tool_call_queue": [event, deepcopy(event)]}, _catalog()
+        _chat_trace(_chat_message(call), _chat_message(deepcopy(call))), _catalog()
     )
 
     assert normalized["mcp_call_count"] == 1
@@ -70,6 +98,7 @@ def test_chat_deduplicates_same_call_id_before_counting_inflation() -> None:
     ("request_payload", "reason"),
     [
         ({"toolName": "quote", "arguments": {}}, "missing_call_id"),
+        ({"toolId": "call-1", "arguments": {}}, "missing_tool_name"),
         ({"toolId": "call-1", "toolName": "quote"}, "missing_call_arguments"),
     ],
 )
@@ -77,7 +106,7 @@ def test_chat_requires_stable_id_and_arguments(
     request_payload: dict[str, object], reason: str
 ) -> None:
     normalized = normalize_chat_mcp_tool_call_inflation(
-        {"tool_call_queue": [{"event_type": "tool_call", "tool_request_args": request_payload}]},
+        _chat_trace(_chat_message(request_payload)),
         _catalog(),
     )
 
@@ -86,12 +115,26 @@ def test_chat_requires_stable_id_and_arguments(
 
 def test_chat_rejects_conflicting_definition_for_same_call_id() -> None:
     normalized = normalize_chat_mcp_tool_call_inflation(
-        {
-            "tool_call_queue": [
+        _chat_trace(
+            _chat_message(
                 _chat_call("call-1", "quote", {"symbol": "AAA"}),
                 _chat_call("call-1", "quote", {"symbol": "BBB"}),
-            ]
-        },
+            )
+        ),
+        _catalog(),
+    )
+
+    assert normalized["normalization_error"] == "conflicting_call_definition"
+
+
+def test_chat_rejects_same_call_id_reused_across_mcp_scope_boundary() -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(
+        _chat_trace(
+            _chat_message(
+                _chat_call("call-1", "respond", {"text": "sensitive"}),
+                _chat_call("call-1", "quote", {"symbol": "AAA"}),
+            )
+        ),
         _catalog(),
     )
 
@@ -100,17 +143,36 @@ def test_chat_rejects_conflicting_definition_for_same_call_id() -> None:
 
 def test_chat_rejects_unserializable_arguments() -> None:
     normalized = normalize_chat_mcp_tool_call_inflation(
-        {"tool_call_queue": [_chat_call("call-1", "quote", {"symbols": {"AAA"}})]},
+        _chat_trace(_chat_message(_chat_call("call-1", "quote", {"symbols": {"AAA"}}))),
         _catalog(),
     )
 
     assert normalized["normalization_error"] == "unserializable_call_arguments"
 
 
-def test_invalid_chat_queue_is_isolated() -> None:
-    normalized = normalize_chat_mcp_tool_call_inflation({"tool_call_queue": "invalid"}, _catalog())
+@pytest.mark.parametrize(
+    ("trace", "reason"),
+    [
+        ({"traceId": "legacy", "tool_call_queue": []}, "invalid_chat_trace_structure"),
+        (
+            {"canvas": {"meta": {"traceId": "trace-001"}, "agents": "invalid"}},
+            "invalid_chat_trace_structure",
+        ),
+        (_chat_trace({"messages": "invalid"}), "invalid_chat_trace_structure"),
+        (
+            _chat_trace({"messages": [{"role": "assistant", "content": "invalid"}]}),
+            "invalid_chat_trace_structure",
+        ),
+        (_chat_trace(_chat_message(), trace_id=None), "missing_trace_id"),
+    ],
+)
+def test_invalid_or_legacy_chat_structure_is_isolated(
+    trace: dict[str, object], reason: str
+) -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(trace, _catalog())
 
-    assert normalized["normalization_error"] == "invalid_tool_call_queue"
+    assert normalized["normalization_error"] == reason
+    assert normalized["diagnostics"]["malformed_event_count"] >= 1
 
 
 def test_research_deduplicates_definitions_and_ignores_lifecycle_repetition() -> None:
@@ -188,15 +250,16 @@ def test_research_rejects_conflicting_definition_for_same_call_id() -> None:
     assert normalized["normalization_error"] == "conflicting_call_definition"
 
 
-def _chat_call(call_id: str, tool_name: str, arguments: object) -> dict[str, object]:
-    return {
-        "event_type": "tool_call",
-        "tool_request_args": {
-            "toolId": call_id,
-            "toolName": tool_name,
-            "arguments": arguments,
-        },
-    }
+def test_research_rejects_same_call_id_reused_across_mcp_scope_boundary() -> None:
+    normalized = normalize_research_mcp_tool_call_inflation(
+        [
+            _research_requests(("call-1", "excel", {"range": "A1"})),
+            _research_requests(("call-1", "quote", {"symbol": "AAA"})),
+        ],
+        _catalog(),
+    )
+
+    assert normalized["normalization_error"] == "conflicting_call_definition"
 
 
 def _research_requests(*calls: tuple[str, str, object]) -> dict[str, object]:
