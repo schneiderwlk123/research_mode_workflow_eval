@@ -17,6 +17,17 @@ from collectors.evidence_quality import (
 _TERMINAL_STATUSES = frozenset(
     {"completed", "failed", "error", "cancelled", "canceled", "timeout", "timed_out"}
 )
+_CHAT_STRUCTURE_ERRORS = frozenset(
+    {
+        "invalid_chat_trace_structure",
+        "missing_trace_id",
+        "missing_query",
+        "missing_call_id",
+        "missing_tool_name",
+        "conflicting_call_definition",
+        "conflicting_call_result",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,16 +55,23 @@ class NormalizedStatementSupportTrace(TypedDict):
 def normalize_chat_statement_support(
     trace: Mapping[str, object], catalog: EvidenceSourceCatalog
 ) -> NormalizedStatementSupportTrace:
-    """规范化聊天最终回答；完整观察到空证据时仍允许 Judge 拆分陈述。"""
+    """从新版 canvas 提取最终回答；完整观察到空证据时仍允许 Judge 拆分陈述。"""
 
     evidence = normalize_chat_evidence(trace, catalog)
-    query = _text(trace.get("query"))
-    answer = _text(trace.get("answer"))
+    canvas = trace.get("canvas")
+    meta = canvas.get("meta") if isinstance(canvas, Mapping) else None
+    answer_container = canvas.get("answer") if isinstance(canvas, Mapping) else None
+    query = _text(meta.get("query")) if isinstance(meta, Mapping) else None
+    answer = (
+        _text(answer_container.get("answer")) if isinstance(answer_container, Mapping) else None
+    )
     error = _statement_evidence_error(
         evidence["normalization_error"],
         observation_complete=_chat_evidence_observation_complete(trace, catalog),
     )
-    if query is None:
+    if error in _CHAT_STRUCTURE_ERRORS:
+        pass
+    elif query is None:
         error = "missing_query"
     elif answer is None:
         error = "missing_final_answer"

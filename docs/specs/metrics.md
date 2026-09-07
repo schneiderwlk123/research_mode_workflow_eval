@@ -929,7 +929,8 @@ irrelevant 证据单元数 = 2
 - 任一可验证陈述为 `not_assessable` 时返回
   `NOT_COMPUTABLE / incomplete_claim_judgment`，不得将其当作不支持或从分母删除。
 - 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。Judge 异常和非法
-  结构分别返回 `judge_failure` 与 `invalid_judge_output`。
+  结构分别返回 `judge_failure` 与 `invalid_judge_output`。新版 canvas 适配的 evaluator 版本为
+  `1.1.0`。
 
 ### Judge 契约
 
@@ -985,8 +986,13 @@ Judge 请求包含原始 query、最终回答和证据查准率定义的来源�
 `NOT_COMPUTABLE / incomplete_evidence_segmentation`，不得只使用可拆分子集判断支持率。
 query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响应不得进入持久化结果。
 
-新版聊天日志重算状态：336 条 Trace 中 335 条具有非空最终回答，1 条缺少可用最终回答；但
-生产版证据工具目录和陈述 Judge 均未配置，因此本次不产生 `statement_support_rate` 数值。
+新版聊天日志重算状态：336 条 Trace 中 335 条具有非空最终回答，1 条缺少可用最终回答。
+使用临时 17 工具证据目录 `evidence-scope-8ce42ba0453c432e` 仅验证链路时，192 条可形成
+Judge 候选，118 条因证据拆分不完整返回 `incomplete_evidence_segmentation`，25 条固定服务
+失败返回 `pre_answer_failure`，1 条返回 `missing_final_answer`；候选及不可计算记录合计观察
+18,257 个稳定证据单元。研究日志因 3 个成功响应没有稳定来源边界返回
+`incomplete_evidence_segmentation`。生产证据工具目录尚未确认，本次未运行陈述支持 Judge，
+因此不产生正式 `statement_support_rate` 数值。
 
 ### 模拟计算
 

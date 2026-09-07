@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 379 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 382 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -61,8 +61,9 @@ Schema 合法率、
   文本不估算，query、证据正文、摘要和 Judge 原始响应不落盘；显式证据工具范围生成稳定
   `evidence_scope_version`。
 - 聊天最终回答和研究模式 `turn.end` 前最后一个 assistant 文本提取、空证据零分入口、严格
-  原子陈述 Judge 契约及 OpenAI-compatible 适配器；`statement_support_rate` 版本为 `1.0.0`，
-  query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
+  原子陈述 Judge 契约及 OpenAI-compatible 适配器；新版 canvas 从
+  `meta.query/answer.answer` 提取聊天输入，旧版顶层字段不再支持；`statement_support_rate`
+  版本为 `1.1.0`，query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
 - 聊天与研究最终回答、来源原生证据单元和严格数值对齐 Judge 契约；
   `retrieved_numeric_consistency_rate` 版本为 `1.0.0`，数值比较由 `Decimal` 确定性完成，
   回答、证据、数值和 Judge 原始响应不落盘。
@@ -86,17 +87,17 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：时间范围提取准确率。
-- 进行中的具体指标：证据查准率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：陈述支持率的新版聊天 schema 适配。
-- 下一动作：展示证据查准率的双模式验证结果，验收后再进入陈述支持率。
+- 最近完成并验收的新版聊天适配指标：证据查准率。
+- 进行中的具体指标：陈述支持率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：最终数值与召回证据一致率的新版聊天 schema 适配。
+- 下一动作：展示陈述支持率的双模式验证结果，验收后再进入最终数值与召回证据一致率。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
   调用率、必填参数完整率、Schema 合法率、参数值准确率、路由 Precision/Recall、子任务
-  冗余率、意图识别准确率、时间范围提取准确率和证据查准率 collectors 已支持新版 canvas，
-  其余指标 collectors 仍主要按旧版字段读取，完整统一 Trace 模型尚未实现。
+  冗余率、意图识别准确率、时间范围提取准确率、证据查准率和陈述支持率 collectors 已支持
+  新版 canvas，其余指标 collectors 仍主要按旧版字段读取，完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -135,7 +136,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 379 passed
+pytest: 382 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -198,11 +199,15 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   not_assessable 返回 incomplete_relevance_judgment；1 条含 205 个单元的请求返回
   judge_failure；5 条 incomplete_evidence_segmentation，2 条 no_evidence_calls。该临时目录
   未进入生产配置，结果不得作为正式生产基线
-陈述支持率测试: 17 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
-陈述支持率聊天模式: 顶层 query/answer 可形成 Judge 候选；没有证据或明确空结果仍可得到
-  0 分，固定服务失败、缺少回答、证据缺终态和部分响应不可拆分均返回稳定安全原因码
+陈述支持率定向与共享回归测试: 21 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
+  evaluator 版本 `1.1.0`
+陈述支持率新版聊天结构验算: 使用临时 17 工具目录时，336 条中 192 条形成 Judge 候选，
+  共观察 18257 个稳定证据单元；118 条 incomplete_evidence_segmentation，25 条
+  pre_answer_failure，1 条 missing_final_answer。没有证据或明确空结果仍可进入 Judge 并得到
+  0 分；旧版顶层 query/answer/tool_call_queue 不再支持
 陈述支持率研究模式: 通过 assistant message ID 选择 turn.end 前最后一个非空文本；成功产物
-  无最终正文返回 missing_final_artifact_content，缺少证据终态和不完整拆分不估算
+  无最终正文返回 missing_final_artifact_content，缺少证据终态和不完整拆分不估算；当前研究
+  日志因 3 个成功响应不可稳定拆分而返回 incomplete_evidence_segmentation
 陈述支持率模拟计算: 2 个可验证原子陈述中 1 个 supported、1 个 unsupported，另有 1 个
   excluded 建议，结果 1/2 = 0.5, computed；聊天与研究 evaluator 路径均通过
 最终数值与召回证据一致率测试: 19 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE

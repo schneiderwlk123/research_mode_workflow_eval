@@ -27,11 +27,10 @@ def _chat_trace(
     if results is not None:
         messages.append({"content": {"tool_result": results}})
     return {
-        "query": query,
-        "answer": answer,
         "canvas": {
             "meta": {"traceId": "trace-1", "query": query},
             "agents": [{"messages": messages}],
+            "answer": {"answer": answer},
         },
     }
 

@@ -27,16 +27,13 @@ def _chat_trace(
         messages.append({"content": {"tool_call": calls}})
     if results is not None:
         messages.append({"content": {"tool_result": results}})
-    trace: dict[str, object] = {
-        "query": query,
-        "canvas": {
-            "meta": {"traceId": "trace-1", "query": query},
-            "agents": [{"messages": messages}],
-        },
+    canvas: dict[str, object] = {
+        "meta": {"traceId": "trace-1", "query": query},
+        "agents": [{"messages": messages}],
     }
     if answer is not None:
-        trace["answer"] = answer
-    return trace
+        canvas["answer"] = {"answer": answer}
+    return {"canvas": canvas}
 
 
 def test_chat_collects_answer_and_structured_evidence() -> None:
@@ -119,6 +116,31 @@ def test_partial_unsegmentable_evidence_does_not_silently_shrink_support_basis()
     assert normalized["candidate"] is None
     assert normalized["evidence_unit_count"] == 1
     assert normalized["normalization_error"] == "incomplete_evidence_segmentation"
+
+
+def test_chat_rejects_legacy_top_level_query_answer_and_queue() -> None:
+    normalized = normalize_chat_statement_support(
+        {
+            "traceId": "legacy",
+            "query": "分析收入",
+            "answer": "收入为 100 亿元。",
+            "tool_call_queue": [],
+        },
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "invalid_chat_trace_structure"
+
+
+def test_chat_missing_trace_id_is_not_hidden_by_missing_answer() -> None:
+    normalized = normalize_chat_statement_support(
+        {"canvas": {"meta": {"query": "分析收入"}, "agents": [], "answer": {}}},
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is None
+    assert normalized["normalization_error"] == "missing_trace_id"
 
 
 def test_research_uses_last_assistant_text_before_turn_end() -> None:

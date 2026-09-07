@@ -47,8 +47,9 @@
   成功响应；聊天模式按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、
   孤立结果及冲突生命周期，旧版 `tool_call_queue` 不再支持；证据按来源原生结构拆分并在
   内存去重，无边界长文本和派生工具不进入指标。
-- `src/collectors/statement_support.py`：复用证据单元抽取，提取聊天最终回答或研究模式
-  `turn.end` 前最后一个 assistant 文本；区分空证据、缺终态和不完整证据拆分。
+- `src/collectors/statement_support.py`：复用证据单元抽取，从新版 canvas 的
+  `meta.query/answer.answer` 提取聊天输入，或选择研究模式 `turn.end` 前最后一个 assistant
+  文本；区分空证据、缺终态、不完整证据拆分和固定前置服务失败，旧版顶层聊天字段不再支持。
 - `src/collectors/numeric_consistency.py`：复用陈述支持率的最终回答选择和来源原生证据单元，
   构建不落盘正文的数值一致性 Judge 候选。
 - `src/collectors/first_tool_decision_latency.py`：提取聊天请求到最早子 Agent/工具决策，以及
@@ -94,7 +95,7 @@
 - `src/evaluators/openai_compatible_evidence_judge.py`：把不可信 query 与来源原生证据单元
   提交给 OpenAI-compatible Judge，并以固定 reason code 和通用异常隔离敏感正文。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
-  三态可验证结论和排除项，并计算 `statement_support_rate`。
+  三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/numeric_consistency.py`：定义直接召回数值对齐 Judge 契约，以 `Decimal` 统一
   单位倍率和展示精度，确定性计算 `retrieved_numeric_consistency_rate`。
 - `src/evaluators/openai_compatible_numeric_consistency_judge.py`：将最终回答和来源证据提交给
@@ -139,8 +140,8 @@
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、新版 canvas 跨 Agent/message
   关联、子 Agent 与孤立结果排除、重复和冲突生命周期、旧结构拒绝、结构化单元拆分、内存
   去重、不可拆分响应及研究回归测试。
-- `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、
-  缺终态、部分不可拆分响应和成功产物无正文测试。
+- `tests/collectors/test_statement_support.py`：新版 canvas/研究最终回答选择、空证据可计算、
+  前置失败、缺终态、部分不可拆分响应、旧结构拒绝和成功产物无正文测试。
 - `tests/collectors/test_numeric_consistency.py`：双模式最终回答与证据复用及不完整证据隔离测试。
 - `tests/collectors/test_first_tool_decision_latency.py`：聊天乱序决策、子 Agent/工具时间选择、
   研究 pending 去重及缺失时间边界测试。

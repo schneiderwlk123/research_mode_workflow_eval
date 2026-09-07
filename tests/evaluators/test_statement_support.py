@@ -2,8 +2,8 @@ from collections.abc import Mapping
 
 import pytest
 
-from collectors.evidence_quality import EvidenceUnit
-from collectors.statement_support import StatementSupportCandidate
+from collectors.evidence_quality import EvidenceUnit, build_evidence_source_catalog
+from collectors.statement_support import StatementSupportCandidate, normalize_chat_statement_support
 from evaluators.base import EvaluationStatus
 from evaluators.statement_support import StatementSupportEvaluator, StatementSupportJudgeRequest
 
@@ -49,6 +49,8 @@ def _trace(
             "unsegmentable_evidence_response_count": 0,
             "duplicate_evidence_unit_count": 0,
             "duplicate_call_definition_count": 0,
+            "duplicate_result_observation_count": 0,
+            "orphan_result_count": 0,
         },
         "normalization_error": error,
     }
@@ -86,12 +88,64 @@ def test_supported_verifiable_claims_divided_by_all_verifiable_claims(mode: str)
     result = StatementSupportEvaluator(judge).evaluate(_trace(mode=mode))
 
     assert result.metric_name == "statement_support_rate"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.5
     assert result.metadata["verifiable_claim_count"] == 2
     assert result.metadata["supported_claim_count"] == 1
     assert result.metadata["excluded_claim_count"] == 1
     assert "收入为 100" not in repr(result.metadata)
+
+
+def test_canvas_collector_output_is_accepted_by_evaluator() -> None:
+    catalog = build_evidence_source_catalog(
+        {
+            "manual_version": "0.1.0",
+            "tools": [{"name": "search", "description": "检索", "parameters": []}],
+        },
+        evidence_tool_names={"search"},
+    )
+    normalized = normalize_chat_statement_support(
+        {
+            "canvas": {
+                "meta": {"traceId": "trace-1", "query": "分析收入"},
+                "agents": [
+                    {
+                        "messages": [
+                            {
+                                "content": {
+                                    "tool_call": [
+                                        {
+                                            "toolId": "call-1",
+                                            "toolName": "search",
+                                            "arguments": {},
+                                        }
+                                    ],
+                                    "tool_result": [
+                                        {
+                                            "toolId": "call-1",
+                                            "result": {"data": [{"revenue": 100}]},
+                                        }
+                                    ],
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "answer": {"answer": "公司收入为 100 亿元。"},
+            }
+        },
+        catalog,
+    )
+    judge = FakeJudge(
+        {"claims": [_claim("c1", "verifiable", "supported", "directly_supported", ["call-1:0"])]}
+    )
+
+    result = StatementSupportEvaluator(judge).evaluate(normalized)
+
+    assert result.status is EvaluationStatus.COMPUTED
+    assert result.value == 1.0
+    assert result.evaluator_version == "1.1.0"
 
 
 def test_no_evidence_can_produce_zero_and_no_verifiable_claims_is_not_computable() -> None:
