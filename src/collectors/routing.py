@@ -1,5 +1,6 @@
 """提取路由评测所需的意图片段和实际 MCP 能力集合。"""
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -116,63 +117,135 @@ def build_capability_catalog(
 def normalize_chat_routing(
     trace: Mapping[str, object], catalog: CapabilityCatalog
 ) -> NormalizedRoutingCandidate:
-    """提取聊天 Trace 的整体意图、全部子任务和已调用 MCP 能力。"""
+    """从新版 canvas 提取整体意图、子任务和去重后的 MCP 能力集合。"""
 
-    trace_id = _identifier(trace.get("traceId"))
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _empty_candidate(
+            trace_id=None,
+            mode="chat",
+            intents=[],
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _empty_candidate(
+            trace_id=None,
+            mode="chat",
+            intents=[],
+            normalization_error="invalid_chat_trace_structure",
+            malformed_event_count=1,
+        )
+    trace_id = _identifier(meta.get("traceId"))
+    if trace_id is None:
+        return _empty_candidate(
+            trace_id=None,
+            mode="chat",
+            intents=[],
+            normalization_error="missing_trace_id",
+            malformed_event_count=1,
+        )
     intents: list[str] = []
-    _append_unique(intents, trace.get("query"))
+    _append_unique(intents, meta.get("query"))
     actual_capabilities: set[str] = set()
     malformed_event_count = 0
     out_of_scope_count = 0
-    tool_call_count = 0
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
+    ordinary_call_count = 0
+    duplicate_count = 0
+    calls: dict[str, str] = {}
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
         return _empty_candidate(
             trace_id=trace_id,
             mode="chat",
             intents=intents,
-            normalization_error="invalid_tool_call_queue",
+            normalization_error="invalid_chat_trace_structure",
             malformed_event_count=1,
         )
 
     normalization_error: str | None = None
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
             malformed_event_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
             continue
-        event_type = event.get("event_type")
-        if event_type == "call_sub_agent_begin":
-            payload = event.get("request_payload")
-            if not isinstance(payload, Mapping):
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            malformed_event_count += 1
+            normalization_error = normalization_error or "invalid_chat_trace_structure"
+            continue
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
                 malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
                 continue
-            _append_unique(intents, payload.get("taskName"))
-            arguments = payload.get("arguments")
-            if isinstance(arguments, Mapping):
-                _append_unique(intents, arguments.get("query"))
-            continue
-        if event_type != "tool_call":
-            continue
-        tool_call_count += 1
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            malformed_event_count += 1
-            normalization_error = normalization_error or "missing_tool_name"
-            continue
-        tool_name = _identifier(request.get("toolName"))
-        if tool_name is None:
-            malformed_event_count += 1
-            normalization_error = normalization_error or "missing_tool_name"
-            continue
-        capability_id = catalog.resolve(tool_name)
-        if capability_id is None:
-            out_of_scope_count += 1
-        else:
-            actual_capabilities.add(capability_id)
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                malformed_event_count += 1
+                normalization_error = normalization_error or "invalid_chat_trace_structure"
+                continue
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    malformed_event_count += 1
+                    normalization_error = normalization_error or "invalid_chat_trace_structure"
+                    continue
+                call_id = _identifier(raw_call.get("toolId"))
+                tool_name = _identifier(raw_call.get("toolName"))
+                agent_name = _identifier(raw_call.get("agentName"))
+                if call_id is None and agent_name is not None:
+                    arguments = _parse_arguments(raw_call.get("arguments"))
+                    if arguments is None:
+                        malformed_event_count += 1
+                        continue
+                    task = _identifier(arguments.get("query")) or _identifier(arguments.get("task"))
+                    if task is None:
+                        malformed_event_count += 1
+                    else:
+                        _append_unique(intents, task)
+                    continue
 
-    if tool_call_count == 0 and _is_pre_routing_failure(trace.get("answer")):
+                if call_id is not None or tool_name is not None or "arguments" in raw_call:
+                    ordinary_call_count += 1
+                if call_id is None and (tool_name is not None or "arguments" in raw_call):
+                    malformed_event_count += 1
+                    normalization_error = normalization_error or "missing_call_id"
+                    continue
+                if call_id is not None and tool_name is None:
+                    malformed_event_count += 1
+                    normalization_error = normalization_error or "missing_tool_name"
+                    continue
+                if call_id is None or tool_name is None:
+                    malformed_event_count += 1
+                    normalization_error = normalization_error or "invalid_chat_trace_structure"
+                    continue
+
+                previous = calls.get(call_id)
+                if previous is not None:
+                    if previous == tool_name:
+                        duplicate_count += 1
+                    else:
+                        normalization_error = normalization_error or "conflicting_call_definition"
+                    continue
+                calls[call_id] = tool_name
+                capability_id = catalog.resolve(tool_name)
+                if capability_id is None:
+                    out_of_scope_count += 1
+                else:
+                    actual_capabilities.add(capability_id)
+
+    if ordinary_call_count == 0 and _is_pre_routing_failure(_chat_answer(canvas)):
         normalization_error = "pre_routing_failure"
     elif not intents:
         normalization_error = normalization_error or "missing_intent"
@@ -184,7 +257,7 @@ def normalize_chat_routing(
         "diagnostics": {
             "malformed_event_count": malformed_event_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
-            "duplicate_call_definition_count": 0,
+            "duplicate_call_definition_count": duplicate_count,
         },
         "normalization_error": normalization_error,
     }
@@ -297,6 +370,23 @@ def _append_unique(destination: list[str], value: object) -> None:
     normalized = _identifier(value)
     if normalized is not None and normalized not in destination:
         destination.append(normalized)
+
+
+def _parse_arguments(value: object) -> Mapping[str, object] | None:
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(parsed, Mapping):
+        return None
+    return {str(key): item for key, item in parsed.items()}
+
+
+def _chat_answer(canvas: Mapping[object, object]) -> object:
+    answer = canvas.get("answer")
+    return answer.get("answer") if isinstance(answer, Mapping) else None
 
 
 def _empty_candidate(

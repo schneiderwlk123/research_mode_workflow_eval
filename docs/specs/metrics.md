@@ -456,7 +456,7 @@ Trace。当前未执行真实 Judge，因此本次不产生 `parameter_value_acc
   `exact_duplicate_tool_call_rate` 单独评估，避免重复惩罚或加分。
 - 标准能力集合不是从实际调用反推。路由 Judge 必须综合整体用户意图、所有可见子任务
   意图、完整 MCP 能力目录以及历史安全映射，选择完成需求所需的最小充分能力集合。
-- 本批次只计算选择层 Recall。调用是否成功属于执行质量，不混入路由选择判断。
+- 两项指标都只评估路由选择层。调用是否成功属于执行质量，不混入路由选择判断。
 - 不在 MCP 手册中的 `respond` 等框架工具不进入实际能力集合，只记录
   `out_of_scope_tool_call_count`；Judge 不得选择未在当前目录注册的能力。
 - 实际能力集合为空而标准集合非空时，Precision 返回
@@ -513,10 +513,21 @@ MCP 手册：
 聊天模式：
 
 - 整体意图：`canvas.meta.query`。
-- 子任务意图：`content.tool_call[]` 中具有 `agentName` 且没有 `toolId` 的子 Agent 调用；
-  从 `arguments.query` 或 `arguments.task` 提取并按正文去重。`agentName` 只表示 worker 类型，
-  不能单独作为任务语义。
-- 实际能力：普通工具请求的 `toolName`，按 MCP 手册解析并在 Trace 内形成能力集合。
+- 调用候选：扫描 `canvas.agents[].messages[].content.tool_call[]`。
+- 子任务意图：具有 `agentName` 且没有 `toolId` 的子 Agent 调用；从对象或可解析为对象的
+  `arguments.query/arguments.task` 提取，并在 Trace 内按正文去重。`agentName` 只表示 worker
+  类型，不能单独作为任务语义；没有可靠任务文本的子 Agent 调用只记录安全诊断。
+- 实际能力：同时具有 `toolId` 和 `toolName` 的普通工具请求；按 `traceId + toolId` 去重后，
+  将 `toolName` 通过 MCP 手册解析为能力 ID，并在 Trace 内形成集合。同一 `toolId` 重复出现
+  且工具名一致时合并；工具名不一致时返回
+  `NOT_COMPUTABLE / conflicting_call_definition`。参数差异不影响路由能力集合。
+- 缺少 `traceId`、整体意图、普通调用 ID 或工具名时分别返回
+  `NOT_COMPUTABLE / missing_trace_id`、`missing_intent`、`missing_call_id` 或
+  `missing_tool_name`；不得使用数组位置补造调用 ID。
+- `canvas`、`meta`、`agents`、`messages`、`content` 或 `tool_call` 的容器类型不符合约定时
+  返回 `NOT_COMPUTABLE / invalid_chat_trace_structure`。本指标不读取 `tool_result`。
+- 没有普通工具请求且 `canvas.answer.answer` 明确为固定模型服务失败文案时返回
+  `NOT_COMPUTABLE / pre_routing_failure`，并跳过 Judge。
 
 研究模式：
 
@@ -538,8 +549,12 @@ MCP 手册：
 失败只记录安全诊断，不改变已经生成的标准能力集合和指标结果。
 
 新版聊天日志重算状态：312/336 条 Trace 可构造路由 Judge 候选，24 条为明确路由前失败；
-可评估候选中实际 MCP 能力集合按 Trace 去重后合计 950 项，意图片段合计 1,502 项。由于本次
-未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
+可评估候选中实际 MCP 能力集合按 Trace 去重后合计 950 项，意图片段合计 1,507 项。全部
+336 条规范化对象共提取 1,531 个意图片段，其中 24 个属于前置失败且不会提交 Judge。由于
+本次未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
+
+本批新版聊天适配只验收 `routing_precision`，evaluator 版本为 `1.1.0`；共享 Judge 和
+TP/FP/FN 计数继续供 Recall 复用，但 `routing_recall` 保持 `1.0.0`，留待下一批单独验收。
 
 ### 模拟计算
 

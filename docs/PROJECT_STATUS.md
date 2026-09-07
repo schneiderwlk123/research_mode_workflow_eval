@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 331 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 341 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -41,7 +41,8 @@ Schema 合法率、
 - OpenAI-compatible Judge 适配器与常用 dotenv 配置加载，远程端点强制 HTTPS，并对
   Judge 供应商异常做脱敏隔离。
 - LLM 结合整体意图、全部可见子任务和 MCP Schema 生成标准能力集合，并通过共享
-  TP/FP/FN 同时计算 `routing_precision` 与 `routing_recall`，版本均为 `1.0.0`。
+  TP/FP/FN 同时计算 `routing_precision` 与 `routing_recall`；Precision 的新版 canvas
+  适配版本为 `1.1.0`，Recall 保持 `1.0.0` 等待下一批单独验收。
 - 去实体化的意图签名、子任务类型与能力集合 JSONL 映射表，支持去重和 Jaccard 相似检索；
   原始意图、实体、参数和响应不得持久化。
 - 聊天子任务的确定性 NFKC、约束词元和字符 bigram 冗余规则；不调用 LLM，任务正文和
@@ -80,16 +81,17 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：Schema 合法率。
-- 进行中的具体指标：参数值准确率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：路由 Precision 的新版聊天 schema 适配。
-- 下一动作：展示参数值准确率候选提取及聊天/研究真实日志验证结果，验收后再进入下一指标。
+- 最近完成并验收的新版聊天适配指标：参数值准确率。
+- 进行中的具体指标：路由 Precision 的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：路由 Recall 的新版聊天 schema 适配。
+- 下一动作：展示路由 Precision 的双模式验证结果，验收后再进入路由 Recall。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
-  调用率、必填参数完整率、Schema 合法率和参数值准确率 collectors 已支持新版 canvas，
-  其余指标 collectors 仍主要按旧版 `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
+  调用率、必填参数完整率、Schema 合法率、参数值准确率和路由 Precision/Recall 的共享
+  collector 已支持新版 canvas，其余指标 collectors 仍主要按旧版 `tool_call_queue` 读取，
+  完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -110,7 +112,8 @@ Schema 合法率、
 Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规和 4 次枚举违规
 参数值准确率候选: 2911 次手册覆盖调用，覆盖 271 条 Trace；未运行 Judge，无最终得分
 路由 Precision/Recall 候选: 312/336 条 Trace 可提交 Judge，24 条 pre_routing_failure；
-  按 Trace 去重后合计 950 个实际 MCP 能力；未运行 Judge，无最终得分
+  候选内合计 1507 个去重意图片段、950 个实际 MCP 能力；全部规范化对象共提取 1531 个
+  意图片段，其中 24 个属于前置失败且不会送 Judge；未运行 Judge，无最终得分
 子任务冗余率: 3/1197 ≈ 0.00251；2 次精确重复、1 次高相似冗余，2 次无文本多模态子任务非法
 意图识别准确率候选: 312/336 条 Trace 可提交 Judge，24 条 pre_intent_failure；无最终得分
 时间范围提取准确率候选: 312/336 条 Trace 可提交 Judge，含 2911 次手册覆盖调用；无最终得分
@@ -120,7 +123,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 331 passed
+pytest: 341 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -142,7 +145,7 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 路由规范化 MCP 目录: 77 个能力，手册版本 0.1.0
 路由规范化聊天日志: 106/106 个 Trace 成功，35 个 Trace 含 MCP 路由，提取 185 个子任务片段
 路由规范化研究日志: 1 个 Trace 成功，5 个 MCP 能力；当前日志只提供 1 个整体意图片段
-路由双指标测试: 22 项通过
+路由 collector 与双指标定向测试: 24 项通过；Precision 版本 `1.1.0`，Recall 版本 `1.0.0`
 路由双指标真实前 10 条聊天日志: 3 条可评估、7 条路由前服务失败；可评估日志 TP=6，
   实际能力=9，标准能力=14；微平均 Precision 0.66667，微平均 Recall 0.42857；
   Judge/格式错误 0

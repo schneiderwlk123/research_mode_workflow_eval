@@ -28,9 +28,10 @@
 - `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录；聊天模式
   按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按 `toolCallId` 去重，
   生成只在内存流转的 Judge 候选；旧版聊天结构不再支持，长期结果不得保留 query 或参数值。
-- `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
-  意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断，明确的
-  路由前模型服务失败会在调用 Judge 前标记为不可计算。
+- `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录；聊天模式扫描新版 canvas，
+  按 `traceId + toolId` 去重普通工具请求，并从子 Agent 的 `arguments.query/task` 提取任务；
+  研究模式按调用 ID 去重。框架工具只进入范围外诊断，旧版聊天结构不再支持，明确的路由前
+  模型服务失败会在调用 Judge 前标记为不可计算。
 - `src/collectors/subtask_redundancy.py`：从聊天 `call_sub_agent_begin` 提取子任务，使用
   NFKC、约束词元和字符 bigram 规则计算高置信度冗余聚合计数；研究模式在结构化子任务
   契约确认前显式返回不可计算，任务正文和中间指纹不进入结果。
@@ -68,7 +69,8 @@
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
-  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`。
+  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；Precision 的新版
+  canvas 适配版本为 `1.1.0`，Recall 保持 `1.0.0` 等待下一批单独验收。
 - `src/evaluators/subtask_redundancy.py`：校验规则版本、固定阈值和安全聚合计数，计算
   `subtask_redundancy_rate`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
@@ -118,8 +120,8 @@
 - `tests/collectors/test_parameter_value_accuracy.py`：新版 canvas/研究 query 与 Judge 候选提取、
   子 Agent 排除、跨消息去重、冲突定义、缺失字段、非法结构、旧版聊天拒绝、手册描述目录、
   参数解析失败和内存参数不可变测试。
-- `tests/collectors/test_routing.py`：聊天整体/子任务意图提取、MCP 能力范围、研究前缀映射、
-  调用去重和冲突定义测试。
+- `tests/collectors/test_routing.py`：新版 canvas 的跨 Agent/message 意图提取、普通工具请求
+  去重、缺失字段、非法容器、旧版结构拒绝、前置失败，以及研究前缀映射和冲突定义测试。
 - `tests/collectors/test_subtask_redundancy.py`：聊天精确/高相似冗余、约束差异、非法事件、
   输入不可变、敏感正文隔离及研究模式不可计算测试。
 - `tests/collectors/test_intent_recognition.py`：聊天/研究 query、代理证据、MCP 能力提取，
