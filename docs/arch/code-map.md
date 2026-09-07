@@ -25,8 +25,9 @@
 - `src/collectors/tool_argument_schema.py`：把 MCP 手册类型、枚举和嵌套定义转换为递归
   Schema；聊天模式按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按
   `toolCallId` 去重；旧版聊天结构不再支持，额外字段仅诊断，不使调用非法。
-- `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录，按稳定
-  调用 ID 提取聊天/研究 query 和参数的内存候选；长期结果不得保留 query 或参数值。
+- `src/collectors/parameter_value_accuracy.py`：从 MCP 手册构建工具与字段语义目录；聊天模式
+  按 `traceId + toolId` 扫描新版 canvas 并排除子 Agent 调用，研究模式按 `toolCallId` 去重，
+  生成只在内存流转的 Judge 候选；旧版聊天结构不再支持，长期结果不得保留 query 或参数值。
 - `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录，提取聊天/研究模式的整体
   意图、全部可见子任务意图和实际 MCP 能力集合；框架工具只进入范围外诊断，明确的
   路由前模型服务失败会在调用 Judge 前标记为不可计算。
@@ -36,8 +37,9 @@
 - `src/collectors/intent_recognition.py`：分别从聊天与研究日志提取用户 query、子任务或规划、
   最终回答和已解析 MCP 能力作为内存 Judge 候选；规则负责证据去重、前置失败、调用 ID
   去重与冲突诊断，正文不进入持久化结果。
-- `src/collectors/time_range_accuracy.py`：复用参数语义目录，提取聊天/研究 query、去重工具
-  参数和可复现的相对时间锚点；时间正文与参数值仅保留在内存 Judge 候选中。
+- `src/collectors/time_range_accuracy.py`：复用参数语义目录，聊天模式从新版 canvas 提取
+  query、去重工具参数、最终回答和 `meta.create_time` 锚点，研究模式读取事件流；时间正文与
+  参数值仅保留在内存 Judge 候选中。
 - `src/collectors/evidence_quality.py`：使用显式 MCP 证据工具目录连接聊天/研究调用与成功
   响应，按来源原生结构拆分、内存去重证据单元；无边界长文本和派生工具不进入指标。
 - `src/collectors/statement_support.py`：复用证据单元抽取，提取聊天最终回答或研究模式
@@ -113,16 +115,17 @@
 - `tests/collectors/test_tool_argument_schema.py`：新版 canvas/研究 Schema 校验、子 Agent
   排除、跨消息去重、冲突定义、缺失字段、非法结构、旧版聊天拒绝、类型、数组元素、枚举、
   嵌套必填、额外字段、未知工具和参数解析测试。
-- `tests/collectors/test_parameter_value_accuracy.py`：聊天/研究 query 与调用候选提取、手册
-  描述目录、稳定 ID、研究去重、定义冲突和内存参数不可变测试。
+- `tests/collectors/test_parameter_value_accuracy.py`：新版 canvas/研究 query 与 Judge 候选提取、
+  子 Agent 排除、跨消息去重、冲突定义、缺失字段、非法结构、旧版聊天拒绝、手册描述目录、
+  参数解析失败和内存参数不可变测试。
 - `tests/collectors/test_routing.py`：聊天整体/子任务意图提取、MCP 能力范围、研究前缀映射、
   调用去重和冲突定义测试。
 - `tests/collectors/test_subtask_redundancy.py`：聊天精确/高相似冗余、约束差异、非法事件、
   输入不可变、敏感正文隔离及研究模式不可计算测试。
 - `tests/collectors/test_intent_recognition.py`：聊天/研究 query、代理证据、MCP 能力提取，
   兼容字段、证据与调用去重、前置失败、缺失调用 ID 和冲突定义测试。
-- `tests/collectors/test_time_range_accuracy.py`：聊天/研究时间候选、锚点优先级、调用去重、
-  无调用零分入口、前置失败和不完整参数观察测试。
+- `tests/collectors/test_time_range_accuracy.py`：新版 canvas/研究时间候选、锚点优先级、调用
+  去重、无调用零分入口、前置失败和不完整参数观察测试。
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、结构化单元拆分、内存去重、
   聊天位置标识、研究调用关联、不可拆分响应和调用冲突测试。
 - `tests/collectors/test_statement_support.py`：聊天/研究最终回答选择、空证据可计算、前置失败、

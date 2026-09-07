@@ -382,8 +382,20 @@ MCP 手册：
 
 - 用户需求：`canvas.meta.query`。
 - 单次执行标识：`canvas.meta.traceId`。
-- 调用标识：普通请求的 `toolId`，与 `traceId` 组成复合键。
-- 工具名称和参数：普通请求的 `toolName/arguments`。
+- 调用候选：扫描 `canvas.agents[].messages[].content.tool_call[]`。具有 `agentName` 且没有
+  `toolId` 的对象属于子 Agent 调用，不进入范围；其余具有 `toolId`、`toolName` 或
+  `arguments` 任一普通请求字段的对象按普通工具请求校验完整性。
+- 唯一调用：普通请求的 `toolId` 与 `traceId` 组成复合键。同一 `toolId` 的工具名称和
+  规范化参数一致时合并并记录重复定义；两者任一不一致时返回
+  `NOT_COMPUTABLE / conflicting_call_definition`。
+- 工具名称和参数：普通请求的 `toolName/arguments`。参数为对象或可解析为对象的 JSON
+  字符串时可构造 Judge 候选；不能解析为对象时记录 `malformed_arguments_call_count`，
+  且该调用不提交 Judge。
+- 缺少 `traceId`、query、`toolId`、`toolName` 或 `arguments` 时分别返回
+  `NOT_COMPUTABLE / missing_trace_id`、`missing_query`、`missing_call_id`、
+  `missing_tool_name` 或 `missing_call_arguments`；不得使用数组位置补造调用 ID。
+- `canvas`、`meta`、`agents`、`messages`、`content` 或 `tool_call` 的容器类型不符合约定时
+  返回 `NOT_COMPUTABLE / invalid_chat_trace_structure`。本指标不读取 `tool_result`。
 
 研究模式：
 

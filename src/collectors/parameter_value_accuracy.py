@@ -120,53 +120,118 @@ def build_parameter_value_catalog(manual: Mapping[str, object]) -> ParameterValu
 def normalize_chat_parameter_value_candidates(
     trace: Mapping[str, object], catalog: ParameterValueCatalog
 ) -> NormalizedParameterValueTrace:
-    """提取聊天调用候选；原始 query 与参数仅随返回对象在内存中流转。"""
+    """按新版 canvas 提取候选；query 与参数只在内存对象中流转。"""
 
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _chat_structure_error(catalog, trace_id=None, reason="invalid_chat_trace_structure")
+    trace_id = _identifier(meta.get("traceId"))
+    if trace_id is None:
+        return _chat_structure_error(catalog, trace_id=None, reason="missing_trace_id")
     normalized = _empty_result(
-        trace_id=_identifier(trace.get("traceId")),
+        trace_id=trace_id,
         mode="chat",
         manual_version=catalog.manual_version,
     )
-    query = _identifier(trace.get("query"))
+    query = _identifier(meta.get("query"))
     if query is None:
         normalized["normalization_error"] = "missing_query"
         return normalized
 
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        normalized["diagnostics"]["malformed_event_count"] = 1
-        normalized["normalization_error"] = "invalid_tool_call_queue"
-        return normalized
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _chat_structure_error(
+            catalog,
+            trace_id=trace_id,
+            reason="invalid_chat_trace_structure",
+        )
 
     seen_definitions: dict[str, str] = {}
     candidates: list[ParameterValueCandidate] = []
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
-            normalized["diagnostics"]["malformed_event_count"] += 1
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
+            _record_chat_error(normalized, "invalid_chat_trace_structure")
             continue
-        if event.get("event_type") != "tool_call":
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            _record_chat_error(normalized, "invalid_chat_trace_structure")
             continue
-        request = event.get("tool_request_args")
-        if not isinstance(request, Mapping):
-            normalized["diagnostics"]["malformed_event_count"] += 1
-            normalized["normalization_error"] = (
-                normalized["normalization_error"] or "missing_tool_request"
-            )
-            continue
-        _accumulate_candidate(
-            normalized,
-            candidates,
-            seen_definitions,
-            catalog,
-            query=query,
-            call_id=request.get("toolId"),
-            tool_name=request.get("toolName"),
-            arguments=request.get("arguments", _MISSING),
-        )
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                _record_chat_error(normalized, "invalid_chat_trace_structure")
+                continue
+            for raw_call in raw_calls:
+                if not isinstance(raw_call, Mapping):
+                    _record_chat_error(normalized, "invalid_chat_trace_structure")
+                    continue
+                call_id = _identifier(raw_call.get("toolId"))
+                tool_name = _identifier(raw_call.get("toolName"))
+                agent_name = _identifier(raw_call.get("agentName"))
+                if call_id is None and tool_name is None and agent_name is not None:
+                    continue
+                if call_id is None and (tool_name is not None or "arguments" in raw_call):
+                    _record_chat_error(normalized, "missing_call_id")
+                    continue
+                if call_id is not None and tool_name is None:
+                    _record_chat_error(normalized, "missing_tool_name")
+                    continue
+                if call_id is None or tool_name is None:
+                    _record_chat_error(normalized, "invalid_chat_trace_structure")
+                    continue
+                if "arguments" not in raw_call:
+                    _record_chat_error(normalized, "missing_call_arguments")
+                    continue
+                _accumulate_candidate(
+                    normalized,
+                    candidates,
+                    seen_definitions,
+                    catalog,
+                    query=query,
+                    call_id=call_id,
+                    tool_name=tool_name,
+                    arguments=raw_call["arguments"],
+                )
     normalized["candidates"] = tuple(candidates)
     return normalized
+
+
+def _chat_structure_error(
+    catalog: ParameterValueCatalog,
+    *,
+    trace_id: str | None,
+    reason: str,
+) -> NormalizedParameterValueTrace:
+    normalized = _empty_result(
+        trace_id=trace_id,
+        mode="chat",
+        manual_version=catalog.manual_version,
+    )
+    _record_chat_error(normalized, reason)
+    return normalized
+
+
+def _record_chat_error(normalized: NormalizedParameterValueTrace, reason: str) -> None:
+    """保留首个安全原因，并累计不含 query 或参数正文的异常事件数。"""
+
+    normalized["diagnostics"]["malformed_event_count"] += 1
+    normalized["normalization_error"] = normalized["normalization_error"] or reason
 
 
 def normalize_research_parameter_value_candidates(

@@ -14,7 +14,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 319 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 331 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 25 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -33,8 +33,10 @@ Schema 合法率、
 - MCP 参数类型、枚举和嵌套结构的递归校验；新版聊天按 `traceId + toolId` 跨 Agent 和消息
   去重并排除子 Agent 调用，旧版聊天解析已删除；额外字段只诊断，不重复检查顶层必填字段。
 - `tool_argument_schema_validity_rate` 评测器，版本 `1.2.0`。
-- 参数值语义目录、聊天/研究 Judge 候选提取，以及不持久化 query 和参数值的内存边界。
-- 可注入、版本化 Judge 契约与 `parameter_value_accuracy_rate` 评测器，版本 `1.1.0`；
+- 参数值语义目录、新版 canvas/研究 Judge 候选提取，以及不持久化 query 和参数值的内存
+  边界；聊天模式按 `traceId + toolId` 跨 Agent 和消息去重并排除子 Agent 调用，旧版聊天
+  解析已删除。
+- 可注入、版本化 Judge 契约与 `parameter_value_accuracy_rate` 评测器，版本 `1.2.0`；
   支持逐字段三态判定和部分失败隔离，最终结果不计算或输出辅助率指标。
 - OpenAI-compatible Judge 适配器与常用 dotenv 配置加载，远程端点强制 HTTPS，并对
   Judge 供应商异常做脱敏隔离。
@@ -78,16 +80,16 @@ Schema 合法率、
   顺序和原始指标范围中。其中证据查全率依赖当前项目尚未具备的高标准 Golden Benchmark。
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
-- 最近完成并验收的新版聊天适配指标：必填参数完整率。
-- 进行中的具体指标：Schema 合法率的新版聊天 schema 适配，已实现并完成验证，等待验收。
-- 下一指标：参数值准确率的新版聊天 schema 适配。
-- 下一动作：展示 Schema 合法率实现及聊天/研究真实日志验证结果，验收后再进入下一指标。
+- 最近完成并验收的新版聊天适配指标：Schema 合法率。
+- 进行中的具体指标：参数值准确率的新版聊天 schema 适配，已实现并完成验证，等待验收。
+- 下一指标：路由 Precision 的新版聊天 schema 适配。
+- 下一动作：展示参数值准确率候选提取及聊天/研究真实日志验证结果，验收后再进入下一指标。
 
 ## 已知缺口
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
-  调用率、必填参数完整率和 Schema 合法率 collectors 已支持新版 canvas，其余指标
-  collectors 仍主要按旧版 `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
+  调用率、必填参数完整率、Schema 合法率和参数值准确率 collectors 已支持新版 canvas，
+  其余指标 collectors 仍主要按旧版 `tool_call_queue` 读取，完整统一 Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
@@ -118,7 +120,7 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 319 passed
+pytest: 331 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -157,7 +159,7 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 意图识别准确率真实单调用冒烟: 聊天模式 3 段行为证据、1 个 MCP 能力，Judge 返回
   correct / material_intents_aligned / confidence 0.95，最终结果 1.0, computed
 时间范围提取准确率测试: 26 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
-时间范围提取准确率聊天模式: 支持显式 reference_time 和首个工具请求 create_time；正常执行
+时间范围提取准确率聊天模式: 支持显式 reference_time 和 `canvas.meta.create_time`；正常执行
   但未传递时间字段可由 Judge 计算为 0，固定前置服务失败返回 pre_time_extraction_failure
 时间范围提取准确率研究模式: 支持事件 timestamp/create_time 或 part.state.time.start 锚点；
   缺少调用 ID、冲突定义和参数解析不完整分别显式返回安全原因码

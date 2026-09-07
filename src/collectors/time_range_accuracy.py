@@ -55,11 +55,11 @@ def normalize_chat_time_range(
     """提取聊天 query、工具参数和可复现的相对时间锚点。"""
 
     base = normalize_chat_parameter_value_candidates(trace, catalog)
-    query = _text(trace.get("query"))
+    query = _chat_meta_text(trace, "query")
     resolved_reference, source = _resolve_reference_time(
         reference_time,
         _chat_reference_time(trace),
-        inferred_source="tool_request",
+        inferred_source="canvas_meta",
     )
     error = base["normalization_error"]
     if base["diagnostics"]["malformed_arguments_call_count"] > 0:
@@ -67,7 +67,7 @@ def normalize_chat_time_range(
     if (
         error is None
         and base["total_call_count"] == 0
-        and _is_pre_time_failure(trace.get("answer"))
+        and _is_pre_time_failure(_chat_answer(trace))
     ):
         error = "pre_time_extraction_failure"
     candidate = None
@@ -148,16 +148,29 @@ def _resolve_reference_time(
 
 
 def _chat_reference_time(trace: Mapping[str, object]) -> object:
-    queue = trace.get("tool_call_queue")
-    if not _is_sequence(queue):
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
         return None
-    for event in queue:
-        if not isinstance(event, Mapping) or event.get("event_type") != "tool_call":
-            continue
-        request = event.get("tool_request_args")
-        if isinstance(request, Mapping) and request.get("create_time") is not None:
-            return request.get("create_time")
+    meta = canvas.get("meta")
+    if isinstance(meta, Mapping):
+        return meta.get("create_time")
     return None
+
+
+def _chat_meta_text(trace: Mapping[str, object], name: str) -> str | None:
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return None
+    meta = canvas.get("meta")
+    return _text(meta.get(name)) if isinstance(meta, Mapping) else None
+
+
+def _chat_answer(trace: Mapping[str, object]) -> object:
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return None
+    answer = canvas.get("answer")
+    return answer.get("answer") if isinstance(answer, Mapping) else None
 
 
 def _research_reference_time(events: Sequence[object]) -> object:
