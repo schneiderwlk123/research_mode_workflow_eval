@@ -1,0 +1,842 @@
+# Trace 日志结构
+
+本文档记录当前可用的新版聊天模式与研究模式日志结构，作为后续 collector、统一 Trace schema
+和指标字段映射的架构依据。本文只描述字段、类型、关系和安全边界，不复制真实 query、回答、
+工具参数、工具结果、认证头或用户标识。
+
+本文结论来自以下只读样本：
+
+- 新版聊天模式：`data/raw/agent_trace_pro_20260828-20260903_20260904_171853.json`，
+  336 条会话执行记录。
+- 研究模式：`data/raw/msg_780b025aaf2a413a9b5d2b82bcdfeceb_*.json`，单次研究任务的
+  380 个事件。
+
+`data/raw/` 中的文件包含原始 Trace 和潜在敏感信息，只能用于本地分析，不得提交 Git。
+本文记录的是观察到的结构，不代表上游已经承诺的稳定 schema；新增兼容逻辑时仍需版本化并
+保留未知字段诊断。
+
+## 1. 两种日志的总体模型
+
+新版聊天模式是“完整记录数组”：
+
+```text
+JSON 数组
+└── 一条用户请求的完整执行记录
+    └── canvas
+        ├── meta：会话元数据和聊天历史
+        ├── agents：编排与子 Agent 执行
+        └── answer：本轮最终回答
+```
+
+研究模式是“单次研究任务的事件流”：
+
+```text
+JSON 数组
+├── request
+├── turn.start
+├── agent.mcp / agent.tools / agent.system
+├── message.updated
+├── message.part.updated
+├── llm.response
+├── tool.debug
+└── turn.end
+```
+
+聊天模式的一个数组元素本身就是完整 Trace；研究模式必须按 `sessionID`、`userMessageID`、
+`messageID`、`part.id` 和 `callID` 聚合多个事件后，才能恢复完整 Trace。
+
+## 2. 新版聊天模式
+
+### 2.1 文件与顶层结构
+
+文件根节点是 JSON 数组，不是 JSONL。每个数组元素固定包含 `userId` 和 `canvas`：
+
+```jsonc
+[
+  {
+    "userId": "<redacted>",
+    "canvas": {
+      "meta": {},
+      "agents": [],
+      "answer": {}
+    }
+  }
+]
+```
+
+正式读取器应支持流式解析大型 JSON 数组，避免文件增长后一次性加载全部内容。
+
+### 2.2 `canvas.meta`
+
+`canvas.meta` 保存会话、请求和历史消息：
+
+```jsonc
+{
+  "traceId": "<trace-id>",
+  "chatId": "<chat-id>",
+  "sessionId": "<session-id>",
+  "recordId": "<record-id>",
+  "query": "<redacted>",
+  "model": "<model-name>",
+  "create_time": "YYYY-MM-DD HH:mm:ss",
+  "message": [
+    {"role": "user", "content": "<redacted>"},
+    {"role": "assistant", "content": "<redacted>"}
+  ],
+  "tools": ["<tool-name>"]
+}
+```
+
+已确认的语义：
+
+- `query` 等于 `message` 中最后一条 `role == "user"` 的 `content`。
+- `message` 是包含当前请求的聊天历史，但不包含本轮 `canvas.answer.answer`。
+- `model` 是会话入口或编排模型，不一定是最终回答模型。
+- `tools` 是当前请求可见的工具名称集合；样本中每条记录有 3 至 117 个工具。
+
+### 2.3 会话与记录标识
+
+样本中的唯一性和基数如下：
+
+- `traceId`：336 个非空值，336 个唯一值；标识一次请求的完整执行 Trace。
+- `sessionId`：336 个非空值，222 个唯一值；标识可包含多轮请求的会话。
+- `chatId`：336 个非空值，335 个唯一值；不能作为绝对唯一执行主键。
+- `recordId`：336 个非空值，335 个唯一值；不能作为绝对唯一执行主键。
+
+`sessionId -> traceId` 是一对多关系：
+
+- 172 个 session 包含 1 个 Trace。
+- 50 个 session 包含多个 Trace，共覆盖 164 个 Trace。
+- 单个 session 最多包含 11 个 Trace。
+- 每个 session 只关联一个 `userId`。
+- 每个 `traceId` 只关联一个 `sessionId`。
+
+推荐标识：
+
+```text
+会话主键：sessionId
+单次执行主键：traceId
+导出记录定位：recordId，仅作辅助字段
+```
+
+样本中有一组 `chatId` 和 `recordId` 重复：两条记录属于同一 session，query 相同，
+但 `traceId` 和最终回答不同。这可能表示同一请求的重新生成或重复执行，因此不得用
+`chatId` 或 `recordId` 替代 `traceId`。
+
+### 2.4 `canvas.agents`
+
+`canvas.agents` 保存 orchestrator 和 worker 的执行片段：
+
+```jsonc
+{
+  "agentId": "<agent-id>",
+  "agentName": "<agent-name>",
+  "round": 1,
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {}
+    }
+  ]
+}
+```
+
+样本包含 2,032 个 Agent 条目：
+
+- 1,957 个条目具有非空 `agentId`，共 1,205 个唯一值。
+- 75 个条目同时缺少 `agentId`、`agentName` 和 `round`，必须保留为匿名执行片段并记录
+  `missing_agent_identity`，不得归并给相邻 Agent。
+- 同一 Trace 内没有重复的非空 `agentId`；跨 Trace 可以重复。
+
+观察到的 `agentName`：
+
+```text
+orchestrator
+worker_search
+worker_validation
+worker_calculation
+worker_multimodal
+worker_text2image
+```
+
+#### Orchestrator
+
+- 共 758 个 orchestrator 条目，但只有 6 个唯一 `agentId`。
+- 这 6 个 ID 会跨多个 Trace 复用，因此 orchestrator 的 `agentId` 不是单次调用 ID。
+- 所有 orchestrator 条目都有 `round`。
+- 推荐使用 `traceId + agentId + round` 标识一轮 orchestrator 执行。
+
+#### Worker
+
+- 共 1,199 个 worker 条目，每个 worker 的 `agentId` 在样本中唯一。
+- 每个父 Agent 的子 Agent 调用都含唯一 `taskId`。
+- 1,199 个 `tool_call.taskId` 全部与同一 Trace 内的 worker `agentId` 精确匹配。
+- `tool_call.agentName` 也全部与对应 worker `agentName` 匹配。
+
+因此 worker 调用关系为：
+
+```text
+父 Agent tool_call.taskId
+          =
+子 Agent agents[].agentId
+```
+
+推荐使用 `traceId + taskId`，或等价的 `traceId + worker agentId`，标识一次子 Agent 执行。
+
+### 2.5 Agent 消息与 `role`
+
+`canvas.agents[].messages[]` 中的 5,358 条消息全部为：
+
+```json
+{"role": "assistant", "content": {}}
+```
+
+这里的 `assistant` 只表示消息来自模型或 Agent 执行侧，不表示最终回答、主 Agent、成功状态
+或自然语言文本。`content` 可能包含：
+
+- `durationSeconds`
+- `usageTokens`
+- `tool_call`
+- `tool_result`
+- 上述字段的部分组合
+- 空对象
+
+工具结果嵌套在 `assistant` 消息的 `content.tool_result` 中，没有单独的 `role == "tool"`
+消息。最终回答必须读取 `canvas.answer.answer`。
+
+### 2.6 普通工具调用与子 Agent 调用
+
+`content.tool_call[]` 同时承载两种不同语义。
+
+普通工具调用：
+
+```jsonc
+{
+  "taskId": "<owning-task-id>",
+  "toolId": "<tool-call-id>",
+  "toolName": "<tool-name>",
+  "arguments": {"<field>": "<redacted>"}
+}
+```
+
+子 Agent 调用：
+
+```jsonc
+{
+  "taskId": "<child-agent-task-id>",
+  "agentName": "<worker-name>",
+  "arguments": {"<field>": "<redacted>"}
+}
+```
+
+分类规则：
+
+```text
+存在 toolId/toolName：普通工具调用
+存在 agentName 且不存在 toolId：子 Agent 调用
+```
+
+样本包含：
+
+- 4,266 个普通工具调用，4,266 个非空且唯一的 `toolId`。
+- 1,199 个子 Agent 调用，1,199 个非空且唯一的 `taskId`。
+
+普通工具调用推荐使用 `traceId + toolId` 作为跨导出批次的安全复合键。
+
+### 2.7 MCP 工具识别
+
+`agentName` 和 `agentId` 都不能映射 MCP 工具。6 个 Agent 名称与
+`mcp_tool_manual.json` 中 77 个 `tools[].name` 的精确交集为 0。
+
+MCP 工具必须通过以下路径识别：
+
+```text
+content.tool_call[].toolName
+          ->
+mcp_tool_manual.json.tools[].name
+```
+
+样本中共有 86 种 `toolName`：
+
+- 50 种与 MCP 手册精确匹配。
+- 36 种未精确匹配，包含内部编排、文件操作、运行环境工具和可能的命名别名。
+- 4,266 次工具调用中有 2,911 次精确匹配 MCP 手册，约占 68.24%。
+
+不得把所有 `toolName` 都视为 MCP。别名只能在人工确认后写入版本化别名目录，不能使用
+模糊字符串猜测，例如 snake_case 与 camelCase 相似并不自动证明是同一工具。
+
+### 2.8 工具结果和请求关联
+
+工具结果位于 `content.tool_result[]`，存在以下形态：
+
+```jsonc
+{"toolId": "<id>", "toolName": "<name>", "durationSeconds": 0.1, "result": {}},
+{"toolId": "<id>", "toolName": "<name>", "durationSeconds": 0.1, "rawResult": []},
+{"toolId": "<id>", "toolName": "<name>", "result": {}},
+{"toolId": "<id>", "toolName": "<name>"},
+{"toolId": "<id>"}
+```
+
+样本共有 4,662 个工具结果：
+
+- 1,854 个包含 `rawResult + durationSeconds`。
+- 1,589 个包含 `result + durationSeconds`。
+- 180 个包含 `result`，但缺少 `durationSeconds`。
+- 314 个只有 `toolId + toolName`。
+- 725 个只有 `toolId`。
+
+共 3,443 个结果具有 `durationSeconds`，覆盖率约为 73.85%。
+
+请求和结果通常位于同一 message 的两个数组中。4,248 个请求可在请求数与结果数相同的
+message 内按位置关联，其中：
+
+- 3,523 对的 `toolId` 和 `toolName` 都一致。
+- 725 对的 `toolId` 一致，但结果侧缺少 `toolName`。
+
+另有只包含 `tool_result`、不包含 `tool_call` 的消息。规范化时应：
+
+1. 优先在同一 message 内按位置关联并校验 `toolId`。
+2. 结果缺少 `toolName` 时可从已匹配请求补充，但要记录诊断计数。
+3. 对独立结果消息，在同一 Trace 和任务范围内按 `toolId` 回溯。
+4. 无法唯一关联时返回稳定原因码，不得猜测。
+
+### 2.9 时间和 Token
+
+聊天记录保留以下绝对时间：
+
+- `canvas.meta.create_time`
+- `canvas.answer.create_time`
+
+工具请求和结果没有独立 `create_time`，但部分对象提供相对耗时：
+
+- 4,946 条 Agent message 有 `durationSeconds`。
+- 3,443 个工具结果有 `durationSeconds`。
+- 335/336 个最终回答有 `durationSeconds`。
+
+因此单次工具调用时延可以在有 `tool_result.durationSeconds` 时直接计算，但首次工具决策时延
+缺少首个调用的绝对时间，不能沿用旧日志公式。除非上游明确 `message.durationSeconds` 的起点
+和累计语义，否则应返回 `missing_tool_decision_timestamp`。
+
+Token 字段为：
+
+```json
+{
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "cache_tokens": 0
+}
+```
+
+- 4,922 条 Agent message 有完整三字段 Token。
+- 311/336 个最终回答有 Token。
+
+在确认父子 Agent、重复 Agent 条目和最终回答是否重复计费前，不得直接跨层求和。
+
+### 2.10 `canvas.answer`
+
+```jsonc
+{
+  "answer": "<redacted>",
+  "model": "<final-model>",
+  "create_time": "YYYY-MM-DD HH:mm:ss",
+  "durationSeconds": 0.1,
+  "usageTokens": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_tokens": 0
+  }
+}
+```
+
+- `answer`、`model` 和 `create_time` 在 336 条记录中全部存在。
+- 1 条 `answer` 是空字符串。
+- 1 条缺少 `durationSeconds`。
+- 25 条缺少 `usageTokens`。
+- 只有 66/336 条记录的 `canvas.meta.model` 与 `canvas.answer.model` 相同，因此最终回答模型
+  必须读取 `canvas.answer.model`。
+
+## 3. 研究模式
+
+### 3.1 文件与事件总览
+
+研究日志根节点是 JSON 数组，当前样本包含 380 个事件，并按 `ts` 非递减排列。首事件为
+`request`，末事件为 `turn.end`。
+
+事件数量：
+
+```text
+request                 1
+turn.start              1
+agent.mcp               1
+agent.tools             1
+agent.system            1
+message.updated       109
+message.part.updated  189
+llm.response           54
+tool.debug             22
+turn.end                1
+```
+
+除 `request` 外，事件通常具有：
+
+```jsonc
+{
+  "type": "<event-type>",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>"
+}
+```
+
+本样本只有一个非空 `sessionID` 和一个 `userMessageID`。`request` 没有顶层 `sessionID`，
+但 `body.sessionId` 与后续事件的 `sessionID` 一致。注意聊天模式使用 `sessionId`，研究模式
+主要使用 `sessionID`，大小写不同。
+
+### 3.2 `request`
+
+`request` 是原始入口请求快照：
+
+```jsonc
+{
+  "type": "request",
+  "ts": "<timestamp>",
+  "method": "POST",
+  "path": "<request-path>",
+  "headers": {"<header>": "<redacted>"},
+  "body": {
+    "sessionId": "<session-id>",
+    "messageID": "<user-message-id>",
+    "query": "<redacted>",
+    "parts": [{"type": "text", "text": "<redacted>"}],
+    "model": {"providerID": "<provider>", "modelID": "<model>"},
+    "sourceChannel": "<channel>",
+    "enabledMcpUrls": [],
+    "enabledSkillList": []
+  }
+}
+```
+
+安全边界：`headers` 和 `body.enabledMcpUrls[].*.headers` 中存在认证、用户、MCP key、网络与
+内部追踪字段。collector 不得把这些对象整体复制到规范化结果、异常消息、日志或报告中。
+只允许提取经过白名单批准的非敏感计数和名称，例如启用 MCP 服务数量、启用工具名称和技能
+数量。URL、key、uid、IP、内部路径和请求头原文不得持久化。
+
+### 3.3 `turn.start`
+
+```jsonc
+{
+  "type": "turn.start",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "userMessageID": "<message-id>",
+  "query": "<redacted>"
+}
+```
+
+这是研究回合的稳定起点。端到端时延和首次工具决策时延应优先使用该事件的 `ts`，而不是
+HTTP `request.ts`。
+
+### 3.4 Agent 环境事件
+
+`agent.mcp` 记录 MCP 服务与工具范围：
+
+```jsonc
+{
+  "type": "agent.mcp",
+  "mcp": [
+    {
+      "name": "<server-name>",
+      "type": "<server-type>",
+      "status": "<status>",
+      "url": "<redacted>",
+      "tools": ["<tool-name>"]
+    }
+  ]
+}
+```
+
+当前样本有 5 个 MCP 服务条目，共观察到 94 个工具名称观测。URL 属于环境信息，不应进入
+指标结果。
+
+`agent.tools` 记录 Agent 可见的总工具集合，当前样本为 116 个名称。该集合可能同时包含
+MCP、内置工具和运行环境工具，不能直接作为 MCP 工具目录。
+
+`agent.system` 包含系统提示或系统上下文字符串，属于敏感模型上下文，只能在内存中用于明确
+授权的语义评估，不得持久化正文。
+
+### 3.5 `message.updated`
+
+`message.updated` 是消息对象的重复状态快照：
+
+```jsonc
+{
+  "type": "message.updated",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "info": {
+    "id": "<message-id>",
+    "sessionID": "<session-id>",
+    "parentID": "<parent-message-id>",
+    "role": "user | assistant",
+    "agent": "orchestrator",
+    "mode": "orchestrator",
+    "providerID": "<provider>",
+    "modelID": "<model>",
+    "time": {"created": 0, "completed": 0},
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "total": 0,
+      "cache": {"read": 0, "write": 0}
+    },
+    "finish": "tool-calls | stop"
+  }
+}
+```
+
+样本有 109 个更新事件，但只有 28 个唯一 `info.id`：
+
+- 27 个唯一 assistant 消息。
+- 1 个唯一 user 消息。
+- 26 个 assistant 消息最终以 `tool-calls` 结束。
+- 最后一个 assistant 消息最终以 `stop` 结束。
+
+同一 `info.id` 会出现多次，表示同一消息从创建到完成的不同快照。必须按 ID 合并，不得把
+109 个事件当作 109 条独立消息。
+
+研究模式中的 `role`：
+
+- `user`：用户请求消息。
+- `assistant`：orchestrator 的模型消息。
+- 工具角色不在此事件中，而是在 `llm.response.result.messages[].role == "tool"` 中出现。
+
+### 3.6 `message.part.updated`
+
+`message.part.updated` 是消息内容片段的生命周期快照。公共字段：
+
+```jsonc
+{
+  "type": "message.part.updated",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "time": 0,
+  "part": {
+    "id": "<part-id>",
+    "messageID": "<message-id>",
+    "sessionID": "<session-id>",
+    "type": "<part-type>"
+  }
+}
+```
+
+189 个事件对应 106 个唯一 `part.id`，所有 `part.messageID` 都能匹配
+`message.updated.info.id`。同一 part 可能多次更新，必须按 `part.id` 合并。
+
+观察到的 part 类型：
+
+```text
+tool         90 个更新事件
+step-start   27
+step-finish  27
+text         23
+reasoning    22
+```
+
+#### 文本与推理片段
+
+```jsonc
+{
+  "id": "<part-id>",
+  "messageID": "<message-id>",
+  "type": "text | reasoning",
+  "text": "<redacted>",
+  "time": {"start": 0, "end": 0},
+  "metadata": {}
+}
+```
+
+`text` 和 `reasoning` 正文不得写入指标结果、诊断日志或提交文件。最终回答应选择
+`turn.end` 前最后一个 assistant 消息的最终非空 `text` part，并先按 `part.id` 合并更新。
+
+#### 步骤边界
+
+`step-start` 和 `step-finish` 各有 27 个，对应 27 个模型循环。`step-finish` 可包含：
+
+- `reason`
+- `cost`
+- `tokens.input/output/reasoning/total`
+- `tokens.cache.read/write`
+
+这些 Token 可能与 `message.updated.info.tokens` 和 `llm.response.result.usage` 重复表达同一次
+模型调用，不能跨层直接相加。
+
+#### 工具 part
+
+```jsonc
+{
+  "id": "<part-id>",
+  "messageID": "<message-id>",
+  "callID": "<tool-call-id>",
+  "type": "tool",
+  "tool": "<tool-name>",
+  "state": {
+    "status": "pending | running | completed",
+    "input": {"<field>": "<redacted>"},
+    "output": "<redacted>",
+    "raw": "<redacted>",
+    "title": "<redacted>",
+    "tool_type": "<type>",
+    "time": {"start": 0, "end": 0},
+    "metadata": {}
+  }
+}
+```
+
+样本有 30 个唯一工具调用。每个调用都严格出现三个状态：
+
+```text
+pending -> running -> completed
+```
+
+因此 30 个调用产生 90 个 tool part 更新。生命周期去重和聚合必须使用 `callID`，不得按事件
+条数统计调用次数。
+
+时间覆盖：
+
+- 60 个状态快照有 `state.time.start`。
+- 30 个 completed 快照有 `state.time.end`。
+- 完整调用时延应使用同一 `callID` 的最终状态时间，或直接使用 completed 快照中确认过的
+  `start/end`。
+
+`state.input`、`state.output`、`state.raw` 和证据 `chunkList` 可能包含用户数据、查询、文档
+内容和来源正文，只能在内存中按指标最小范围处理。
+
+### 3.7 `llm.response`
+
+```jsonc
+{
+  "type": "llm.response",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "userMessageID": "<message-id>",
+  "loop": 1,
+  "source": "processor",
+  "result": {
+    "finishReason": "tool-calls | stop",
+    "reasoningText": "<redacted>",
+    "text": "<redacted>",
+    "messages": [],
+    "toolCalls": [
+      {
+        "toolCallId": "<call-id>",
+        "toolName": "<tool-name>",
+        "input": {"<field>": "<redacted>"}
+      }
+    ],
+    "usage": {}
+  }
+}
+```
+
+样本有 27 个模型循环，但每个 `loop` 出现两个 `llm.response` 事件：
+
+- 一个有 `source == "processor"`。
+- 一个没有 `source`。
+- 两种事件使用不同的 `usage` schema。
+
+因此 54 个事件不是 54 次独立模型调用。`result.toolCalls` 共观察到 60 次，但只有 30 个唯一
+`toolCallId`；这 30 个 ID 全部与 `message.part.updated.part.callID` 对应。
+
+`result.messages[].role` 包含：
+
+- `assistant`：54 个观测。
+- `tool`：26 个观测。
+
+`result.messages[].content[].type` 包含：
+
+- `tool-call`
+- `tool-result`
+- `text`
+- `reasoning`
+
+该结构比 `message.updated` 更接近供应商或模型协议原始响应，正文和工具输入输出不得持久化。
+模型调用和 Token 统计必须按 `loop` 或其他经确认的单调调用键去重，不能把两个投影重复相加。
+
+### 3.8 `tool.debug`
+
+```jsonc
+{
+  "type": "tool.debug",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "messageID": "<message-id>",
+  "callID": "<tool-call-id>",
+  "tool": "<tool-name>",
+  "debug": {
+    "apiCallCount": 0,
+    "apiCalls": [],
+    "requestIds": [],
+    "debug": {}
+  }
+}
+```
+
+样本有 22 个 `tool.debug` 事件，全部属于 `excel` 工具；22 个 `callID` 全部能匹配工具 part，
+但并非所有工具调用都有 debug 事件。因此 debug 只能作为可选诊断来源，不能作为工具调用
+分母。
+
+`debug` 内含接口地址、请求 ID、文件路径、节点 ID、内部身份和响应元数据，属于高敏感诊断
+内容。规范化结果最多保留白名单计数，例如 `apiCallCount`，不得保留完整对象。
+
+### 3.9 `turn.end`
+
+```jsonc
+{
+  "type": "turn.end",
+  "ts": "<timestamp>",
+  "sessionID": "<session-id>",
+  "userMessageID": "<message-id>",
+  "agents": 1,
+  "durationMs": 0
+}
+```
+
+`turn.end` 是研究回合的稳定终点。研究模式端到端时延应优先使用其 `durationMs`，并以
+`turn.start.ts` 到 `turn.end.ts` 的差值做一致性诊断，而不是混用 HTTP request 时间。
+
+### 3.10 研究模式关联键
+
+推荐关联关系：
+
+```text
+request.body.sessionId
+          =
+事件 sessionID
+
+turn.start.userMessageID
+          =
+本轮用户消息标识
+
+message.updated.info.id
+          =
+message.part.updated.part.messageID
+
+llm.response.result.toolCalls[].toolCallId
+          =
+message.part.updated.part.callID
+          =
+tool.debug.callID（仅部分调用存在）
+```
+
+稳定去重键：
+
+```text
+消息：sessionID + info.id
+消息片段：sessionID + part.id
+工具调用：sessionID + callID
+模型循环：sessionID + userMessageID + loop
+研究回合：sessionID + userMessageID
+```
+
+## 4. 双模式字段对应
+
+```text
+语义                 聊天模式                         研究模式
+会话                 canvas.meta.sessionId            sessionID / request.body.sessionId
+单次请求             canvas.meta.traceId              userMessageID（当前最接近）
+用户 query           canvas.meta.query                turn.start.query
+聊天历史             canvas.meta.message              message.updated + message.part.updated
+Agent 类型           agents[].agentName               message.updated.info.agent
+Agent 执行实例       worker agentId / taskId          当前样本只有 orchestrator，未见同构 ID
+工具调用 ID          tool_call[].toolId                part.callID / toolCallId
+工具名称             tool_call[].toolName              part.tool / toolCalls[].toolName
+工具输入             tool_call[].arguments             part.state.input / toolCalls[].input
+工具结果             tool_result[].result/rawResult    part.state.output/raw / tool-result content
+工具时延             tool_result[].durationSeconds     part.state.time.start/end
+模型步骤时延         message.content.durationSeconds   message/part time 与事件 ts
+最终回答             canvas.answer.answer              turn.end 前最后 assistant text part
+回合总时延           answer.durationSeconds            turn.end.durationMs
+Token                usageTokens                       tokens / usage，需去重投影
+```
+
+研究模式当前没有与聊天模式 `traceId` 完全同构的明确字段。`userMessageID` 能标识本轮用户请求，
+但正式统一 schema 前应使用派生 `trace_id`，并在 `source_trace_id` 中保留原始可用标识类型，
+不得假装二者上游语义完全相同。
+
+## 5. 推荐的统一内部模型
+
+collector 不应让各指标分别理解两套原始结构。建议两种输入先转换为最小、只读、脱敏的统一
+模型：
+
+```jsonc
+{
+  "source_mode": "chat | research",
+  "source_schema_version": "<detected-version>",
+  "trace_id": "<stable-id>",
+  "session_id": "<session-id>",
+  "user_message_id": "<optional-id>",
+  "started_at": "<optional-time>",
+  "ended_at": "<optional-time>",
+  "duration_ms": 0,
+  "query_present": true,
+  "final_answer_present": true,
+  "agents": [
+    {
+      "agent_execution_id": "<optional-id>",
+      "agent_name": "<optional-name>",
+      "round": 0
+    }
+  ],
+  "tool_calls": [
+    {
+      "call_id": "<stable-id>",
+      "task_id": "<optional-id>",
+      "tool_name": "<normalized-name>",
+      "is_mcp": true,
+      "request_observed": true,
+      "terminal_observed": true,
+      "started_at": "<optional-time>",
+      "ended_at": "<optional-time>",
+      "duration_ms": 0,
+      "status": "pending | running | completed | failed | timed_out | unknown",
+      "safe_diagnostics": {}
+    }
+  ],
+  "token_usage": {
+    "input": 0,
+    "output": 0,
+    "reasoning": 0,
+    "cache_read": 0,
+    "cache_write": 0,
+    "aggregation_status": "computed | not_computable"
+  },
+  "normalization_diagnostics": {}
+}
+```
+
+原始 query、回答、reasoning、arguments、result、rawResult、system prompt、认证头、URL、文件
+路径和文档 chunk 正文不得进入该模型的持久化结果。需要语义 Judge 时，只能在受控内存边界内
+按最小必要范围传递，并对异常做脱敏隔离。
+
+## 6. 仍需上游确认的问题
+
+### 聊天模式
+
+- `chatId` 与 `recordId` 的正式业务语义，以及为什么存在同值多 Trace。
+- orchestrator 的 6 个固定 `agentId` 分别代表模型、部署实例还是配置版本。
+- 75 个匿名 Agent 条目的产生条件。
+- `message.durationSeconds` 的起点、终点及是否包含工具等待时间。
+- `usageTokens.cache_tokens` 是否包含在 `input_tokens` 中。
+- 独立 `tool_result` message 与原请求的官方关联规则。
+
+### 研究模式
+
+- 同一 `loop` 的两个 `llm.response` 分别代表什么投影，哪个是计费权威来源。
+- `message.updated.info.tokens`、`step-finish.tokens` 与 `llm.response.result.usage` 的包含关系。
+- `userMessageID` 是否可被上游正式承诺为单次研究 Trace 标识。
+- `part.time` 与 `part.state.time` 的单位和权威优先级。
+- `turn.end.durationMs` 是否包含排队、网络请求和交付物写入时间。
+- `tool.debug` 的长期保留策略，以及哪些安全计数字段允许进入评测诊断。
+
+在这些问题确认前，缺少可靠字段或映射的指标必须返回稳定的 `NOT_COMPUTABLE` 原因，不能
+使用近似值或通过重复事件推测真实调用次数。
