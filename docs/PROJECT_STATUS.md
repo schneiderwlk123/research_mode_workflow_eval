@@ -228,8 +228,11 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   排除子 Agent、孤立结果和旧版 `tool_call_queue`
 超时率规则: 显式 timeout/timed_out、duration > 工具 SLA、SLA 已配置但缺少完整时间均计入分子；
   failed/error/cancelled 不自动等同超时，duration == SLA 不超时
-超时率真实日志结构冒烟: 聊天与研究模式在未配置生产 SLA 时均返回 missing_tool_sla，
-  未使用示例阈值估算或输出伪 0%
+超时率全量日志验算: 新版聊天文件 336 条 Trace 中，296 条含 4266 次唯一普通工具调用并返回
+  missing_tool_sla，40 条返回 no_tool_calls；3443 次调用具有有效 durationSeconds，823 次缺少
+  完整耗时，显式 timeout/timed_out 为 0，另有 411 个孤立结果 ID 被排除。研究模式单条日志含
+  380 个事件、30 次唯一工具调用，30 次均有完整 start/end，显式 timeout/timed_out 为 0，因未
+  配置生产 SLA 返回 missing_tool_sla。未使用示例阈值估算或输出伪 0%
 调用事件完整率新版聊天实现验算: 4266 次唯一普通工具请求中 4251 次观察到匹配结果，
   4251/4266 ≈ 0.99648；411 条孤立 Agent 返回被排除，296 条 Trace computed，
   40 条 no_tool_calls，重复请求/结果和 malformed 均为 0
