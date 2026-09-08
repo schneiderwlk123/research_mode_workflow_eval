@@ -135,83 +135,193 @@ def build_tool_timeout_policy_catalog(
 def normalize_chat_tool_timeout_rate(
     trace: Mapping[str, object], catalog: ToolTimeoutPolicyCatalog
 ) -> NormalizedToolTimeoutTrace:
-    """按聊天工具对象计数；缺少任一时间边界时按已确认口径计为超时。"""
+    """按新版 canvas 关联普通工具请求与结果，并依据结果耗时判定超时。"""
 
-    trace_id = _text(trace.get("traceId"))
-    raw_queue = trace.get("tool_call_queue", ())
-    if raw_queue is None:
-        raw_queue = ()
-    if not _is_sequence(raw_queue):
-        return _empty(trace_id, "chat", catalog, "invalid_tool_call_queue", malformed=1)
+    canvas = trace.get("canvas")
+    if not isinstance(canvas, Mapping):
+        return _empty(None, "chat", catalog, "invalid_chat_trace_structure", malformed=1)
+    meta = canvas.get("meta")
+    if not isinstance(meta, Mapping):
+        return _empty(None, "chat", catalog, "invalid_chat_trace_structure", malformed=1)
+    trace_id = _text(meta.get("traceId"))
+    if trace_id is None:
+        return _empty(None, "chat", catalog, "missing_trace_id", malformed=1)
+    raw_agents = canvas.get("agents", ())
+    if raw_agents is None:
+        raw_agents = ()
+    if not _is_sequence(raw_agents):
+        return _empty(trace_id, "chat", catalog, "invalid_chat_trace_structure", malformed=1)
 
-    calls: list[NormalizedTimeoutCall] = []
+    definitions: dict[str, tuple[str, int]] = {}
+    results: dict[str, list[Mapping[object, object]]] = {}
+    duplicate_count = 0
     malformed_count = 0
-    for event in raw_queue:
-        if not isinstance(event, Mapping):
+    for raw_agent in raw_agents:
+        if not isinstance(raw_agent, Mapping):
             malformed_count += 1
             continue
-        if event.get("event_type") != "tool_call":
+        raw_messages = raw_agent.get("messages", ())
+        if raw_messages is None:
+            raw_messages = ()
+        if not _is_sequence(raw_messages):
+            malformed_count += 1
             continue
-        request = event.get("tool_request_args")
-        response = event.get("tool_response_result")
-        request_mapping = request if isinstance(request, Mapping) else None
-        response_mapping = response if isinstance(response, Mapping) else None
-        request_name = _text(request_mapping.get("toolName")) if request_mapping else None
-        response_name = _text(response_mapping.get("toolName")) if response_mapping else None
-        request_policy = catalog.resolve(request_name) if request_name else None
-        response_policy = catalog.resolve(response_name) if response_name else None
-        if request_name is not None and request_policy is None:
-            return _empty(trace_id, "chat", catalog, "missing_tool_sla", malformed=malformed_count)
-        if response_name is not None and response_policy is None:
-            return _empty(trace_id, "chat", catalog, "missing_tool_sla", malformed=malformed_count)
-        if (
-            request_policy is not None
-            and response_policy is not None
-            and request_policy[0] != response_policy[0]
-        ):
-            return _empty(
-                trace_id, "chat", catalog, "conflicting_call_definition", malformed=malformed_count
-            )
-        request_id = _text(request_mapping.get("toolId")) if request_mapping else None
-        response_id = _text(response_mapping.get("toolId")) if response_mapping else None
-        if request_id and response_id and request_id != response_id:
-            return _empty(
-                trace_id, "chat", catalog, "conflicting_call_definition", malformed=malformed_count
-            )
-        resolved = request_policy or response_policy
-        if resolved is None:
-            return _empty(trace_id, "chat", catalog, "missing_tool_sla", malformed=malformed_count)
-        _, timeout_ms = resolved
+        for raw_message in raw_messages:
+            if not isinstance(raw_message, Mapping):
+                malformed_count += 1
+                continue
+            content = raw_message.get("content", {})
+            if not isinstance(content, Mapping):
+                malformed_count += 1
+                continue
 
-        call_id = _chat_call_id(request_mapping, response_mapping, len(calls))
-        explicit_timeout = _chat_explicit_timeout(response_mapping, catalog)
-        if explicit_timeout:
+            raw_calls = content.get("tool_call", ())
+            if raw_calls is None:
+                raw_calls = ()
+            if not _is_sequence(raw_calls):
+                malformed_count += 1
+            else:
+                for raw_call in raw_calls:
+                    if not isinstance(raw_call, Mapping):
+                        malformed_count += 1
+                        continue
+                    call_id = _text(raw_call.get("toolId"))
+                    agent_name = _text(raw_call.get("agentName"))
+                    if call_id is None and agent_name is not None:
+                        continue
+                    if call_id is None:
+                        return _empty(
+                            trace_id,
+                            "chat",
+                            catalog,
+                            "missing_call_id",
+                            malformed=malformed_count + 1,
+                            duplicate=duplicate_count,
+                        )
+                    resolved = catalog.resolve(raw_call.get("toolName"))
+                    if resolved is None:
+                        return _empty(
+                            trace_id,
+                            "chat",
+                            catalog,
+                            "missing_tool_sla",
+                            malformed=malformed_count,
+                            duplicate=duplicate_count,
+                        )
+                    existing = definitions.get(call_id)
+                    if existing is not None:
+                        duplicate_count += 1
+                        if existing[0] != resolved[0]:
+                            return _empty(
+                                trace_id,
+                                "chat",
+                                catalog,
+                                "conflicting_call_definition",
+                                malformed=malformed_count,
+                                duplicate=duplicate_count,
+                            )
+                        continue
+                    definitions[call_id] = resolved
+
+            raw_results = content.get("tool_result", ())
+            if raw_results is None:
+                raw_results = ()
+            if not _is_sequence(raw_results):
+                malformed_count += 1
+            else:
+                for raw_result in raw_results:
+                    if not isinstance(raw_result, Mapping):
+                        malformed_count += 1
+                        continue
+                    call_id = _text(raw_result.get("toolId"))
+                    if call_id is None:
+                        return _empty(
+                            trace_id,
+                            "chat",
+                            catalog,
+                            "missing_call_id",
+                            malformed=malformed_count + 1,
+                            duplicate=duplicate_count,
+                        )
+                    observed = results.setdefault(call_id, [])
+                    if observed:
+                        duplicate_count += 1
+                    observed.append(raw_result)
+
+    if malformed_count:
+        return _empty(
+            trace_id,
+            "chat",
+            catalog,
+            "invalid_chat_trace_structure",
+            malformed=malformed_count,
+            duplicate=duplicate_count,
+        )
+
+    calls: list[NormalizedTimeoutCall] = []
+    for call_id, (canonical_name, timeout_ms) in definitions.items():
+        observations = results.get(call_id, [])
+        for response in observations:
+            response_name = _text(response.get("toolName"))
+            if response_name is None:
+                continue
+            response_policy = catalog.resolve(response_name)
+            if response_policy is None:
+                return _empty(
+                    trace_id,
+                    "chat",
+                    catalog,
+                    "missing_tool_sla",
+                    duplicate=duplicate_count,
+                )
+            if response_policy[0] != canonical_name:
+                return _empty(
+                    trace_id,
+                    "chat",
+                    catalog,
+                    "conflicting_call_definition",
+                    duplicate=duplicate_count,
+                )
+
+        if any(_chat_explicit_timeout(response, catalog) for response in observations):
             calls.append({"call_id": call_id, "timeout_reason": "explicit_timeout"})
             continue
 
-        start_status, start_ms = _timestamp_ms(
-            request_mapping.get("create_time") if request_mapping else None
-        )
-        end_status, end_ms = _timestamp_ms(
-            response_mapping.get("create_time") if response_mapping else None
-        )
-        if "invalid" in {start_status, end_status}:
-            return _empty(trace_id, "chat", catalog, "invalid_timestamp", malformed=malformed_count)
-        if start_ms is None or end_ms is None:
+        duration_values: list[int] = []
+        for response in observations:
+            duration_status, duration_ms = _duration_ms(response.get("durationSeconds"))
+            if duration_status == "invalid":
+                return _empty(
+                    trace_id,
+                    "chat",
+                    catalog,
+                    "invalid_timestamp",
+                    duplicate=duplicate_count,
+                )
+            if duration_status == "negative":
+                return _empty(
+                    trace_id,
+                    "chat",
+                    catalog,
+                    "invalid_event_order",
+                    duplicate=duplicate_count,
+                )
+            if duration_ms is not None:
+                duration_values.append(duration_ms)
+        if not duration_values:
             calls.append({"call_id": call_id, "timeout_reason": "missing_timestamps"})
             continue
-        if end_ms < start_ms:
-            return _empty(
-                trace_id,
-                "chat",
-                catalog,
-                "invalid_event_order",
-                malformed=malformed_count,
-            )
-        reason: TimeoutReason | None = "sla_exceeded" if end_ms - start_ms > timeout_ms else None
+        reason: TimeoutReason | None = "sla_exceeded" if max(duration_values) > timeout_ms else None
         calls.append({"call_id": call_id, "timeout_reason": reason})
 
-    return _finalize(trace_id, "chat", catalog, calls, malformed=malformed_count)
+    return _finalize(
+        trace_id,
+        "chat",
+        catalog,
+        calls,
+        malformed=malformed_count,
+        duplicate=duplicate_count,
+    )
 
 
 def normalize_research_tool_timeout_rate(
@@ -432,16 +542,6 @@ def _empty(
     }
 
 
-def _chat_call_id(
-    request: Mapping[object, object] | None,
-    response: Mapping[object, object] | None,
-    position: int,
-) -> str:
-    request_id = _text(request.get("toolId")) if request else None
-    response_id = _text(response.get("toolId")) if response else None
-    return request_id or response_id or f"chat-tool-call-{position}"
-
-
 def _chat_explicit_timeout(
     response: Mapping[object, object] | None, catalog: ToolTimeoutPolicyCatalog
 ) -> bool:
@@ -457,6 +557,24 @@ def _chat_explicit_timeout(
         for candidate in candidates
         if (status := _normalized_status(candidate)) is not None
     )
+
+
+def _duration_ms(value: object) -> tuple[str, int | None]:
+    """把聊天结果的秒级耗时转换为毫秒，并区分缺失、非法与负值。"""
+
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return "missing", None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "invalid", None
+    try:
+        numeric = float(value)
+    except OverflowError:
+        return "invalid", None
+    if not math.isfinite(numeric):
+        return "invalid", None
+    if numeric < 0:
+        return "negative", None
+    return "valid", round(numeric * 1000)
 
 
 def _timestamp_ms(value: object) -> tuple[str, int | None]:

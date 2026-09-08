@@ -36,7 +36,7 @@ def test_evaluator_computes_timeout_rate_without_mutation(mode: str) -> None:
     result = ToolTimeoutRateEvaluator().evaluate(trace)
 
     assert result.metric_name == "tool_timeout_rate"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.75
     assert result.metadata == {
@@ -67,7 +67,13 @@ def test_missing_required_observation_is_not_computable(reason: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "reason", ["invalid_timestamp", "invalid_event_order", "conflicting_call_definition"]
+    "reason",
+    [
+        "invalid_chat_trace_structure",
+        "invalid_timestamp",
+        "invalid_event_order",
+        "conflicting_call_definition",
+    ],
 )
 def test_invalid_observation_is_an_error(reason: str) -> None:
     result = ToolTimeoutRateEvaluator().evaluate(_trace(error=reason))

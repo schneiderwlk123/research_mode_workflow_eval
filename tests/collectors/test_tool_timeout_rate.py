@@ -51,21 +51,48 @@ def test_policy_catalog_validates_thresholds_and_resolves_mcp_suffix() -> None:
         )
 
 
-def test_chat_normalization_marks_sla_explicit_and_missing_time_timeouts() -> None:
-    trace = {
-        "traceId": "chat-1",
-        "tool_call_queue": [
-            _chat_call("chat_tool_a", "2026-09-04 10:00:00", "2026-09-04 10:00:04"),
-            _chat_call("tool_b", "2026-09-04 10:00:00", "2026-09-04 10:00:03"),
-            _chat_call(
-                "tool_a",
-                "2026-09-04 10:00:00",
-                "2026-09-04 10:00:01",
-                status="timed_out",
-            ),
-            _chat_call("tool_a", "2026-09-04 10:00:00", None),
-        ],
-    }
+def test_chat_canvas_marks_sla_explicit_and_missing_time_timeouts() -> None:
+    trace = _chat_trace(
+        [
+            {
+                "content": {
+                    "tool_call": [
+                        _chat_call("call-1", "chat_tool_a"),
+                        _chat_call("call-2", "tool_b"),
+                        {"taskId": "worker-1", "agentName": "worker_search"},
+                    ]
+                }
+            },
+            {
+                "content": {
+                    "tool_result": [
+                        _chat_result("call-1", "tool_a", duration_seconds=4.0),
+                        _chat_result("call-2", "tool_b", duration_seconds=3.0),
+                    ]
+                }
+            },
+            {
+                "content": {
+                    "tool_call": [
+                        _chat_call("call-3", "tool_a"),
+                        _chat_call("call-4", "tool_a"),
+                        _chat_call("call-5", "tool_b"),
+                    ],
+                    "tool_result": [
+                        _chat_result(
+                            "call-3",
+                            "tool_a",
+                            duration_seconds=1.0,
+                            result={"status": "timed_out", "secret": "SENSITIVE"},
+                        ),
+                        _chat_result("call-4", "tool_a"),
+                        _chat_result("call-5", "tool_b", duration_seconds=2.0),
+                        _chat_result("orphan", "tool_a", duration_seconds=99.0),
+                    ],
+                }
+            },
+        ]
+    )
 
     normalized = normalize_chat_tool_timeout_rate(trace, _catalog())
 
@@ -74,6 +101,7 @@ def test_chat_normalization_marks_sla_explicit_and_missing_time_timeouts() -> No
         "sla_exceeded",
         "explicit_timeout",
         "missing_timestamps",
+        None,
     ]
     assert normalized["diagnostics"] == {
         "explicit_timeout_count": 1,
@@ -82,50 +110,95 @@ def test_chat_normalization_marks_sla_explicit_and_missing_time_timeouts() -> No
         "duplicate_state_event_count": 0,
         "malformed_event_count": 0,
     }
-    assert "tool_response_result" not in repr(normalized)
+    assert "SENSITIVE" not in repr(normalized)
 
 
 def test_chat_unknown_tool_or_invalid_time_is_not_silently_scored() -> None:
     unknown = normalize_chat_tool_timeout_rate(
-        {"tool_call_queue": [_chat_call("unknown", 1_000, 2_000)]}, _catalog()
+        _chat_trace(
+            [
+                {
+                    "content": {
+                        "tool_call": [_chat_call("call-1", "unknown")],
+                        "tool_result": [_chat_result("call-1", "unknown", duration_seconds=1.0)],
+                    }
+                }
+            ]
+        ),
+        _catalog(),
     )
     invalid = normalize_chat_tool_timeout_rate(
-        {"tool_call_queue": [_chat_call("tool_a", "bad", 2_000)]}, _catalog()
+        _chat_trace(
+            [
+                {
+                    "content": {
+                        "tool_call": [_chat_call("call-1", "tool_a")],
+                        "tool_result": [_chat_result("call-1", "tool_a", duration_seconds="bad")],
+                    }
+                }
+            ]
+        ),
+        _catalog(),
     )
 
     assert unknown["normalization_error"] == "missing_tool_sla"
     assert invalid["normalization_error"] == "invalid_timestamp"
 
 
-def test_chat_aliases_can_differ_but_conflicting_call_ids_are_rejected() -> None:
-    aliased_call = {
-        "event_type": "tool_call",
-        "tool_request_args": {
-            "toolName": "chat_tool_a",
-            "toolId": "call-1",
-            "create_time": 1_000,
-        },
-        "tool_response_result": {
-            "toolName": "tool_a",
-            "toolId": "call-1",
-            "create_time": 1_004,
-        },
-    }
-    normalized = normalize_chat_tool_timeout_rate({"tool_call_queue": [aliased_call]}, _catalog())
+def test_chat_deduplicates_aliases_and_rejects_conflicting_definitions() -> None:
+    request = _chat_call("call-1", "chat_tool_a")
+    normalized = normalize_chat_tool_timeout_rate(
+        _chat_trace(
+            [
+                {"content": {"tool_call": [request, dict(request)]}},
+                {
+                    "content": {
+                        "tool_result": [
+                            _chat_result("call-1", "tool_a", duration_seconds=4.0),
+                            _chat_result("call-1", "tool_a", duration_seconds=4.0),
+                        ]
+                    }
+                },
+            ]
+        ),
+        _catalog(),
+    )
     assert normalized["normalization_error"] is None
+    assert normalized["tool_calls"] == ({"call_id": "call-1", "timeout_reason": None},)
+    assert normalized["diagnostics"]["duplicate_state_event_count"] == 2
 
-    conflicting_call = {
-        **aliased_call,
-        "tool_response_result": {
-            "toolName": "tool_a",
-            "toolId": "call-2",
-            "create_time": 1_004,
-        },
-    }
     conflicting = normalize_chat_tool_timeout_rate(
-        {"tool_call_queue": [conflicting_call]}, _catalog()
+        _chat_trace(
+            [
+                {
+                    "content": {
+                        "tool_call": [
+                            _chat_call("call-1", "tool_a"),
+                            _chat_call("call-1", "tool_b"),
+                        ]
+                    }
+                }
+            ]
+        ),
+        _catalog(),
     )
     assert conflicting["normalization_error"] == "conflicting_call_definition"
+
+
+def test_chat_rejects_missing_ids_invalid_containers_and_legacy_queue() -> None:
+    missing_id = normalize_chat_tool_timeout_rate(
+        _chat_trace([{"content": {"tool_call": [{"toolName": "tool_a"}]}}]), _catalog()
+    )
+    invalid = normalize_chat_tool_timeout_rate(
+        {"canvas": {"meta": {"traceId": "chat-1"}, "agents": "invalid"}}, _catalog()
+    )
+    legacy = normalize_chat_tool_timeout_rate(
+        {"traceId": "legacy", "tool_call_queue": []}, _catalog()
+    )
+
+    assert missing_id["normalization_error"] == "missing_call_id"
+    assert invalid["normalization_error"] == "invalid_chat_trace_structure"
+    assert legacy["normalization_error"] == "invalid_chat_trace_structure"
 
 
 def test_research_deduplicates_lifecycle_and_uses_earliest_start_and_terminal_end() -> None:
@@ -194,17 +267,36 @@ def test_research_missing_call_id_and_conflicting_tool_are_isolated() -> None:
     assert conflict["normalization_error"] == "conflicting_call_definition"
 
 
-def _chat_call(
-    tool_name: str, start: object, end: object, *, status: str | None = None
-) -> dict[str, object]:
-    response: dict[str, object] = {"create_time": end}
-    if status is not None:
-        response["status"] = status
+def _chat_trace(messages: list[dict[str, object]]) -> dict[str, object]:
+    midpoint = len(messages) // 2
     return {
-        "event_type": "tool_call",
-        "tool_request_args": {"toolName": tool_name, "create_time": start},
-        "tool_response_result": response,
+        "canvas": {
+            "meta": {"traceId": "chat-1"},
+            "agents": [
+                {"messages": messages[:midpoint]},
+                {"messages": messages[midpoint:]},
+            ],
+        }
     }
+
+
+def _chat_call(call_id: str, tool_name: str) -> dict[str, object]:
+    return {"toolId": call_id, "toolName": tool_name, "arguments": {}}
+
+
+def _chat_result(
+    call_id: str,
+    tool_name: str,
+    *,
+    duration_seconds: object = None,
+    result: object = None,
+) -> dict[str, object]:
+    value: dict[str, object] = {"toolId": call_id, "toolName": tool_name}
+    if duration_seconds is not None:
+        value["durationSeconds"] = duration_seconds
+    if result is not None:
+        value["result"] = result
+    return value
 
 
 def _research_event(

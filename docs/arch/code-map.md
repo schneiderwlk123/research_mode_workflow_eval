@@ -51,8 +51,10 @@
 - `src/collectors/statement_support.py`：复用证据单元抽取，从新版 canvas 的
   `meta.query/answer.answer` 提取聊天输入，或选择研究模式 `turn.end` 前最后一个 assistant
   文本；区分空证据、缺终态、不完整证据拆分和固定前置服务失败，旧版顶层聊天字段不再支持。
-- `src/collectors/tool_timeout_rate.py`：构建版本化工具 SLA 与别名目录，按聊天工具对象或研究
-  `callID` 规范化显式超时、SLA 超限和缺失时间超时；不保留参数或响应正文。
+- `src/collectors/tool_timeout_rate.py`：构建版本化工具 SLA 与别名目录；聊天模式按
+  `traceId + toolId` 跨 Agent/message 关联新版 canvas 请求与结果并排除子 Agent、孤立结果，
+  研究模式按 `callID` 合并生命周期，规范化显式超时、SLA 超限和缺失时间超时；旧版聊天
+  `tool_call_queue` 不再支持，不保留参数或响应正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -98,7 +100,7 @@
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
   三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/tool_timeout_rate.py`：校验策略版本、唯一调用及分类诊断计数，计算
-  `tool_timeout_rate`；缺少工具 SLA 时不估算。
+  `tool_timeout_rate`；缺少工具 SLA 时不估算，新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
   全部证据单元整体提交给 OpenAI-compatible Judge；超过请求上限时快速失败，避免不安全的
   语义分批，禁止输出陈述正文并隔离供应商异常。
@@ -140,8 +142,9 @@
   去重、不可拆分响应及研究回归测试。
 - `tests/collectors/test_statement_support.py`：新版 canvas/研究最终回答选择、空证据可计算、
   前置失败、缺终态、部分不可拆分响应、旧结构拒绝和成功产物无正文测试。
-- `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、聊天/研究字段映射、生命周期去重、
-  显式超时、SLA 超限、缺失时间计超时及错误隔离测试。
+- `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、新版 canvas 跨 Agent/message 关联、
+  子 Agent 与孤立结果排除、调用去重、研究生命周期合并、显式超时、SLA 超限、缺失时间计
+  超时、旧结构拒绝及错误隔离测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
   非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、

@@ -13,7 +13,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十四个指标行为测试，共 374 项；最近一次验证全部通过。
+- 公共契约及十四个指标行为测试，共 376 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 19 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -67,9 +67,10 @@ Schema 合法率、
   `meta.query/answer.answer` 提取聊天输入，旧版顶层字段不再支持；`statement_support_rate`
   版本为 `1.2.0`；为保留跨证据组合支持语义不做证据分批，超过 512 KiB 时快速返回
   `judge_input_too_large`，query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
-- 版本化工具 SLA 与别名目录，以及聊天/研究调用的显式超时、SLA 超限和缺失时间分类；
-  `tool_timeout_rate` 版本为 `1.0.0`。工具 SLA 缺失时不可计算；工具已配置 SLA 但调用缺少
-  完整时间时，按确认口径计为超时并单独诊断。
+- 版本化工具 SLA 与别名目录，以及新版 canvas/研究调用的显式超时、SLA 超限和缺失时间
+  分类；聊天模式按 `traceId + toolId` 跨 Agent/message 关联请求与结果，排除子 Agent、孤立
+  结果和旧版 `tool_call_queue`。`tool_timeout_rate` 版本为 `1.1.0`；工具 SLA 缺失时不可计算，
+  工具已配置 SLA 但调用缺少完整时间时，按确认口径计为超时并单独诊断。
 - 集中式指标规格 `docs/specs/metrics.md`，当前记录十四个已实现指标。
 - 已按新版聊天 JSON 数组结构重算十四个指标的字段映射、确定性基线和条件可计算范围；
   明确区分普通工具请求、子 Agent 调用与结果侧 Agent 返回，未把 Judge 候选覆盖率当成语义得分。
@@ -87,9 +88,9 @@ Schema 合法率、
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
 - 最近完成并验收的新版聊天适配指标：陈述支持率。
-- 进行中的具体指标：MCP 工具调用膨胀率已按新版日志结构完成重组和验证，等待指标验收。
-- 下一项重组指标：工具超时率。
-- 下一动作：验收 MCP 工具调用膨胀率的新版双模式映射，再复核工具超时率。
+- 进行中的具体指标：工具超时率已按新版日志结构完成重组和验证，等待指标验收。
+- 下一项指标：工具间空窗时延。
+- 下一动作：验收工具超时率的新版双模式映射，再确认工具间空窗时延方案。
 
 ## 已知缺口
 
@@ -222,7 +223,9 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   改良前的历史记录；其中约 815 KiB 的超大请求在新版本会于网络调用前返回
   `judge_input_too_large`，尚未重新运行真实 Judge。成功请求耗时约 95.446 秒；临时目录未
   进入生产配置，结果不作为正式生产基线
-超时率测试: 20 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE
+超时率测试: 22 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；新版聊天按
+  `canvas.meta.traceId` 与跨 Agent/message 的 `content.tool_call[]/tool_result[]` 关联唯一调用，
+  排除子 Agent、孤立结果和旧版 `tool_call_queue`
 超时率规则: 显式 timeout/timed_out、duration > 工具 SLA、SLA 已配置但缺少完整时间均计入分子；
   failed/error/cancelled 不自动等同超时，duration == SLA 不超时
 超时率真实日志结构冒烟: 聊天与研究模式在未配置生产 SLA 时均返回 missing_tool_sla，

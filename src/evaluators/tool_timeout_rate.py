@@ -11,7 +11,7 @@ _INPUT_ERROR_REASONS = frozenset(
         "invalid_timestamp",
         "invalid_event_order",
         "conflicting_call_definition",
-        "invalid_tool_call_queue",
+        "invalid_chat_trace_structure",
     }
 )
 
@@ -25,7 +25,7 @@ class ToolTimeoutRateEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)

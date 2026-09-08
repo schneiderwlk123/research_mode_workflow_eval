@@ -1143,14 +1143,17 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 
 聊天模式：`CONDITIONALLY_COMPUTABLE`。
 
-- 唯一调用：具有 `toolId + toolName` 的普通工具请求，按 `traceId + toolId` 标识。
+- 唯一调用：遍历 `canvas.agents[].messages[].content.tool_call[]`，具有
+  `toolId + toolName` 的普通工具请求按 `traceId + toolId` 标识；子 Agent 调用不进入分母。
 - 工具名称：请求的 `toolName`；匹配结果提供非空 `toolName` 时必须一致，否则返回
   `conflicting_call_definition`。
 - 完整调用耗时：同 `toolId` 的 `content.tool_result[].durationSeconds × 1000`。该字段是单次
   工具执行耗时，不与 `message.content.durationSeconds` 相加或相减。
 - 显式超时：匹配结果顶层或结构化 `result/rawResult` 中的 `status/state` 命中策略状态集合。
+- 同一 `toolId` 的重复请求或结果只观察一次并记录重复计数；请求和结果可位于不同 Agent 或
+  message，结果侧孤立 Agent 返回不反向生成调用。
 - 缺少匹配结果或结果缺少合法 `durationSeconds` 时，在该工具已有 SLA 的前提下按
-  `missing_time_timeout` 分类；结果侧孤立 Agent 返回不进入调用分母。
+  `missing_time_timeout` 分类。旧版顶层 `tool_call_queue` 不再支持。
 
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
@@ -1162,10 +1165,12 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 
 两种模式都必须能从版本化目录解析每个工具的 `timeout_ms`。当前仓库没有生产 SLA 目录，
 因此真实日志在配置落地前返回 `NOT_COMPUTABLE / missing_tool_sla`；不能因未观察到显式
-timeout 就输出 0%。无调用、缺少研究调用 ID、非法队列或未知 SLA 分别返回
-`no_tool_calls`、`missing_call_id`、`invalid_tool_call_queue`、`missing_tool_sla`。非法时间、
+timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知 SLA 分别返回
+`no_tool_calls`、`missing_call_id`、`invalid_chat_trace_structure`、`missing_tool_sla`。非法时间、
 负时序和调用定义冲突分别返回 `ERROR / invalid_timestamp`、`ERROR / invalid_event_order`、
 `ERROR / conflicting_call_definition`。
+
+新版 canvas 适配的 evaluator 版本为 `1.1.0`。
 
 新版聊天日志重算状态：4,266 次普通请求中 3,443 次具有可用工具执行耗时，823 次缺少完整
 耗时观测。当前仓库没有生产 SLA 目录，因此总体仍为
