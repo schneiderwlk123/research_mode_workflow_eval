@@ -23,8 +23,7 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
                     "subtask_type": "quote_lookup",
                     "required_capability_ids": ["quote"],
                 }
-            ],
-            "required_capability_ids": ["quote"],
+            ]
         }
         return json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode()
 
@@ -71,7 +70,9 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
 
     response = judge.judge(request)
 
-    assert response["required_capability_ids"] == ["quote"]
+    subtasks = response["subtasks"]
+    assert isinstance(subtasks, list)
+    assert len(subtasks) == 1
     assert captured["url"] == "https://example.test/v1/chat/completions"
     assert captured["authorization"] == "Bearer secret-value"
     body = captured["body"]
@@ -81,6 +82,45 @@ def test_routing_judge_sends_intents_schema_and_reusable_mappings() -> None:
     assert user_payload["intent_fragments"] == ["查询某公司的行情", "核对价格"]
     assert user_payload["capabilities"][0]["capability_id"] == "quote"
     assert user_payload["reusable_mappings"][0]["intent_signature"] == ["market_data"]
+    schema = body["response_format"]["json_schema"]["schema"]
+    subtask_schema = schema["properties"]["subtasks"]["items"]
+    assert subtask_schema["properties"]["intent_signature"]["minItems"] == 1
+    assert subtask_schema["properties"]["intent_signature"]["maxItems"] == 8
+    assert subtask_schema["properties"]["intent_signature"]["uniqueItems"] is True
+    assert subtask_schema["properties"]["intent_signature"]["items"]["pattern"]
+    assert subtask_schema["properties"]["subtask_type"]["pattern"]
+    assert "required_capability_ids" not in schema["properties"]
+
+
+def test_routing_judge_sends_safe_validation_feedback_on_retry() -> None:
+    captured: dict[str, object] = {}
+
+    def transport(
+        url: str, body: bytes, headers: Mapping[str, str], timeout_seconds: float
+    ) -> bytes:
+        del url, headers, timeout_seconds
+        captured.update(body=json.loads(body))
+        content: dict[str, object] = {"subtasks": []}
+        return json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode()
+
+    judge = OpenAICompatibleRoutingJudge(
+        JudgeSettings("https://example.test/v1", "secret-value", "test-model"),
+        transport=transport,
+    )
+    request = RoutingJudgeRequest(
+        trace_id="trace-1",
+        mode="chat",
+        intent_fragments=("查询行情",),
+        capabilities=(),
+        validation_feedback="invalid_intent_signature",
+    )
+
+    judge.judge(request)
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    user_payload = json.loads(body["messages"][1]["content"])
+    assert user_payload["validation_feedback"] == "invalid_intent_signature"
 
 
 @pytest.mark.parametrize(

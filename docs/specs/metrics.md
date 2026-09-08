@@ -478,11 +478,14 @@ Judge 成功；可判定字段 19 个，其中 12 个正确、7 个错误，结�
 
 - 采用会话级能力集合口径，同一能力调用多次只计一次；重复调用由
   `exact_duplicate_tool_call_rate` 单独评估，避免重复惩罚或加分。
-- 标准能力集合不是从实际调用反推。路由 Judge 必须综合整体用户意图、所有可见子任务
+- 手册内标准能力集合不是从实际调用反推。路由 Judge 必须综合整体用户意图、所有可见子任务
   意图、完整 MCP 能力目录以及历史安全映射，选择完成需求所需的最小充分能力集合。
 - 两项指标都只评估路由选择层。调用是否成功属于执行质量，不混入路由选择判断。
-- 不在 MCP 手册中的 `respond` 等框架工具不进入实际能力集合，只记录
-  `out_of_scope_tool_call_count`；Judge 不得选择未在当前目录注册的能力。
+- 日志自身明确声明为 MCP、但尚未进入当前手册的工具，按用户确认口径视为符合意图要求：
+  同一工具在 Trace 内去重后同时补入实际能力数、标准能力数和 TP，并记录
+  `assumed_matching_mcp_route_count`。聊天模式只信任 `canvas.meta.tools` 声明；研究模式只
+  信任 `agent.mcp[].tools` 声明。无法由这些结构证明为 MCP 的 `respond`、`excel` 等框架或
+  环境工具仍不进入集合，只记录 `out_of_scope_tool_call_count`，不得根据名称模糊猜测。
 - 实际能力集合为空而标准集合非空时，Precision 返回
   `NOT_COMPUTABLE / no_actual_routes`，Recall 等于 `0`。
 - 标准集合为空而实际集合非空时，Precision 等于 `0`，Recall 返回
@@ -501,7 +504,7 @@ Judge 请求包含：
 - MCP 手册中每个能力的 `capability_id`、工具描述、参数名称、类型、必填标记和描述。
 - 最多 50 条不含原始文本的历史意图路由映射，作为可选参考而非强制答案。
 
-Judge 返回：
+Judge 只返回子任务：
 
 ```json
 {
@@ -511,15 +514,22 @@ Judge 返回：
       "subtask_type": "company_analysis",
       "required_capability_ids": ["pricePerformance"]
     }
-  ],
-  "required_capability_ids": ["pricePerformance"]
+  ]
 }
 ```
 
 - `intent_signature` 和 `subtask_type` 只能使用小写 snake_case，禁止包含公司、人名、
   证券代码、日期、金额、地区或用户原文。
-- 顶层能力集合必须严格等于所有子任务能力集合的去重并集。
+- 标准能力集合由程序对所有子任务的 `required_capability_ids` 求去重并集，不要求 Judge
+  重复返回顶层集合，避免两个等价字段产生不一致。
 - 所有能力 ID 必须存在于当前 MCP 目录；评测器会重新校验，不信任 Judge 输出。
+- `intent_signature` 必须包含 1 至 8 个唯一的小写 ASCII `snake_case` 标签，`subtask_type`
+  也必须符合相同安全格式。JSON Schema 使用 `pattern/minItems/maxItems/uniqueItems` 尽量在
+  生成阶段约束，评测器仍执行二次校验。
+- Judge 返回可解析 JSON 但业务校验失败时，允许携带稳定且不含正文的错误码重试一次；第二次
+  仍存在非法意图签名或子任务类型时，只跳过对应的可复用映射写入，已通过目录校验的能力
+  集合仍可用于指标计算，并在安全元数据记录具体原因；能力 ID 或主体结构仍非法时返回
+  `NOT_COMPUTABLE / invalid_judge_output`。
 - Judge 适配器记录 `judge_name`、`judge_version`、`prompt_version` 和 MCP
   `schema_version`，保证生成口径可追溯。
 - OpenAI-compatible 请求固定 `temperature = 0` 以降低重复运行波动；在人工校准集冻结前，
@@ -544,7 +554,8 @@ MCP 手册：
 - 实际能力：同时具有 `toolId` 和 `toolName` 的普通工具请求；按 `traceId + toolId` 去重后，
   将 `toolName` 通过 MCP 手册解析为能力 ID，并在 Trace 内形成集合。同一 `toolId` 重复出现
   且工具名一致时合并；工具名不一致时返回
-  `NOT_COMPUTABLE / conflicting_call_definition`。参数差异不影响路由能力集合。
+  `NOT_COMPUTABLE / conflicting_call_definition`。参数差异不影响路由能力集合。手册解析失败
+  但 `canvas.meta.tools` 明确声明的工具按唯一名称计入自动匹配 MCP 数量。
 - 缺少 `traceId`、整体意图、普通调用 ID 或工具名时分别返回
   `NOT_COMPUTABLE / missing_trace_id`、`missing_intent`、`missing_call_id` 或
   `missing_tool_name`；不得使用数组位置补造调用 ID。
@@ -558,7 +569,8 @@ MCP 手册：
 - 整体意图：优先读取事件顶层 `query`，兼容 `body.query`。
 - 可见步骤意图：`body.task` 和 `body.description`。
 - 实际能力：`result.toolCalls[].toolName`，按 `toolCallId` 去重；同一 ID 对应不同工具名
-  时返回 `conflicting_call_definition`。
+  时返回 `conflicting_call_definition`。手册解析失败但可由 `agent.mcp[].tools` 的完整名称、
+  三下划线命名空间后缀或明确服务名前缀映射确认的工具，按唯一名称计入自动匹配 MCP 数量。
 
 ### 可复用意图路由映射
 
@@ -578,9 +590,16 @@ MCP 手册：
 本次未运行路由 Judge，没有标准能力集合，因此不得计算 Precision 或 Recall。
 
 新版聊天适配按两个批次分别验收 Precision 与 Recall；两者共用一次 Judge 和 TP/FP/FN
-计数，`routing_precision` 与 `routing_recall` 的 evaluator 版本现均为 `1.2.0`；Judge
-prompt 版本为 `1.1.0`。共享运行时失败会保留对应稳定原因码，不再统一折叠为
+计数，`routing_precision` 与 `routing_recall` 的 evaluator 版本现均为 `1.3.0`；Judge
+prompt 版本为 `1.2.0`。共享运行时失败会保留对应稳定原因码，不再统一折叠为
 `judge_failure`。
+
+新版聊天前 30 条加指定研究日志的真实复验：31 条 Trace 中 2 条为
+`pre_routing_failure`；日志声明的手册外 MCP 共形成 13 个唯一自动匹配路由。Precision
+可计算 26 条，微平均 `50 / (50 + 41) ≈ 0.54945`；Recall 可计算 27 条，微平均
+`50 / (50 + 74) ≈ 0.40323`。11 条触发一次业务校验重试，其中 4 条重试后仍有非法映射标签，
+但合法能力集合正常计分且不写入映射表；2 条因连续返回目录外且日志未声明的能力 ID 而保持
+`NOT_COMPUTABLE / invalid_judge_output`。研究日志结果为 Precision `0.5`、Recall `0.75`。
 
 ### 模拟计算
 

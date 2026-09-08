@@ -54,6 +54,7 @@ class RoutingDiagnostics(TypedDict):
 
     malformed_event_count: int
     out_of_scope_tool_call_count: int
+    unknown_mcp_tool_call_count: int
     duplicate_call_definition_count: int
 
 
@@ -64,6 +65,7 @@ class NormalizedRoutingCandidate(TypedDict):
     mode: str
     intent_fragments: tuple[str, ...]
     actual_capability_ids: tuple[str, ...]
+    assumed_matching_mcp_route_count: int
     diagnostics: RoutingDiagnostics
     normalization_error: str | None
 
@@ -148,9 +150,12 @@ def normalize_chat_routing(
         )
     intents: list[str] = []
     _append_unique(intents, meta.get("query"))
+    declared_mcp_tools = _declared_chat_mcp_tools(meta.get("tools"))
     actual_capabilities: set[str] = set()
+    assumed_matching_mcp_tools: set[str] = set()
     malformed_event_count = 0
     out_of_scope_count = 0
+    unknown_mcp_call_count = 0
     ordinary_call_count = 0
     duplicate_count = 0
     calls: dict[str, str] = {}
@@ -241,7 +246,11 @@ def normalize_chat_routing(
                 calls[call_id] = tool_name
                 capability_id = catalog.resolve(tool_name)
                 if capability_id is None:
-                    out_of_scope_count += 1
+                    if tool_name in declared_mcp_tools:
+                        assumed_matching_mcp_tools.add(tool_name)
+                        unknown_mcp_call_count += 1
+                    else:
+                        out_of_scope_count += 1
                 else:
                     actual_capabilities.add(capability_id)
 
@@ -254,9 +263,11 @@ def normalize_chat_routing(
         "mode": "chat",
         "intent_fragments": tuple(intents),
         "actual_capability_ids": tuple(sorted(actual_capabilities)),
+        "assumed_matching_mcp_route_count": len(assumed_matching_mcp_tools),
         "diagnostics": {
             "malformed_event_count": malformed_event_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
+            "unknown_mcp_tool_call_count": unknown_mcp_call_count,
             "duplicate_call_definition_count": duplicate_count,
         },
         "normalization_error": normalization_error,
@@ -273,9 +284,12 @@ def normalize_research_routing(
     user_message_id: str | None = None
     intents: list[str] = []
     calls: dict[str, str] = {}
+    declared_mcp_tools = _declared_research_mcp_tools(events)
     actual_capabilities: set[str] = set()
+    assumed_matching_mcp_tools: set[str] = set()
     malformed_event_count = 0
     out_of_scope_count = 0
+    unknown_mcp_call_count = 0
     duplicate_count = 0
     normalization_error: str | None = None
 
@@ -323,7 +337,11 @@ def normalize_research_routing(
             calls[call_id] = tool_name
             capability_id = catalog.resolve(tool_name)
             if capability_id is None:
-                out_of_scope_count += 1
+                if tool_name in declared_mcp_tools:
+                    assumed_matching_mcp_tools.add(tool_name)
+                    unknown_mcp_call_count += 1
+                else:
+                    out_of_scope_count += 1
             else:
                 actual_capabilities.add(capability_id)
 
@@ -338,9 +356,11 @@ def normalize_research_routing(
         "mode": "research",
         "intent_fragments": tuple(intents),
         "actual_capability_ids": tuple(sorted(actual_capabilities)),
+        "assumed_matching_mcp_route_count": len(assumed_matching_mcp_tools),
         "diagnostics": {
             "malformed_event_count": malformed_event_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
+            "unknown_mcp_tool_call_count": unknown_mcp_call_count,
             "duplicate_call_definition_count": duplicate_count,
         },
         "normalization_error": normalization_error,
@@ -384,6 +404,45 @@ def _parse_arguments(value: object) -> Mapping[str, object] | None:
     return {str(key): item for key, item in parsed.items()}
 
 
+def _declared_chat_mcp_tools(raw_tools: object) -> frozenset[str]:
+    """读取聊天日志声明的 MCP 工具名；无可靠声明时不猜测工具类别。"""
+
+    if not _is_sequence(raw_tools):
+        return frozenset()
+    return frozenset(
+        tool_name for value in raw_tools if (tool_name := _identifier(value)) is not None
+    )
+
+
+def _declared_research_mcp_tools(events: Sequence[object]) -> frozenset[str]:
+    """从 agent.mcp 事件提取完整名称和可验证的服务前缀短名称。"""
+
+    tools: set[str] = set()
+    for event in events:
+        if not isinstance(event, Mapping) or event.get("type") != "agent.mcp":
+            continue
+        raw_servers = event.get("mcp")
+        if not _is_sequence(raw_servers):
+            continue
+        for raw_server in raw_servers:
+            if not isinstance(raw_server, Mapping):
+                continue
+            server_name = _identifier(raw_server.get("name"))
+            raw_tools = raw_server.get("tools")
+            if not _is_sequence(raw_tools):
+                continue
+            for raw_tool in raw_tools:
+                tool_name = _identifier(raw_tool)
+                if tool_name is None:
+                    continue
+                tools.add(tool_name)
+                if "___" in tool_name:
+                    tools.add(tool_name.rsplit("___", 1)[-1])
+                if server_name is not None and tool_name.startswith(f"{server_name}_"):
+                    tools.add(tool_name[len(server_name) + 1 :])
+    return frozenset(tools)
+
+
 def _chat_answer(canvas: Mapping[object, object]) -> object:
     answer = canvas.get("answer")
     return answer.get("answer") if isinstance(answer, Mapping) else None
@@ -402,9 +461,11 @@ def _empty_candidate(
         "mode": mode,
         "intent_fragments": tuple(intents),
         "actual_capability_ids": (),
+        "assumed_matching_mcp_route_count": 0,
         "diagnostics": {
             "malformed_event_count": malformed_event_count,
             "out_of_scope_tool_call_count": 0,
+            "unknown_mcp_tool_call_count": 0,
             "duplicate_call_definition_count": 0,
         },
         "normalization_error": normalization_error,

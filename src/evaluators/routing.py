@@ -32,6 +32,7 @@ class RoutingJudgeRequest:
     intent_fragments: tuple[str, ...]
     capabilities: tuple[CapabilityDefinition, ...]
     reusable_mappings: tuple[ReusableIntentRouteMapping, ...] = ()
+    validation_feedback: str | None = None
 
 
 class RoutingJudge(Protocol):
@@ -60,9 +61,13 @@ class RoutingAssessment(TypedDict):
     true_positive_count: int
     false_positive_count: int
     false_negative_count: int
+    assumed_matching_mcp_route_count: int
     malformed_event_count: int
     out_of_scope_tool_call_count: int
+    unknown_mcp_tool_call_count: int
     duplicate_call_definition_count: int
+    judge_validation_retry_count: int
+    judge_output_error: str | None
     mapping_store_read_failed: bool
     mapping_store_write_failed: bool
     normalization_error: str | None
@@ -83,7 +88,15 @@ def build_routing_assessment(
     parsed = _parse_candidate(candidate)
     if parsed is None:
         return _empty_assessment(catalog, judge, error="invalid_normalized_trace")
-    trace_id, mode, intents, actual_ids, diagnostics, normalization_error = parsed
+    (
+        trace_id,
+        mode,
+        intents,
+        actual_ids,
+        assumed_matching_count,
+        diagnostics,
+        normalization_error,
+    ) = parsed
     if not actual_ids.issubset(catalog.capabilities):
         return _empty_assessment(
             catalog,
@@ -98,7 +111,8 @@ def build_routing_assessment(
         judge,
         trace_id=trace_id,
         mode=mode,
-        actual_count=len(actual_ids),
+        actual_count=len(actual_ids) + assumed_matching_count,
+        assumed_matching_count=assumed_matching_count,
         diagnostics=diagnostics,
         error=normalization_error,
     )
@@ -126,13 +140,44 @@ def build_routing_assessment(
         base["normalization_error"] = reason
         return base
 
-    parsed_response = _parse_judge_response(raw_response, catalog, judge)
+    parsed_response, output_error = _parse_judge_response(raw_response, catalog, judge)
     if parsed_response is None:
-        base["normalization_error"] = "invalid_judge_output"
-        return base
+        base["judge_validation_retry_count"] = 1
+        retry_request = RoutingJudgeRequest(
+            trace_id=trace_id,
+            mode=mode,
+            intent_fragments=intents,
+            capabilities=tuple(catalog.capabilities.values()),
+            reusable_mappings=reusable,
+            validation_feedback=output_error,
+        )
+        try:
+            retry_response = judge.judge(retry_request)
+        except Exception as judge_error:
+            reason, _ = judge_error_metadata(judge_error)
+            base["normalization_error"] = reason
+            return base
+        parsed_response, output_error = _parse_judge_response(retry_response, catalog, judge)
+        if parsed_response is None:
+            if output_error in {
+                "invalid_intent_signature",
+                "invalid_subtask_type",
+                "duplicate_intent_signature_token",
+            }:
+                parsed_response, _ = _parse_judge_response(
+                    retry_response,
+                    catalog,
+                    judge,
+                    allow_invalid_mapping_metadata=True,
+                )
+            if parsed_response is None:
+                base["normalization_error"] = "invalid_judge_output"
+                base["judge_output_error"] = output_error
+                return base
+            base["judge_output_error"] = output_error
     expected_ids, mappings = parsed_response
-    true_positive_count = len(actual_ids & expected_ids)
-    base["expected_route_count"] = len(expected_ids)
+    true_positive_count = len(actual_ids & expected_ids) + assumed_matching_count
+    base["expected_route_count"] = len(expected_ids) + assumed_matching_count
     base["true_positive_count"] = true_positive_count
     base["false_positive_count"] = len(actual_ids - expected_ids)
     base["false_negative_count"] = len(expected_ids - actual_ids)
@@ -151,7 +196,7 @@ class RoutingPrecisionEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.2.0"
+        return "1.3.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_assessment(trace)
@@ -184,7 +229,7 @@ class RoutingRecallEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.2.0"
+        return "1.3.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_assessment(trace)
@@ -211,39 +256,49 @@ class RoutingRecallEvaluator(BaseEvaluator):
 
 
 def _parse_judge_response(
-    response: Mapping[str, object], catalog: CapabilityCatalog, judge: RoutingJudge
-) -> tuple[set[str], tuple[ReusableIntentRouteMapping, ...]] | None:
+    response: Mapping[str, object],
+    catalog: CapabilityCatalog,
+    judge: RoutingJudge,
+    *,
+    allow_invalid_mapping_metadata: bool = False,
+) -> tuple[
+    tuple[set[str], tuple[ReusableIntentRouteMapping, ...]] | None,
+    str | None,
+]:
     raw_subtasks = response.get("subtasks")
-    raw_required = response.get("required_capability_ids")
-    if not _is_sequence(raw_subtasks) or not _is_sequence(raw_required):
-        return None
-    expected_ids = _safe_capability_ids(raw_required, catalog)
-    if expected_ids is None:
-        return None
+    if not _is_sequence(raw_subtasks):
+        return None, "invalid_routing_structure"
 
     mappings: list[ReusableIntentRouteMapping] = []
-    union: set[str] = set()
+    expected_ids: set[str] = set()
     for raw_subtask in raw_subtasks:
         if not isinstance(raw_subtask, Mapping):
-            return None
+            return None, "invalid_routing_structure"
         raw_signature = raw_subtask.get("intent_signature")
-        subtask_type = _safe_token(raw_subtask.get("subtask_type"))
         raw_ids = raw_subtask.get("required_capability_ids")
-        if not _is_sequence(raw_signature) or subtask_type is None or not _is_sequence(raw_ids):
-            return None
+        if not _is_sequence(raw_signature) or not _is_sequence(raw_ids):
+            return None, "invalid_routing_structure"
+        capability_ids = _safe_capability_ids(raw_ids, catalog)
+        if capability_ids is None:
+            return None, "unknown_capability_id"
+        expected_ids.update(capability_ids)
+
+        subtask_type = _safe_token(raw_subtask.get("subtask_type"))
         signature = tuple(
             token for item in raw_signature if (token := _safe_token(item)) is not None
         )
-        if (
-            len(signature) != len(raw_signature)
-            or not signature
-            or len(set(signature)) != len(signature)
-        ):
-            return None
-        capability_ids = _safe_capability_ids(raw_ids, catalog)
-        if capability_ids is None:
-            return None
-        union.update(capability_ids)
+        mapping_error: str | None = None
+        if subtask_type is None:
+            mapping_error = "invalid_subtask_type"
+        elif len(signature) != len(raw_signature) or not signature:
+            mapping_error = "invalid_intent_signature"
+        elif len(set(signature)) != len(signature):
+            mapping_error = "duplicate_intent_signature_token"
+        if mapping_error is not None:
+            if allow_invalid_mapping_metadata:
+                continue
+            return None, mapping_error
+        assert subtask_type is not None
         mappings.append(
             ReusableIntentRouteMapping(
                 intent_signature=tuple(sorted(signature)),
@@ -255,11 +310,7 @@ def _parse_judge_response(
                 prompt_version=judge.prompt_version,
             )
         )
-    if union != expected_ids:
-        return None
-    if expected_ids and not mappings:
-        return None
-    return expected_ids, tuple(mappings)
+    return (expected_ids, tuple(mappings)), None
 
 
 def _safe_capability_ids(values: Sequence[object], catalog: CapabilityCatalog) -> set[str] | None:
@@ -280,6 +331,7 @@ def _parse_candidate(
         str,
         tuple[str, ...],
         set[str],
+        int,
         dict[str, int],
         str | None,
     ]
@@ -289,6 +341,7 @@ def _parse_candidate(
     mode = candidate.get("mode")
     raw_intents = candidate.get("intent_fragments")
     raw_actual = candidate.get("actual_capability_ids")
+    assumed_matching_count = _non_negative_int(candidate.get("assumed_matching_mcp_route_count", 0))
     raw_diagnostics = candidate.get("diagnostics")
     error = candidate.get("normalization_error")
     if (
@@ -297,6 +350,7 @@ def _parse_candidate(
         or mode not in {"chat", "research"}
         or not _is_sequence(raw_intents)
         or not _is_sequence(raw_actual)
+        or assumed_matching_count is None
         or not isinstance(raw_diagnostics, Mapping)
         or (error is not None and (not isinstance(error, str) or not error.strip()))
     ):
@@ -315,16 +369,22 @@ def _parse_candidate(
         for key in (
             "malformed_event_count",
             "out_of_scope_tool_call_count",
+            "unknown_mcp_tool_call_count",
             "duplicate_call_definition_count",
         )
     }
+    if raw_diagnostics.get("unknown_mcp_tool_call_count") is None:
+        diagnostics["unknown_mcp_tool_call_count"] = 0
     if any(value is None for value in diagnostics.values()):
+        return None
+    if assumed_matching_count > cast(int, diagnostics["unknown_mcp_tool_call_count"]):
         return None
     return (
         trace_id.strip() if isinstance(trace_id, str) else None,
         mode,
         intents,
         actual,
+        assumed_matching_count,
         cast(dict[str, int], diagnostics),
         error.strip() if isinstance(error, str) else None,
     )
@@ -339,9 +399,12 @@ def _parse_assessment(
         "true_positive_count",
         "false_positive_count",
         "false_negative_count",
+        "assumed_matching_mcp_route_count",
         "malformed_event_count",
         "out_of_scope_tool_call_count",
+        "unknown_mcp_tool_call_count",
         "duplicate_call_definition_count",
+        "judge_validation_retry_count",
     )
     counts = {name: _non_negative_int(trace.get(name)) for name in count_names}
     error = trace.get("normalization_error")
@@ -370,6 +433,7 @@ def _empty_assessment(
     trace_id: str | None = None,
     mode: str = "unknown",
     actual_count: int = 0,
+    assumed_matching_count: int = 0,
     diagnostics: Mapping[str, int] | None = None,
     error: str | None,
 ) -> RoutingAssessment:
@@ -386,11 +450,15 @@ def _empty_assessment(
         "true_positive_count": 0,
         "false_positive_count": actual_count,
         "false_negative_count": 0,
+        "assumed_matching_mcp_route_count": assumed_matching_count,
         "malformed_event_count": safe_diagnostics.get("malformed_event_count", 0),
         "out_of_scope_tool_call_count": safe_diagnostics.get("out_of_scope_tool_call_count", 0),
+        "unknown_mcp_tool_call_count": safe_diagnostics.get("unknown_mcp_tool_call_count", 0),
         "duplicate_call_definition_count": safe_diagnostics.get(
             "duplicate_call_definition_count", 0
         ),
+        "judge_validation_retry_count": 0,
+        "judge_output_error": None,
         "mapping_store_read_failed": False,
         "mapping_store_write_failed": False,
         "normalization_error": error,
@@ -400,7 +468,7 @@ def _empty_assessment(
 def _safe_token(value: object) -> str | None:
     if not isinstance(value, str):
         return None
-    normalized = value.strip().lower()
+    normalized = value.strip()
     return normalized if _SAFE_TOKEN.fullmatch(normalized) else None
 
 

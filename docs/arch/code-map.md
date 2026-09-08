@@ -31,8 +31,9 @@
   生成只在内存流转的 Judge 候选；旧版聊天结构不再支持，长期结果不得保留 query 或参数值。
 - `src/collectors/routing.py`：从 MCP 手册构建版本化能力目录；聊天模式扫描新版 canvas，
   按 `traceId + toolId` 去重普通工具请求，并从子 Agent 的 `arguments.query/task` 提取任务；
-  研究模式按调用 ID 去重。框架工具只进入范围外诊断，旧版聊天结构不再支持，明确的路由前
-  模型服务失败会在调用 Judge 前标记为不可计算。
+  研究模式按调用 ID 去重。聊天 `canvas.meta.tools` 与研究 `agent.mcp[].tools` 明确声明但
+  手册缺失的 MCP 按唯一工具计入自动匹配路由；无法证明为 MCP 的框架工具只进入范围外诊断。
+  旧版聊天结构不再支持，明确的路由前模型服务失败会在调用 Judge 前标记为不可计算。
 - `src/collectors/subtask_redundancy.py`：扫描新版聊天 canvas 中跨 Agent/message 的子 Agent
   调用，从对象或 JSON 字符串参数提取任务正文，使用 NFKC、约束词元和字符 bigram 规则
   计算高置信度冗余聚合计数；旧版聊天结构不再支持，研究模式在结构化子任务契约确认前
@@ -94,13 +95,16 @@
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
   通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定；程序为实际参数
   和遗漏候选生成稳定字段 ID，Judge 只返回三态 verdict，适配器再映射回原始路径。
-- `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
-  TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；两个指标的新版
-  canvas 适配版本均为 `1.2.0`。
+- `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，从 Judge 子任务派生标准能力
+  并集，把日志声明但手册缺失的 MCP 计为自动匹配 TP；业务输出非法时携带安全原因码重试
+  一次，重试后仅映射元数据非法时跳过持久化但保留合法能力计数；生成 TP/FP/FN 共享计数并
+  分别计算 `routing_precision` 与 `routing_recall`，两个指标的新版 canvas 适配版本均为
+  `1.3.0`。
 - `src/evaluators/subtask_redundancy.py`：校验规则版本、固定阈值和安全聚合计数，计算
   `subtask_redundancy_rate`；新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
-  和历史安全映射提交给 OpenAI-compatible Judge，生成严格结构化标准路由。
+  和历史安全映射提交给 OpenAI-compatible Judge；动态 Schema 约束安全 snake_case 标签和
+  目录内能力 ID，Judge 只返回子任务路由，程序派生顶层能力并集，并支持安全校验反馈重试。
 - `src/evaluators/intent_recognition.py`：定义意图对齐 Judge 契约，严格校验三态 verdict、
   reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`；
   新版 canvas 适配版本为 `1.2.0`。
@@ -146,7 +150,8 @@
   子 Agent 排除、跨消息去重、冲突定义、缺失字段、非法结构、旧版聊天拒绝、手册描述目录、
   参数解析失败和内存参数不可变测试。
 - `tests/collectors/test_routing.py`：新版 canvas 的跨 Agent/message 意图提取、普通工具请求
-  去重、缺失字段、非法容器、旧版结构拒绝、前置失败，以及研究前缀映射和冲突定义测试。
+  去重、缺失字段、非法容器、旧版结构拒绝、前置失败、日志声明的手册外 MCP 自动匹配，
+  以及研究前缀映射和冲突定义测试。
 - `tests/collectors/test_subtask_redundancy.py`：新版 canvas 跨 Agent/message 扫描、精确与
   高相似冗余、约束差异、JSON 参数、非法事件、旧结构拒绝、敏感正文隔离及研究模式
   不可计算测试。
@@ -177,12 +182,12 @@
   部分失败隔离、非法 Judge 输出和不可计算边界测试。
 - `tests/evaluators/test_openai_compatible_parameter_judge.py`：dotenv 配置、HTTPS 边界、请求
   结构、认证头、结构化响应解析和供应商异常脱敏测试。
-- `tests/evaluators/test_routing.py`：共享 Judge 调用、Precision/Recall 集合计数、零分母、
-  Judge 非法输出、失败脱敏和安全映射写入测试。
+- `tests/evaluators/test_routing.py`：共享 Judge 调用、Precision/Recall 集合计数、手册外 MCP
+  自动 TP、零分母、Judge 非法输出安全重试、失败脱敏和安全映射写入测试。
 - `tests/evaluators/test_subtask_redundancy.py`：冗余率、单任务、零分母、规范化错误和非法
   聚合计数测试。
-- `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、MCP Schema 与
-  历史映射的结构化请求测试。
+- `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、动态 MCP Schema、
+  snake_case 约束、安全校验反馈与历史映射的结构化请求测试。
 - `tests/evaluators/test_intent_recognition.py`：二元会话得分、不可判定、Judge 失败、严格
   输出白名单、规范化错误和敏感正文隔离测试。
 - `tests/evaluators/test_openai_compatible_intent_judge.py`：意图证据请求结构、确定性采样、

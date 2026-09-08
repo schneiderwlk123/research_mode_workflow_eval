@@ -31,6 +31,16 @@ class FakeJudge:
         return self.response
 
 
+class SequencedJudge(FakeJudge):
+    def __init__(self, responses: Sequence[Mapping[str, object]]) -> None:
+        super().__init__({})
+        self.responses = list(responses)
+
+    def judge(self, request: RoutingJudgeRequest) -> Mapping[str, object]:
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+
 class FakeMappingStore:
     def __init__(self) -> None:
         self.saved: tuple[ReusableIntentRouteMapping, ...] = ()
@@ -105,8 +115,7 @@ def _judge_response(*required: str) -> dict[str, object]:
                 "subtask_type": "investment_research",
                 "required_capability_ids": list(required),
             }
-        ],
-        "required_capability_ids": list(required),
+        ]
     }
 
 
@@ -123,16 +132,92 @@ def test_one_judge_assessment_drives_precision_recall_and_reusable_table() -> No
     assert len(judge.requests) == 1
     assert judge.requests[0].reusable_mappings == store.loaded
     assert precision.metric_name == "routing_precision"
-    assert precision.evaluator_version == "1.2.0"
+    assert precision.evaluator_version == "1.3.0"
     assert precision.value == 1.0
     assert recall.metric_name == "routing_recall"
-    assert recall.evaluator_version == "1.2.0"
+    assert recall.evaluator_version == "1.3.0"
     assert recall.value == pytest.approx(2 / 3)
     assert precision.metadata["true_positive_count"] == 2
     assert precision.metadata["false_positive_count"] == 0
     assert recall.metadata["false_negative_count"] == 1
     assert store.saved[0].intent_signature == ("market_data", "news_review")
     assert "分析行情和新闻" not in repr(store.saved)
+
+
+def test_unknown_declared_mcp_routes_are_counted_as_automatic_true_positives() -> None:
+    candidate = _candidate("quote") | {
+        "assumed_matching_mcp_route_count": 2,
+        "diagnostics": {
+            "malformed_event_count": 0,
+            "out_of_scope_tool_call_count": 0,
+            "unknown_mcp_tool_call_count": 2,
+            "duplicate_call_definition_count": 0,
+        },
+    }
+
+    assessment = build_routing_assessment(
+        candidate, _catalog(), FakeJudge(_judge_response("quote"))
+    )
+    precision = RoutingPrecisionEvaluator().evaluate(assessment)
+    recall = RoutingRecallEvaluator().evaluate(assessment)
+
+    assert assessment["actual_route_count"] == 3
+    assert assessment["expected_route_count"] == 3
+    assert assessment["true_positive_count"] == 3
+    assert assessment["assumed_matching_mcp_route_count"] == 2
+    assert precision.value == 1.0
+    assert recall.value == 1.0
+
+
+def test_invalid_business_output_is_retried_once_with_safe_feedback() -> None:
+    judge = SequencedJudge(
+        [
+            {
+                "subtasks": [
+                    {
+                        "intent_signature": ["中文标签"],
+                        "subtask_type": "quote_lookup",
+                        "required_capability_ids": ["quote"],
+                    }
+                ]
+            },
+            _judge_response("quote"),
+        ]
+    )
+
+    assessment = build_routing_assessment(_candidate("quote"), _catalog(), judge)
+
+    assert len(judge.requests) == 2
+    assert judge.requests[0].validation_feedback is None
+    assert judge.requests[1].validation_feedback == "invalid_intent_signature"
+    assert assessment["judge_validation_retry_count"] == 1
+    assert assessment["normalization_error"] is None
+
+
+def test_repeated_invalid_mapping_metadata_keeps_route_score_without_persisting_mapping() -> None:
+    invalid = {
+        "subtasks": [
+            {
+                "intent_signature": ["中文标签"],
+                "subtask_type": "quote_lookup",
+                "required_capability_ids": ["quote"],
+            }
+        ]
+    }
+    judge = SequencedJudge([invalid, invalid])
+    store = FakeMappingStore()
+
+    assessment = build_routing_assessment(
+        _candidate("quote"), _catalog(), judge, mapping_store=store
+    )
+    result = RoutingPrecisionEvaluator().evaluate(assessment)
+
+    assert len(judge.requests) == 2
+    assert result.status is EvaluationStatus.COMPUTED
+    assert result.value == 1.0
+    assert result.metadata["judge_output_error"] == "invalid_intent_signature"
+    assert result.metadata["judge_validation_retry_count"] == 1
+    assert store.saved == ()
 
 
 def test_zero_denominators_are_handled_independently() -> None:
@@ -175,17 +260,7 @@ def test_capability_ids_preserve_schema_case() -> None:
 @pytest.mark.parametrize(
     "response",
     [
-        {"subtasks": [], "required_capability_ids": ["quote"]},
-        {
-            "subtasks": [
-                {
-                    "intent_signature": ["包含公司名称贵州茅台"],
-                    "subtask_type": "quote_lookup",
-                    "required_capability_ids": ["quote"],
-                }
-            ],
-            "required_capability_ids": ["quote"],
-        },
+        {},
         {
             "subtasks": [
                 {
@@ -193,18 +268,7 @@ def test_capability_ids_preserve_schema_case() -> None:
                     "subtask_type": "quote_lookup",
                     "required_capability_ids": ["unknown"],
                 }
-            ],
-            "required_capability_ids": ["unknown"],
-        },
-        {
-            "subtasks": [
-                {
-                    "intent_signature": ["market_data"],
-                    "subtask_type": "quote_lookup",
-                    "required_capability_ids": ["quote"],
-                }
-            ],
-            "required_capability_ids": ["news"],
+            ]
         },
     ],
 )

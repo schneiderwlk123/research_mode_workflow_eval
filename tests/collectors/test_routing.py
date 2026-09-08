@@ -89,6 +89,29 @@ def test_chat_routing_collects_overall_and_all_subtask_intents() -> None:
     assert trace == original
 
 
+def test_chat_declared_mcp_missing_from_manual_is_assumed_matching() -> None:
+    trace = _canvas_trace(
+        "提取年报并生成回答",
+        [
+            _chat_call("call-1", "annual_report_extract"),
+            _chat_call("call-2", "annual_report_extract"),
+            _chat_call("call-3", "respond"),
+        ],
+    )
+    canvas = trace["canvas"]
+    assert isinstance(canvas, dict)
+    meta = canvas["meta"]
+    assert isinstance(meta, dict)
+    meta["tools"] = ["annual_report_extract"]
+
+    normalized = normalize_chat_routing(trace, build_capability_catalog(_manual()))
+
+    assert normalized["actual_capability_ids"] == ()
+    assert normalized["assumed_matching_mcp_route_count"] == 1
+    assert normalized["diagnostics"]["unknown_mcp_tool_call_count"] == 2
+    assert normalized["diagnostics"]["out_of_scope_tool_call_count"] == 1
+
+
 def test_chat_conflicting_call_definition_is_not_computable() -> None:
     normalized = normalize_chat_routing(
         _canvas_trace(
@@ -217,6 +240,46 @@ def test_research_routing_normalizes_mcp_prefix_and_deduplicates_call_id() -> No
     assert normalized["actual_capability_ids"] == ("quote",)
     assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
     assert normalized["normalization_error"] is None
+
+
+def test_research_declared_mcp_missing_from_manual_is_assumed_matching() -> None:
+    events = [
+        {
+            "type": "agent.mcp",
+            "sessionID": "session-1",
+            "userMessageID": "message-1",
+            "mcp": [
+                {
+                    "name": "research-tools",
+                    "type": "remote",
+                    "status": "connected",
+                    "tools": ["research-tools___annual_report_extract"],
+                }
+            ],
+        },
+        {
+            "sessionID": "session-1",
+            "userMessageID": "message-1",
+            "query": "提取年报",
+            "result": {
+                "toolCalls": [
+                    {
+                        "toolCallId": "call-1",
+                        "toolName": "annual_report_extract",
+                        "input": {},
+                    },
+                    {"toolCallId": "call-2", "toolName": "excel", "input": {}},
+                ]
+            },
+        },
+    ]
+
+    normalized = normalize_research_routing(events, build_capability_catalog(_manual()))
+
+    assert normalized["actual_capability_ids"] == ()
+    assert normalized["assumed_matching_mcp_route_count"] == 1
+    assert normalized["diagnostics"]["unknown_mcp_tool_call_count"] == 1
+    assert normalized["diagnostics"]["out_of_scope_tool_call_count"] == 1
 
 
 def test_missing_intent_and_conflicting_research_call_are_not_computable() -> None:
