@@ -14,6 +14,7 @@ from evaluators.intent_recognition import (
     IntentRecognitionJudgeRequest,
 )
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
+from evaluators.model_step_latency import AverageModelStepLatencyEvaluator
 from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_judge_runtime import (
@@ -76,6 +77,7 @@ __all__ = [
     "IntentRecognitionJudgeRequest",
     "JudgeExecutionError",
     "McpToolCallInflationEvaluator",
+    "AverageModelStepLatencyEvaluator",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
     "OpenAICompatibleEvidenceRelevanceJudge",

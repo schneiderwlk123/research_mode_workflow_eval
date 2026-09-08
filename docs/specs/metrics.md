@@ -1236,3 +1236,66 @@ evaluator 版本为 `1.0.0`。
 端到端时延 = 936,405 ms，来源 turn_end_duration
 boundary_difference_ms = -2 ms
 ```
+
+## 16. 平均模型步骤时延
+
+### 指标定义
+
+本指标衡量单条 Trace 内有效模型步骤的平均观测时延，稳定指标名为
+`average_model_step_latency_ms`，单位为毫秒。
+
+```text
+单步骤时延 = 步骤结束时间 - 步骤开始时间
+
+单条 Trace 平均模型步骤时延 =
+  有效步骤时延总和 ÷ 有效步骤数
+
+全量微平均 =
+  全部 Trace 的 total_step_duration_ms 总和
+  ÷ 全部 Trace 的 valid_step_count 总和
+```
+
+步骤总和仅作为微平均聚合输入，不是独立的墙钟时延指标；并行或嵌套步骤不得相加后解释为
+Trace 总耗时。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 每个 `canvas.agents[].messages[]` 是一个步骤观测，读取
+  `message.content.durationSeconds × 1000`。
+- orchestrator 和 worker 消息都作为独立步骤进入分母，但不推断父子包含关系。
+- `tool_result.durationSeconds` 是独立工具执行耗时，不得从消息耗时中相减。
+- `canvas.answer.durationSeconds` 是最后一个 Agent message 耗时的复制，不重复进入步骤集合。
+- 缺失 `durationSeconds` 的步骤进入 `latency_missing_count`，不补零；非法值和负值分别返回
+  `ERROR / invalid_duration`、`ERROR / invalid_event_order`。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 使用 `message.part.updated` 中的 `step-start` 和 `step-finish`，按 `part.messageID` 配对；两种
+  part 的 `part.id` 不同，不能按 part ID 配对。
+- 主边界使用事件数值型 `time`，步骤时延为 `step-finish.time - step-start.time`。
+- 两侧都存在合法 `ts` 时计算时间戳差值，并记录
+  `timestamp_cross_check_count` 与 `max_abs_boundary_difference_ms`；`ts` 缺失不影响主指标。
+- `message.updated.info.time.created/completed` 覆盖更宽的消息生命周期，不作为本指标边界。
+- 同一 loop 的两个 `llm.response` 是重复协议投影，不进入步骤计数。
+- 相同重复边界去重并记录计数；同一 `messageID` 的不同重复边界返回
+  `ERROR / conflicting_step_boundary`。缺少 `messageID` 返回 `ERROR / missing_step_id`。
+
+两种模式都只使用完整有效步骤。部分缺失时仍对有效步骤计算，并显式记录
+`latency_missing_count`；无任何有效步骤时返回
+`NOT_COMPUTABLE / no_observable_model_steps`。规范化和评估结果不保留消息、推理、工具参数或
+回答正文。evaluator 版本为 `1.0.0`。
+
+### 模拟计算
+
+```text
+步骤 A：1250 ms
+步骤 B：缺失，不补零
+步骤 C：2000 ms
+
+valid_step_count = 2
+latency_missing_count = 1
+total_step_duration_ms = 3250
+average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
+```

@@ -678,6 +678,10 @@ reasoning    22
 这些 Token 可能与 `message.updated.info.tokens` 和 `llm.response.result.usage` 重复表达同一次
 模型调用，不能跨层直接相加。
 
+平均模型步骤时延应按 `messageID` 配对 `step-start` 与 `step-finish`，使用事件数值型 `time`
+计算；两种 part 的 `part.id` 不同，不能按 part ID 配对。事件 `ts` 只用于边界差异诊断。
+`message.updated.info.time.created/completed` 覆盖更宽的消息生命周期，不作为步骤时延边界。
+
 #### 工具 part
 
 ```jsonc
@@ -861,7 +865,7 @@ Agent 执行实例       worker agentId / taskId          当前样本只有 orc
 工具输入             tool_call[].arguments             part.state.input / toolCalls[].input
 工具结果             tool_result[].result/rawResult    part.state.output/raw / tool-result content
 工具时延             tool_result[].durationSeconds     part.state.time.start/end
-模型步骤时延         message.content.durationSeconds   message/part time 与事件 ts
+模型步骤时延         message.content.durationSeconds   step-start/step-finish 的 event.time
 最终回答             canvas.answer.answer              turn.end 前最后 assistant text part
 回合总时延           answer.create_time -               turn.end.durationMs
                      meta.create_time

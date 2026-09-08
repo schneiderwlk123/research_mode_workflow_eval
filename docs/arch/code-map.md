@@ -58,6 +58,9 @@
 - `src/collectors/end_to_end_latency.py`：从聊天 canvas 的 meta/answer 创建时间提取秒级回合
   边界，或合并研究 `turn.start/turn.end` 并保留报告耗时与时间戳交叉校验输入；重复边界去重，
   冲突边界隔离，输出不含 query 或回答正文。
+- `src/collectors/model_step_latency.py`：聊天模式收集 Agent message 自身耗时并排除 answer
+  复制值；研究模式按 message ID 配对 step-start/step-finish 的事件时间，记录缺失、重复及
+  时间戳交叉校验诊断，不保留消息或推理正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -66,6 +69,9 @@
 - `src/evaluators/end_to_end_latency.py`：聊天模式计算请求到最终回答的时间戳差值；研究模式
   优先使用 `turn.end.durationMs` 并记录与边界差值的偏差，缺失、非法和负时序使用稳定状态与
   原因码隔离；evaluator 版本为 `1.0.0`。
+- `src/evaluators/model_step_latency.py`：计算单条 Trace 的有效步骤算术平均，输出全量微平均
+  所需的 `total_step_duration_ms` 与 `valid_step_count`，并严格校验覆盖和交叉诊断计数；
+  evaluator 版本为 `1.0.0`。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率，并输出
   不可比较调用、重复请求、重复结果及孤立结果诊断。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
