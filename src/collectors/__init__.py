@@ -1,5 +1,11 @@
 """Trace 输入读取与格式适配。"""
 
+from collectors.end_to_end_latency import (
+    EndToEndLatencyDiagnostics,
+    NormalizedEndToEndLatencyTrace,
+    normalize_chat_end_to_end_latency,
+    normalize_research_end_to_end_latency,
+)
 from collectors.evidence_quality import (
     EvidenceDiagnostics,
     EvidencePrecisionCandidate,
@@ -109,6 +115,7 @@ __all__ = [
     "EvidencePrecisionCandidate",
     "EvidenceSourceCatalog",
     "EvidenceUnit",
+    "EndToEndLatencyDiagnostics",
     "IntentEvidenceFragment",
     "IntentRecognitionCandidate",
     "IntentRecognitionDiagnostics",
@@ -123,6 +130,7 @@ __all__ = [
     "NormalizedToolArgumentSchemaTrace",
     "NormalizedExactDuplicateTrace",
     "NormalizedEvidenceTrace",
+    "NormalizedEndToEndLatencyTrace",
     "NormalizedIntentRecognitionTrace",
     "NormalizedMcpToolCallInflationTrace",
     "NormalizedParameterValueTrace",
@@ -149,6 +157,7 @@ __all__ = [
     "ToolTimeoutDiagnostics",
     "ToolTimeoutPolicyCatalog",
     "normalize_chat_exact_duplicates",
+    "normalize_chat_end_to_end_latency",
     "build_evidence_source_catalog",
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
@@ -168,6 +177,7 @@ __all__ = [
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
     "normalize_research_exact_duplicates",
+    "normalize_research_end_to_end_latency",
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
     "normalize_research_mcp_tool_call_inflation",

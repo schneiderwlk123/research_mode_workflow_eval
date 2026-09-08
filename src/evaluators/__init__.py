@@ -1,6 +1,7 @@
 """评测器及其公共契约。"""
 
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
 from evaluators.evidence_precision import (
     EvidencePrecisionEvaluator,
     EvidenceRelevanceJudge,
@@ -65,6 +66,7 @@ __all__ = [
     "BaseEvaluator",
     "EvaluationResult",
     "EvaluationStatus",
+    "EndToEndLatencyEvaluator",
     "EvidencePrecisionEvaluator",
     "EvidenceRelevanceJudge",
     "EvidenceRelevanceJudgeRequest",

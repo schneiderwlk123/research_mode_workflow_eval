@@ -1188,3 +1188,51 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
 唯一调用总数 = 4
 超时率 = 3 ÷ 4 = 0.75
 ```
+
+## 15. 端到端时延
+
+### 指标定义
+
+本指标衡量用户请求开始到最终回答完成之间的单次会话墙钟时延，稳定指标名为
+`end_to_end_latency_ms`，单位为毫秒。
+
+```text
+端到端时延 = 最终回答完成时间 - 用户请求开始时间
+```
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 开始时间：`canvas.meta.create_time`。
+- 结束时间：`canvas.answer.create_time`。
+- 两个字段为秒级时间戳，规范化后计算毫秒差值并保留 `timestamp_precision=seconds`；结果为
+  `0 ms` 时只表示边界落在同一秒。
+- `canvas.answer.durationSeconds` 是终止 Agent 消息耗时的复制，不是完整 Trace 时延，禁止用作
+  本指标。
+- 旧版顶层聊天结构不支持，返回 `ERROR / invalid_chat_trace_structure`。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 回合边界：同一 `sessionID + userMessageID` 的 `turn.start` 与 `turn.end`。
+- 指标值优先使用 `turn.end.durationMs`；同时计算 `turn.end.ts - turn.start.ts`，将
+  `时间戳差值 - durationMs` 记录为 `boundary_difference_ms`。
+- `durationMs` 缺失时回退到时间戳差值；相同重复边界去重并记录计数，不同重复边界返回
+  `ERROR / conflicting_turn_boundary`。
+
+两种模式缺少开始或结束边界时分别返回 `NOT_COMPUTABLE / missing_start_timestamp` 或
+`missing_end_timestamp`。非法时间戳、非法报告耗时和负时序分别返回
+`ERROR / invalid_timestamp`、`ERROR / invalid_duration` 和 `ERROR / invalid_event_order`。
+规范化结果只保留标识、时间边界、报告耗时、精度和安全诊断，不保留 query、回答或工具正文。
+evaluator 版本为 `1.0.0`。
+
+### 模拟计算
+
+```text
+聊天：10:00:00 开始，10:01:25 回答完成
+端到端时延 = 85,000 ms，来源 timestamp_delta
+
+研究：时间戳差值 936,403 ms，turn.end.durationMs = 936,405 ms
+端到端时延 = 936,405 ms，来源 turn_end_duration
+boundary_difference_ms = -2 ms
+```

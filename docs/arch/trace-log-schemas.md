@@ -863,7 +863,8 @@ Agent 执行实例       worker agentId / taskId          当前样本只有 orc
 工具时延             tool_result[].durationSeconds     part.state.time.start/end
 模型步骤时延         message.content.durationSeconds   message/part time 与事件 ts
 最终回答             canvas.answer.answer              turn.end 前最后 assistant text part
-回合总时延           answer.durationSeconds            turn.end.durationMs
+回合总时延           answer.create_time -               turn.end.durationMs
+                     meta.create_time
 Token                usageTokens                       tokens / usage，需去重投影
 ```
 

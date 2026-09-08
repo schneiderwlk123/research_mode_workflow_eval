@@ -5,7 +5,7 @@
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
 - `docs/specs/metric-development-order.md`：18 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
-  工具超时率、研究模式端到端时延和研究模式上下文膨胀率。
+  工具超时率、双模式端到端时延和研究模式上下文膨胀率。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
@@ -55,11 +55,17 @@
   `traceId + toolId` 跨 Agent/message 关联新版 canvas 请求与结果并排除子 Agent、孤立结果，
   研究模式按 `callID` 合并生命周期，规范化显式超时、SLA 超限和缺失时间超时；旧版聊天
   `tool_call_queue` 不再支持，不保留参数或响应正文。
+- `src/collectors/end_to_end_latency.py`：从聊天 canvas 的 meta/answer 创建时间提取秒级回合
+  边界，或合并研究 `turn.start/turn.end` 并保留报告耗时与时间戳交叉校验输入；重复边界去重，
+  冲突边界隔离，输出不含 query 或回答正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
   调用事件完整率，并输出重复请求、重复结果和孤立结果计数；聊天调用定义冲突及研究模式
   缺少 `callID` 时严格返回不可计算。
+- `src/evaluators/end_to_end_latency.py`：聊天模式计算请求到最终回答的时间戳差值；研究模式
+  优先使用 `turn.end.durationMs` 并记录与边界差值的偏差，缺失、非法和负时序使用稳定状态与
+  原因码隔离；evaluator 版本为 `1.0.0`。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率，并输出
   不可比较调用、重复请求、重复结果及孤立结果诊断。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
