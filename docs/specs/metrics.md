@@ -346,10 +346,10 @@ Judge 可判定字段数 = correct 字段数 + incorrect 字段数
 
 - Pydantic 与 `tool_argument_schema_validity_rate` 负责类型、枚举和结构合法性；本指标
   不重复判断输入格式，只判断参数值是否忠实于用户 query。
-- Judge 对一个调用整体判断一次，但必须返回逐字段结构化结果。字段状态只能是
-  `correct`、`incorrect` 或 `not_assessable`。
-- query 明确约束且工具字段能够承载的遗漏参数可由 Judge 追加为
-  `incorrect / missing_query_required`；追加路径必须存在于对应工具 Schema。
+- Judge 对一个调用整体判断一次，但程序先为每个实际参数字段分配稳定 `field_id`；Judge
+  只能对这些 ID 返回 `correct`、`incorrect` 或 `not_assessable`，不得生成或改写字段路径。
+- query 明确约束且工具字段能够承载的遗漏参数通过独立的 `omitted_schema_fields` 候选识别；
+  Judge 只返回缺失字段 ID，程序固定映射为 `incorrect / missing_query_required`。
 - 实际出现的每个参数叶子字段都必须得到 Judge 判定。非空对象递归展开为点分路径；数组
   作为一个整体字段判断，避免元素级计数放大长数组权重。
 - query 未约束、无法从安全上下文证明的默认值或运行参数标记为 `not_assessable`，不进入
@@ -364,28 +364,26 @@ Judge 可判定字段数 = correct 字段数 + incorrect 字段数
 
 - `trace_id`、`mode`、稳定 `call_id`；这些字段仅用于调用关联，不作为语义证据。
 - 原始用户 `query`。
-- 工具名称、工具描述，以及 MCP 手册中的参数路径与描述。
-- 当前调用的实际参数。
+- 工具名称和工具描述。
+- 由程序生成的 `actual_fields`：稳定字段 ID、原始字段路径、对应字段说明和实际值。数组作为
+  一个整体字段传递，不允许 Judge 展开索引或内部对象路径。
+- 由程序生成的 `omitted_schema_fields`：仅包含本次未传入的 Schema 字段 ID、路径和说明。
 
 Judge 适配器必须声明稳定的 `judge_name`、`judge_version` 和 `prompt_version`，并返回：
 
 ```json
 {
-  "fields": [
-    {
-      "field_path": "start_date",
-      "verdict": "correct",
-      "reason_code": "normalized_equivalent",
-      "confidence": 0.98
-    }
-  ]
+  "field_0001": "correct",
+  "field_0002": "not_assessable",
+  "missing_required_field_ids": ["omitted_0001"]
 }
 ```
 
-评测器重新校验 Judge 输出：字段路径不得重复，置信度必须为 `[0, 1]` 内有限数值，实际
-参数字段不得遗漏；实际参数之外的路径必须属于工具 Schema，且只能用于
-`incorrect / missing_query_required`。`reason_code` 必须来自按 verdict 划分的固定安全
-白名单，防止 Judge 把 query 或参数正文写入持久化诊断。非法输出按单调用 Judge 失败隔离。
+动态 JSON Schema 将每个实际字段 ID 固定为必填顶层键；Judge 只返回三态 verdict，不返回
+字段路径、置信度或原因文本。适配器把 ID 映射回原始路径，并按 verdict 生成稳定安全原因码。
+`missing_required_field_ids` 只能引用程序提供的遗漏候选；供应商兼容模式在没有遗漏字段时若
+省略该键或返回 `null`，按空列表处理。未知、重复或缺失的实际字段 ID 仍按单调用
+`invalid_judge_output` 隔离。
 
 ### 字段映射
 
@@ -452,10 +450,16 @@ Judge 可判定覆盖率和 Schema 覆盖率不计算，也不得写入最终结
 OpenAI-compatible 适配器使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和 `JUDGE_MODEL`，并记录
 固定模型与版本化 prompt。远程 URL 必须使用 HTTPS；query 和参数按不可信数据处理，禁止
 其中的文本覆盖系统评测规则。未配置适配器或真实请求未成功时不得伪造语义得分。
-evaluator 版本为 `1.3.0`，Judge prompt 版本为 `1.1.0`。
+evaluator 版本为 `1.4.0`，Judge prompt 版本为 `1.2.0`。
 
 新版聊天日志重算状态：4,266 次普通调用中可构造 2,911 个手册覆盖 Judge 候选，覆盖 271 条
-Trace。当前未执行真实 Judge，因此本次不产生 `parameter_value_accuracy_rate` 数值。
+Trace。当前未执行 336 条 Trace 的真实全量 Judge，因此不产生全量正式基线。
+
+真实前 30 条新版聊天 Trace 使用 `qwen-flash` 验证字段 ID 契约：493 次普通调用中 359 次
+被手册覆盖，359/359 次 Judge 成功，0 次非法输出；可判定字段 1,032 个，其中 868 个正确、
+164 个错误，微平均 `868 / 1032 ≈ 0.84109`。25 条 Trace 得到分数，1 条全部字段不可判定，
+2 条无工具调用，2 条无手册覆盖调用。研究日志 30 次唯一调用中 5 次被手册覆盖，5/5 次
+Judge 成功；可判定字段 19 个，其中 12 个正确、7 个错误，结果 `12 / 19 ≈ 0.63158`。
 
 ## 6-7. 路由 Precision 与路由 Recall
 

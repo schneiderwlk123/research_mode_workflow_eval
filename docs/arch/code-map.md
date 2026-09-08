@@ -87,12 +87,13 @@
   枚举和嵌套结构合法率，仅保留安全诊断计数。
 - `src/evaluators/parameter_value_accuracy.py`：定义可注入的版本化 Judge 接口，校验逐字段
   三态输出，隔离单调用失败并聚合稳定失败原因，仅输出参数值准确率主指标和安全诊断计数；
-  evaluator 版本为 `1.3.0`。
+  evaluator 版本为 `1.4.0`。
 - `src/evaluators/openai_compatible_judge_runtime.py`：所有 OpenAI-compatible Judge 的共享
   请求边界；负责严格 JSON Schema、兼容回退、请求大小上限、瞬态重试、输出截断检测和
   脱敏错误分类。
 - `src/evaluators/openai_compatible_parameter_judge.py`：从 dotenv/环境变量加载 Judge 配置，
-  通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定。
+  通过 HTTPS OpenAI-compatible Chat Completions 接口请求结构化逐字段判定；程序为实际参数
+  和遗漏候选生成稳定字段 ID，Judge 只返回三态 verdict，适配器再映射回原始路径。
 - `src/evaluators/routing.py`：定义路由 Judge 与安全映射表契约，一次生成标准能力集合和
   TP/FP/FN 共享计数，并分别计算 `routing_precision` 与 `routing_recall`；两个指标的新版
   canvas 适配版本均为 `1.2.0`。

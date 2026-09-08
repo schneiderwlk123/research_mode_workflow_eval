@@ -13,7 +13,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十七个指标行为测试，共 443 项；最近一次验证全部通过。
+- 公共契约及十七个指标行为测试，共 447 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 17 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -37,8 +37,9 @@ Schema 合法率、
 - 参数值语义目录、新版 canvas/研究 Judge 候选提取，以及不持久化 query 和参数值的内存
   边界；聊天模式按 `traceId + toolId` 跨 Agent 和消息去重并排除子 Agent 调用，旧版聊天
   解析已删除。
-- 可注入、版本化 Judge 契约与 `parameter_value_accuracy_rate` 评测器，版本 `1.3.0`；
-  支持逐字段三态判定和部分失败隔离，最终结果不计算或输出辅助率指标。
+- 可注入、版本化 Judge 契约与 `parameter_value_accuracy_rate` 评测器，版本 `1.4.0`；
+  实际参数和遗漏候选由程序分配稳定字段 ID，Judge 只返回三态 verdict，避免字段路径扩张、
+  数组路径展开和自由原因码导致的非法输出；支持部分失败隔离，最终结果不输出辅助率指标。
 - OpenAI-compatible Judge 共享运行时与常用 dotenv 配置加载：远程端点强制 HTTPS，优先
   使用严格 JSON Schema，供应商拒绝时回退 JSON 对象模式；默认 512 KiB 请求上限、2 次
   瞬态重试、输出截断检测及稳定脱敏错误分类已覆盖六类 Judge 指标。
@@ -157,7 +158,7 @@ Token 消耗聊天模式: 312/336 条可计算，24 条 no_observable_token_usag
 Token 消耗研究模式: 27/27 个 step-finish Token 完整，合计 18064255 tokens
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 443 passed
+pytest: 447 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -180,6 +181,10 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 参数值准确率聊天日志候选: 643/907，106 个 Trace 均成功规范化
 参数值准确率研究日志候选: 5/30，30 个重复观测已按 call ID 去重
 参数值准确率真实单调用冒烟: 1 个正确字段、1 个不可判定字段，准确率 1.0，Judge 失败 0
+参数值准确率字段 ID 契约复验: 前 30 条新版聊天 Trace 共 359 个 Judge 候选全部成功，
+  0 个非法输出；可判定字段 1,032 个，微平均 `868/1032 ≈ 0.84109`。研究日志 5 个 Judge
+  候选全部成功，可判定字段 19 个，结果 `12/19 ≈ 0.63158`；Judge 模型为 `qwen-flash`，
+  prompt 版本 `1.2.0`。
 路由规范化 MCP 目录: 77 个能力，手册版本 0.1.0
 路由规范化聊天日志: 106/106 个 Trace 成功，35 个 Trace 含 MCP 路由，提取 185 个子任务片段
 路由规范化研究日志: 1 个 Trace 成功，5 个 MCP 能力；当前日志只提供 1 个整体意图片段

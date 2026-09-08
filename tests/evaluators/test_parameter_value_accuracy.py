@@ -117,7 +117,7 @@ def test_evaluator_returns_only_primary_accuracy_and_diagnostic_counts() -> None
     result = evaluator.evaluate(trace)
 
     assert result.metric_name == "parameter_value_accuracy_rate"
-    assert result.evaluator_version == "1.3.0"
+    assert result.evaluator_version == "1.4.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(2 / 4)
     assert result.metadata["correct_field_count"] == 2

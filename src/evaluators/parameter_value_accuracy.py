@@ -16,6 +16,7 @@ _ALLOWED_REASON_CODES_BY_VERDICT = {
             "direct_match",
             "logically_derived",
             "normalized_equivalent",
+            "query_consistent",
         }
     ),
     "incorrect": frozenset(
@@ -27,6 +28,7 @@ _ALLOWED_REASON_CODES_BY_VERDICT = {
             "wrong_time_range",
             "wrong_unit",
             "wrong_value",
+            "query_inconsistent",
         }
     ),
     "not_assessable": frozenset(
@@ -34,6 +36,7 @@ _ALLOWED_REASON_CODES_BY_VERDICT = {
             "operational_default",
             "query_underspecified",
             "requires_external_context",
+            "insufficient_query_evidence",
         }
     ),
 }
@@ -87,7 +90,7 @@ class ParameterValueAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.3.0"
+        return "1.4.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -267,7 +270,13 @@ def _parse_judge_response(
 
 
 def _argument_field_paths(arguments: Mapping[str, object]) -> frozenset[str]:
-    paths: set[str] = set()
+    return frozenset(parameter_argument_field_values(arguments))
+
+
+def parameter_argument_field_values(arguments: Mapping[str, object]) -> dict[str, object]:
+    """按统一口径展开对象叶子并保留数组整体，供 evaluator 与 Judge 适配器复用。"""
+
+    fields: dict[str, object] = {}
 
     def visit(value: object, prefix: str) -> None:
         if isinstance(value, Mapping) and value:
@@ -275,11 +284,11 @@ def _argument_field_paths(arguments: Mapping[str, object]) -> frozenset[str]:
                 child = f"{prefix}.{key}" if prefix else str(key)
                 visit(item, child)
             return
-        paths.add(prefix)
+        fields[prefix] = value
 
     for name, value in arguments.items():
         visit(value, str(name))
-    return frozenset(paths)
+    return fields
 
 
 def _parse_trace(
