@@ -102,6 +102,7 @@ def test_chat_extracts_canvas_query_agent_evidence_capabilities_and_answer() -> 
     assert normalized["diagnostics"] == {
         "malformed_event_count": 0,
         "out_of_scope_tool_call_count": 1,
+        "unknown_mcp_tool_call_count": 0,
         "duplicate_call_definition_count": 1,
         "duplicate_evidence_count": 1,
     }
@@ -123,6 +124,27 @@ def test_chat_agent_name_without_tool_id_wins_over_tool_name() -> None:
         "subtask_query", "分析盈利能力"
     )
     assert normalized["normalization_error"] is None
+
+
+def test_chat_declared_mcp_missing_from_manual_is_kept_as_behavior_evidence() -> None:
+    trace = _canvas_trace(
+        [_ordinary_call("call-1", "annual_report_extract")], answer="完成年报提取"
+    )
+    canvas = trace["canvas"]
+    assert isinstance(canvas, dict)
+    meta = canvas["meta"]
+    assert isinstance(meta, dict)
+    meta["tools"] = ["annual_report_extract"]
+
+    normalized = normalize_chat_intent_recognition(trace, _catalog())
+
+    candidate = normalized["candidate"]
+    assert candidate is not None
+    assert tuple(item.capability_id for item in candidate.capabilities) == (
+        "annual_report_extract",
+    )
+    assert normalized["diagnostics"]["unknown_mcp_tool_call_count"] == 1
+    assert normalized["diagnostics"]["out_of_scope_tool_call_count"] == 0
 
 
 def test_chat_invalid_subtask_is_diagnostic_when_other_evidence_exists() -> None:
@@ -263,6 +285,39 @@ def test_research_extracts_planning_evidence_and_deduplicated_capabilities() -> 
     assert tuple(item.capability_id for item in candidate.capabilities) == ("quote",)
     assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
     assert normalized["diagnostics"]["duplicate_evidence_count"] == 1
+
+
+def test_research_extracts_last_assistant_answer_and_declared_unknown_mcp() -> None:
+    events: list[object] = [
+        {
+            "type": "agent.mcp",
+            "mcp": [{"name": "research-tools", "tools": ["research-tools___filing"]}],
+        },
+        {"query": "提取公告"},
+        {"type": "message.updated", "info": {"id": "a1", "role": "assistant"}},
+        {
+            "type": "message.part.updated",
+            "part": {"type": "text", "messageID": "a1", "text": "第一版回答"},
+        },
+        {"result": {"toolCalls": [{"toolCallId": "call-1", "toolName": "filing"}]}},
+        {
+            "type": "message.part.updated",
+            "part": {"type": "text", "messageID": "a1", "text": "最终回答"},
+        },
+        {"type": "turn.end"},
+        {
+            "type": "message.part.updated",
+            "part": {"type": "text", "messageID": "a1", "text": "结束后文本"},
+        },
+    ]
+
+    normalized = normalize_research_intent_recognition(events, _catalog())
+
+    candidate = normalized["candidate"]
+    assert candidate is not None
+    assert IntentEvidenceFragment("final_answer", "最终回答") in candidate.evidence_fragments
+    assert tuple(item.capability_id for item in candidate.capabilities) == ("filing",)
+    assert normalized["diagnostics"]["unknown_mcp_tool_call_count"] == 1
 
 
 def test_research_missing_call_id_and_conflict_are_not_computable() -> None:

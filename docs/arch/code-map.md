@@ -39,9 +39,9 @@
   计算高置信度冗余聚合计数；旧版聊天结构不再支持，研究模式在结构化子任务契约确认前
   显式返回不可计算，任务正文和中间指纹不进入结果。
 - `src/collectors/intent_recognition.py`：从新版聊天 canvas 跨 Agent/message 提取 query、
-  子 Agent 任务、最终回答和按调用 ID 去重的 MCP 能力，研究模式继续提取规划与调用证据；
-  规则负责证据去重、前置失败、缺失字段和冲突诊断，旧版聊天结构不再支持，正文不进入
-  持久化结果。
+  子 Agent 任务、最终回答和按调用 ID 去重的 MCP 能力；研究模式额外选择 `turn.end` 前最后
+  assistant 文本。日志显式声明但手册缺失的 MCP 仍作为行为证据，规则负责证据去重、前置
+  失败、缺失字段和冲突诊断，旧版聊天结构不再支持，正文不进入持久化结果。
 - `src/collectors/time_range_accuracy.py`：复用参数语义目录，聊天模式从新版 canvas 提取
   query、去重工具参数、最终回答和 `meta.create_time` 锚点，研究模式读取事件流；时间正文与
   参数值仅保留在内存 Judge 候选中。
@@ -105,11 +105,12 @@
 - `src/evaluators/openai_compatible_routing_judge.py`：把整体意图、全部子任务、MCP Schema
   和历史安全映射提交给 OpenAI-compatible Judge；动态 Schema 约束安全 snake_case 标签和
   目录内能力 ID，Judge 只返回子任务路由，程序派生顶层能力并集，并支持安全校验反馈重试。
-- `src/evaluators/intent_recognition.py`：定义意图对齐 Judge 契约，严格校验三态 verdict、
-  reason code 和 confidence，并把可判定会话转换为二元 `intent_recognition_accuracy`；
-  新版 canvas 适配版本为 `1.2.0`。
+- `src/evaluators/intent_recognition.py`：严格校验固定八字段 Judge 契约，按 45% 意图覆盖、
+  20% 规划、15% MCP 合理性和 20% 最终回答的代码权重计算连续得分；主意图错误或意图冲突
+  硬归零，业务输出非法时安全重试一次；新版 canvas 适配版本为 `1.3.0`。
 - `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
-  OpenAI-compatible Judge；使用共享严格结构化运行时并隔离供应商响应和密钥。
+  OpenAI-compatible Judge；固定枚举 Schema 与 three-shot 示例约束分项标签，使用共享严格
+  结构化运行时并隔离供应商响应和密钥。
 - `src/evaluators/time_range_accuracy.py`：严格校验时间字段聚合计数、三态可计算边界和安全
   reason code，接受 `provided/canvas_meta/event/missing` 时间锚点来源并计算
   `time_range_extraction_accuracy`；新版 canvas 适配版本为 `1.2.0`。
@@ -156,8 +157,8 @@
   高相似冗余、约束差异、JSON 参数、非法事件、旧结构拒绝、敏感正文隔离及研究模式
   不可计算测试。
 - `tests/collectors/test_intent_recognition.py`：新版 canvas 的 query、子 Agent、最终回答与
-  MCP 能力提取，JSON 参数、证据与调用去重、前置失败、非法结构、旧结构拒绝，以及研究
-  模式回归测试。
+  MCP 能力提取，声明型手册外 MCP、JSON 参数、证据与调用去重、前置失败、非法结构、旧结构
+  拒绝，以及研究最终回答选择测试。
 - `tests/collectors/test_time_range_accuracy.py`：新版 canvas/研究时间候选、锚点优先级、调用
   去重、缺失调用字段、非法结构、旧结构拒绝、无调用零分入口、前置失败和不完整参数观察测试。
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、新版 canvas 跨 Agent/message
@@ -188,10 +189,10 @@
   聚合计数测试。
 - `tests/evaluators/test_openai_compatible_routing_judge.py`：整体/子任务意图、动态 MCP Schema、
   snake_case 约束、安全校验反馈与历史映射的结构化请求测试。
-- `tests/evaluators/test_intent_recognition.py`：二元会话得分、不可判定、Judge 失败、严格
-  输出白名单、规范化错误和敏感正文隔离测试。
+- `tests/evaluators/test_intent_recognition.py`：固定权重汇总、缺失分项重归一化、硬规则归零、
+  不可判定、Judge 失败、业务校验重试、严格输出白名单和敏感正文隔离测试。
 - `tests/evaluators/test_openai_compatible_intent_judge.py`：意图证据请求结构、确定性采样、
-  JSON 响应解析和供应商异常脱敏测试。
+  固定 JSON Schema、few-shot、校验反馈、响应解析和供应商异常脱敏测试。
 - `tests/evaluators/test_time_range_accuracy.py`：字段准确率、正常零分、不可计算边界、严格
   Judge 输出校验和敏感异常隔离测试。
 - `tests/evaluators/test_openai_compatible_time_range_judge.py`：时间需求、锚点、Schema 语义与

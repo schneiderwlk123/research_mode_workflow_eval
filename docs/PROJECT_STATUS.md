@@ -13,7 +13,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十七个指标行为测试，共 451 项；最近一次验证全部通过。
+- 公共契约及十七个指标行为测试，共 459 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 17 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -52,9 +52,10 @@ Schema 合法率、
 - 聊天子任务的确定性 NFKC、约束词元和字符 bigram 冗余规则；不调用 LLM，任务正文和
   中间指纹不进入结果；新版 canvas 跨 Agent/message 扫描取代旧聊天队列解析，
   `subtask_redundancy_rate` 版本为 `1.1.0`。
-- 聊天与研究模式的意图证据规范化、严格三态 Judge 契约和 OpenAI-compatible 适配器；
-  新版 canvas 按调用 ID 去重并提取子 Agent、MCP 能力和最终回答证据，旧聊天解析已删除；
-  `intent_recognition_accuracy` 版本为 `1.2.0`，原始 query、规划、回答和 Judge 响应不落盘。
+- 聊天与研究模式的意图证据规范化、固定分项 Judge 契约和 OpenAI-compatible 适配器；
+  程序按 45% 意图覆盖、20% 规划、15% MCP 合理性、20% 最终回答加权，主意图错误或冲突
+  硬归零；研究模式补取最终回答，声明型手册外 MCP 作为行为证据，业务输出非法时安全重试
+  一次；`intent_recognition_accuracy` 版本为 `1.3.0`，原始正文和 Judge 响应不落盘。
 - 聊天与研究模式的时间需求、工具参数和可复现时间锚点规范化，严格字段计数 Judge 契约
   及 OpenAI-compatible 适配器；新版 canvas 的 `canvas_meta` 锚点已贯通 collector 与
   evaluator，`time_range_extraction_accuracy` 版本为 `1.2.0`，
@@ -115,9 +116,9 @@ Schema 合法率、
 - Golden Benchmark 校准集和交付物读取能力尚未接入。
 - 路由标准目前由 LLM + MCP Schema 生成，尚未经过人工校准集冻结；因此属于可追溯的
   Judge 代理标准，而非人工 Golden Benchmark。
-- 严格 JSON Schema 只能约束输出形状；verdict 与 reason code 的业务关系仍由 evaluator
-  二次校验。回退到 `json_object` 的供应商更可能产生 `invalid_judge_output`，当前尚未实现
-  携带校验反馈的业务 Schema 修复重试。
+- 严格 JSON Schema 只能约束输出形状；各指标仍需由 evaluator 二次校验字段间业务关系。
+  意图识别与路由指标已实现携带安全校验反馈的一次业务修复重试，其他 Judge 指标回退到
+  `json_object` 时仍可能直接产生 `invalid_judge_output`。
 - 工具结果仅部分提供执行耗时；不同层的 Token 快照仍不能跨层直接求和，当前指标已固定聊天
   Agent message 与研究 step-finish 两个权威来源。
 - 当前没有经服务方确认的生产工具 SLA 目录，因此聊天与研究真实日志的超时率暂时返回
@@ -203,14 +204,17 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 子任务冗余率聊天日志验算: 336 条中 253 条可计算，严格分母为 1194 个有效子任务；规则命中
   3 个冗余，微平均约 0.00251；81 条无子任务，2 条因无文本多模态子任务不可计算
 子任务冗余率研究日志: 当前缺少确认的结构化子任务契约，返回 missing_structured_subtasks
-意图识别准确率定向测试: 32 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
-  evaluator 版本 `1.2.0`
+意图识别准确率定向测试: 41 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
+  evaluator 版本 `1.3.0`，Judge prompt `1.2.0`
 意图识别准确率聊天模式: 缺少 query 返回 missing_query；无行为证据返回 no_intent_evidence；
   固定前置服务失败返回 pre_intent_failure
-意图识别准确率研究模式: 缺少 query 返回 missing_query；缺少调用 ID 返回 missing_call_id；
-  同 ID 不同工具返回 conflicting_call_definition
-意图识别准确率真实单调用冒烟: 聊天模式 3 段行为证据、1 个 MCP 能力，Judge 返回
-  correct / material_intents_aligned / confidence 0.95，最终结果 1.0, computed
+意图识别准确率研究模式: 提取 `turn.end` 前最后 assistant 文本；缺少 query 返回
+  missing_query，缺少调用 ID 返回 missing_call_id，同 ID 不同工具返回
+  conflicting_call_definition
+意图识别准确率评分: 固定八字段 Schema；程序加权并处理 `not_present` 重归一化；主意图错误
+  或意图冲突硬归零；首次业务输出非法时携带安全原因码重试一次
+意图识别准确率指定批次实跑: 前 30 条聊天中 28 条可计算且均为 1.0，2 条
+  pre_intent_failure；研究日志 1 条可计算且为 1.0；业务校验重试与 invalid_judge_output 均为 0
 时间范围提取准确率定向测试: 35 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
   evaluator 版本 `1.2.0`
 时间范围提取准确率聊天模式: 支持显式 reference_time 和 `canvas.meta.create_time`；正常执行

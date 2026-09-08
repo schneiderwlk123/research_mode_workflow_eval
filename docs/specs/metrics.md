@@ -693,23 +693,36 @@ T3 的时间约束不同，不属于冗余。
 稳定指标名：`intent_recognition_accuracy`
 
 ```text
-意图识别准确率 =
-  Judge 判为 correct 的可判定会话数 ÷
-  （Judge 判为 correct 的会话数 + Judge 判为 incorrect 的会话数）
+单会话意图识别得分 =
+  Σ（可用分项权重 × 分项得分）÷ Σ（可用分项权重）
+
+跨会话意图识别准确率 = 可计算会话得分的算术平均值
 ```
 
-- 单会话 `correct` 记为 `1.0`，`incorrect` 记为 `0.0`；跨会话聚合即为上述公式。
+- 固定分项权重为：实质意图覆盖 `0.45`、子任务/规划对齐 `0.20`、MCP 工具合理性
+  `0.15`、最终回答对齐 `0.20`。LLM 只返回固定枚举，权重映射、硬规则和汇总全部由代码完成。
+- 实质意图覆盖：`complete=1`、`partial=0.5`、`missing=0`、`contradicted=0`。
+  子任务/规划与最终回答：`aligned=1`、`partially_aligned=0.5`、`misaligned=0`。
+  MCP：`reasonable=1`、`partially_reasonable=0.5`、`unreasonable=0`。
+- `not_present` 只允许用于规划、MCP 和最终回答，表示该行为类型在日志中不存在；相应权重从
+  分母剔除后重新归一化，避免无需 MCP 或允许直接回答的任务被机械扣分。实质意图覆盖始终
+  参与评分。
+- `primary_intent=misaligned` 或 `intent_coverage=contradicted` 时应用硬规则，单会话直接记
+  `0.0`，防止其他局部正确行为掩盖主意图错误。
 - 本指标是可追溯的 Judge 代理标准，用来判断用户 query 与代理实际行为证据的实质意图
-  是否对齐，不虚构结构化意图预测字段，也不等同于人工 Golden Benchmark。
+  是否对齐，不等同于人工 Golden Benchmark。
 - 确定性规则负责字段存在性、证据去重、调用 ID 去重与冲突、前置失败和 Judge 输出校验；
-  只有语义对齐判断调用 Judge。
-- Judge 输出必须且只能包含 `verdict`、`reason_code`、`confidence`。`confidence` 必须是
-  `[0, 1]` 内的有限数值，且 verdict 与 reason code 必须匹配固定白名单。
-- `not_assessable` 返回 `NOT_COMPUTABLE / insufficient_intent_evidence`，不进入准确率分母。
-- Judge 调用异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码；非共享 Judge 的未知异常
-  仍返回 `judge_failure`。结构化输出非法返回
-  `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge 名称、模型版本和 prompt
+  只有分项语义标签调用 Judge。MCP 分项只判断工具选择是否合理，不检查参数正确性、调用
+  成功、响应内容或手册 Schema 完整性。
+- Judge 输出为固定八字段对象：`assessment`、`primary_intent`、`intent_coverage`、
+  `planning_alignment`、`mcp_tool_rationality`、`final_answer_alignment`、`reason_code`、
+  `confidence`。严格 JSON Schema 禁止额外字段，evaluator 再校验枚举、有限数值和字段间业务
+  一致性；规划、MCP、最终回答是否存在由代码从规范化证据中确定，Judge 不得改变评分分母。
+- 第一次业务校验失败时，程序只携带安全码 `invalid_intent_judgment_contract` 重试一次，不回显
+  非法输出或原始日志；重试仍失败才返回 `NOT_COMPUTABLE / invalid_judge_output`。
+- `assessment=not_assessable` 返回 `NOT_COMPUTABLE / insufficient_intent_evidence`，不进入
+  聚合分母。Judge 调用异常返回统一运行时的稳定原因码，未知异常仍返回 `judge_failure`。
+- evaluator 版本为 `1.3.0`，Judge prompt 版本为 `1.2.0`；Judge 名称、模型版本和 prompt
   版本进入安全元数据。
 
 ### 分模式可计算性与字段映射
@@ -726,9 +739,10 @@ T3 的时间约束不同，不属于冗余。
 - 普通工具请求必须同时具有 `toolId + toolName`，按 `traceId + toolId` 去重；同 ID 同工具名
   合并并增加重复诊断，同 ID 不同工具名返回 `conflicting_call_definition`。缺少调用 ID 或
   工具名分别返回 `missing_call_id`、`missing_tool_name`。
-- 代理证据还包括已解析到 MCP 目录的能力和 `canvas.answer.answer`；本指标不读取工具参数或
-  `tool_result` 正文。手册外框架工具只进入范围外诊断。
-- 完全相同的证据正文仅保留第一次出现的位置和类型；未知框架工具只进入范围外诊断。
+- 代理证据还包括 MCP 能力和 `canvas.answer.answer`；本指标不读取工具参数或 `tool_result`
+  正文。`canvas.meta.tools` 明确声明但手册缺失的 MCP 仍作为工具行为证据，使用安全通用描述；
+  未被日志声明为 MCP 的框架工具只进入范围外诊断。
+- 完全相同的证据正文仅保留第一次出现的位置和类型。
 - 只有 query、没有任何子任务、MCP 能力或最终回答证据时返回 `no_intent_evidence`。
 - 当没有其他代理证据且回答为固定模型服务失败文本时返回 `pre_intent_failure`。
 - Canvas 各层容器类型非法时返回 `invalid_chat_trace_structure`；旧版 `tool_call_queue` 不再
@@ -737,38 +751,42 @@ T3 的时间约束不同，不属于冗余。
 研究模式：`CONDITIONALLY_COMPUTABLE`。
 
 - 必需用户意图：首个顶层 `query`，兼容 `body.query`；缺失时返回 `missing_query`。
-- 代理证据：`body.task`、`body.description`，以及
-  `result.toolCalls[].toolCallId/toolName` 解析得到的 MCP 能力。
+- 代理证据：`body.task`、`body.description`、`turn.end` 前最后一个可确认属于 assistant 的文本，
+  以及 `result.toolCalls[].toolCallId/toolName` 解析得到的 MCP 能力。
 - 调用按 `toolCallId` 去重；同 ID 同工具只增加重复诊断，同 ID 不同工具返回
   `conflicting_call_definition`，调用缺少 ID 返回 `missing_call_id`。
-- 只有 query、没有任何规划文本或 MCP 能力时返回 `no_intent_evidence`。
+- `agent.mcp[].mcp[].tools` 明确声明但手册缺失的 MCP 仍作为工具合理性证据；可验证的服务
+  前缀短名称与完整名称同时识别，其他未知工具仍排除。
+- 只有 query、没有任何规划文本、MCP 能力或最终回答时返回 `no_intent_evidence`。
 
 两种模式的 query、子任务、规划、回答、调用参数和 Judge 原始响应都只存在于内存请求中，
-不得进入评测结果或持久化介质。结果只保留模式、版本、证据与能力数量、诊断计数、Judge
-安全 reason code 和 confidence。
+不得进入评测结果或持久化介质。结果只保留模式、版本、证据与能力数量、诊断计数、固定分项
+数值、有效权重、硬规则是否触发、Judge 安全 reason code 和 confidence。
 
-新版聊天日志重算状态：312/336 条 Trace 可构造意图 Judge 候选，24 条为明确前置失败；候选
-包含 1,505 个去重行为证据片段和按 Trace 去重后合计 950 个实际 MCP 能力；另记录 2 个
-无文本子 Agent 诊断、2 个重复证据和 1,355 次手册外工具调用。未运行 Judge，因此本次不
-产生 `intent_recognition_accuracy` 数值。
+新版聊天日志历史重算状态：312/336 条 Trace 可构造意图 Judge 候选，24 条为明确前置失败。
+指定前 30 条聊天日志按 `1.3.0` 契约实跑：28 条可计算且均为 `1.0`，2 条为
+`pre_intent_failure`；研究日志 1 条可计算且为 `1.0`。31 条均未出现业务校验重试或
+`invalid_judge_output`。该结果只代表指定样本，不作为人工 Golden Benchmark。
 
 ### Judge 判定口径
 
-- `correct`：`material_intents_aligned`、`normalized_equivalent`。
-- `incorrect`：`wrong_primary_intent`、`material_intent_omitted`、
-  `unrelated_agent_behavior`。
-- `not_assessable`：`insufficient_agent_evidence`、`ambiguous_user_intent`。
+- 可评估 reason code：`all_material_intents_covered`、
+  `material_intent_partially_covered`、`material_intent_omitted`、
+  `wrong_primary_intent`、`contradicted_user_intent`、`unrelated_agent_behavior`。
+- 不可评估 reason code：`insufficient_agent_evidence`、`ambiguous_user_intent`。
+- Prompt 内提供完整覆盖、部分覆盖和相反意图三个 few-shot；示例只演示固定标签，不要求
+  Judge 计算权重或总分。
 
 ### 模拟计算
 
 ```text
-会话 A：用户要求查询行情，代理子任务和 MCP 能力均为行情查询 → correct → 1.0
-会话 B：用户要求行情和新闻，代理证据只覆盖行情 → incorrect → 0.0
-会话 C：用户意图含糊，现有行为证据无法稳定判定 → not_assessable → 不进入分母
-
-correct = 1
-incorrect = 1
-意图识别准确率 = 1 ÷ (1 + 1) = 0.5
+会话 A：四项均为满分 → (0.45 + 0.20 + 0.15 + 0.20) ÷ 1.0 = 1.0
+会话 B：意图部分覆盖 0.5、规划对齐 1、MCP 部分合理 0.5、回答偏离 0
+       → (0.45×0.5 + 0.20×1 + 0.15×0.5 + 0.20×0) ÷ 1.0 = 0.5
+会话 C：无规划、无 MCP，意图完整且回答对齐
+       → (0.45×1 + 0.20×1) ÷ (0.45+0.20) = 1.0
+会话 D：主意图错误，即使部分工具合理 → 硬规则覆盖汇总结果 → 0.0
+会话 E：用户意图含糊 → not_assessable → 不进入聚合分母
 ```
 
 ## 10. 时间范围提取准确率

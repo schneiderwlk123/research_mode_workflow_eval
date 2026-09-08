@@ -30,6 +30,7 @@ class IntentRecognitionDiagnostics(TypedDict):
 
     malformed_event_count: int
     out_of_scope_tool_call_count: int
+    unknown_mcp_tool_call_count: int
     duplicate_call_definition_count: int
     duplicate_evidence_count: int
 
@@ -66,8 +67,11 @@ def normalize_chat_intent_recognition(
     seen_evidence: set[str] = set()
     calls: dict[str, str] = {}
     capabilities: set[str] = set()
+    unknown_capabilities: set[str] = set()
+    declared_mcp_tools = _declared_chat_mcp_tools(meta.get("tools"))
     malformed_count = 0
     out_of_scope_count = 0
+    unknown_mcp_count = 0
     duplicate_call_count = 0
     duplicate_evidence_count = 0
     normalization_error: str | None = None
@@ -154,7 +158,11 @@ def normalize_chat_intent_recognition(
                 calls[call_id] = tool_name
                 capability_id = catalog.resolve(tool_name)
                 if capability_id is None:
-                    out_of_scope_count += 1
+                    if tool_name in declared_mcp_tools:
+                        unknown_capabilities.add(tool_name)
+                        unknown_mcp_count += 1
+                    else:
+                        out_of_scope_count += 1
                 else:
                     capabilities.add(capability_id)
 
@@ -177,9 +185,11 @@ def normalize_chat_intent_recognition(
         query=query,
         fragments=fragments,
         capability_ids=capabilities,
+        unknown_capability_ids=unknown_capabilities,
         catalog=catalog,
         malformed_count=malformed_count,
         out_of_scope_count=out_of_scope_count,
+        unknown_mcp_count=unknown_mcp_count,
         duplicate_call_count=duplicate_call_count,
         duplicate_evidence_count=duplicate_evidence_count,
         normalization_error=normalization_error,
@@ -199,9 +209,11 @@ def _empty_chat_result(
         query=query,
         fragments=[],
         capability_ids=set(),
+        unknown_capability_ids=set(),
         catalog=catalog,
         malformed_count=1,
         out_of_scope_count=0,
+        unknown_mcp_count=0,
         duplicate_call_count=0,
         duplicate_evidence_count=0,
         normalization_error=error,
@@ -220,8 +232,11 @@ def normalize_research_intent_recognition(
     seen_evidence: set[str] = set()
     calls: dict[str, str] = {}
     capabilities: set[str] = set()
+    unknown_capabilities: set[str] = set()
+    declared_mcp_tools = _declared_research_mcp_tools(events)
     malformed_count = 0
     out_of_scope_count = 0
+    unknown_mcp_count = 0
     duplicate_call_count = 0
     duplicate_evidence_count = 0
     normalization_error: str | None = None
@@ -279,9 +294,18 @@ def normalize_research_intent_recognition(
             calls[call_id] = tool_name
             capability_id = catalog.resolve(tool_name)
             if capability_id is None:
-                out_of_scope_count += 1
+                if tool_name in declared_mcp_tools:
+                    unknown_capabilities.add(tool_name)
+                    unknown_mcp_count += 1
+                else:
+                    out_of_scope_count += 1
             else:
                 capabilities.add(capability_id)
+
+    final_answer = _research_final_answer(events)
+    duplicate_evidence_count += _append_evidence(
+        fragments, seen_evidence, "final_answer", final_answer
+    )
 
     if query is None:
         normalization_error = normalization_error or "missing_query"
@@ -298,9 +322,11 @@ def normalize_research_intent_recognition(
         query=query,
         fragments=fragments,
         capability_ids=capabilities,
+        unknown_capability_ids=unknown_capabilities,
         catalog=catalog,
         malformed_count=malformed_count,
         out_of_scope_count=out_of_scope_count,
+        unknown_mcp_count=unknown_mcp_count,
         duplicate_call_count=duplicate_call_count,
         duplicate_evidence_count=duplicate_evidence_count,
         normalization_error=normalization_error,
@@ -314,16 +340,27 @@ def _build_result(
     query: str | None,
     fragments: list[IntentEvidenceFragment],
     capability_ids: set[str],
+    unknown_capability_ids: set[str],
     catalog: CapabilityCatalog,
     malformed_count: int,
     out_of_scope_count: int,
+    unknown_mcp_count: int,
     duplicate_call_count: int,
     duplicate_evidence_count: int,
     normalization_error: str | None,
 ) -> NormalizedIntentRecognitionTrace:
-    capability_definitions = tuple(
+    known_capability_definitions = tuple(
         catalog.capabilities[capability_id] for capability_id in sorted(capability_ids)
     )
+    unknown_capability_definitions = tuple(
+        CapabilityDefinition(
+            capability_id,
+            "日志明确声明的 MCP 工具；当前手册缺少参数 Schema。",
+            (),
+        )
+        for capability_id in sorted(unknown_capability_ids)
+    )
+    capability_definitions = known_capability_definitions + unknown_capability_definitions
     candidate = (
         IntentRecognitionCandidate(query, tuple(fragments), capability_definitions)
         if query is not None and normalization_error is None
@@ -339,6 +376,7 @@ def _build_result(
         "diagnostics": {
             "malformed_event_count": malformed_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
+            "unknown_mcp_tool_call_count": unknown_mcp_count,
             "duplicate_call_definition_count": duplicate_call_count,
             "duplicate_evidence_count": duplicate_evidence_count,
         },
@@ -374,6 +412,71 @@ def _parse_arguments(value: object) -> Mapping[str, object] | None:
 def _chat_answer(canvas: Mapping[object, object]) -> object:
     answer = canvas.get("answer")
     return answer.get("answer") if isinstance(answer, Mapping) else None
+
+
+def _declared_chat_mcp_tools(raw_tools: object) -> frozenset[str]:
+    """只接受日志显式声明，避免用名称形态猜测 MCP。"""
+
+    if not _is_sequence(raw_tools):
+        return frozenset()
+    return frozenset(tool for item in raw_tools if (tool := _text(item)) is not None)
+
+
+def _declared_research_mcp_tools(events: Sequence[object]) -> frozenset[str]:
+    """提取 agent.mcp 声明的全名及可验证短名。"""
+
+    tools: set[str] = set()
+    for event in events:
+        if not isinstance(event, Mapping) or event.get("type") != "agent.mcp":
+            continue
+        raw_servers = event.get("mcp")
+        if not _is_sequence(raw_servers):
+            continue
+        for raw_server in raw_servers:
+            if not isinstance(raw_server, Mapping):
+                continue
+            server_name = _text(raw_server.get("name"))
+            raw_tools = raw_server.get("tools")
+            if not _is_sequence(raw_tools):
+                continue
+            for raw_tool in raw_tools:
+                tool_name = _text(raw_tool)
+                if tool_name is None:
+                    continue
+                tools.add(tool_name)
+                if "___" in tool_name:
+                    tools.add(tool_name.rsplit("___", 1)[-1])
+                if server_name is not None and tool_name.startswith(f"{server_name}_"):
+                    tools.add(tool_name[len(server_name) + 1 :])
+    return frozenset(tools)
+
+
+def _research_final_answer(events: Sequence[object]) -> str | None:
+    """选择 turn.end 前最后一个可确认属于 assistant 的文本。"""
+
+    assistant_ids: set[str] = set()
+    answer: str | None = None
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        if event.get("type") == "turn.end":
+            break
+        if event.get("type") == "message.updated":
+            info = event.get("info")
+            if isinstance(info, Mapping) and info.get("role") == "assistant":
+                message_id = _text(info.get("id"))
+                if message_id is not None:
+                    assistant_ids.add(message_id)
+            continue
+        if event.get("type") != "message.part.updated":
+            continue
+        part = event.get("part")
+        if not isinstance(part, Mapping) or part.get("type") != "text":
+            continue
+        if _text(part.get("messageID")) not in assistant_ids:
+            continue
+        answer = _text(part.get("text")) or answer
+    return answer
 
 
 def _text(value: object) -> str | None:
