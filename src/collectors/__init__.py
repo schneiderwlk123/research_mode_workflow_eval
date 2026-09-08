@@ -89,6 +89,12 @@ from collectors.time_range_accuracy import (
     normalize_chat_time_range,
     normalize_research_time_range,
 )
+from collectors.token_consumption import (
+    NormalizedTokenConsumptionTrace,
+    TokenConsumptionDiagnostics,
+    normalize_chat_token_consumption,
+    normalize_research_token_consumption,
+)
 from collectors.tool_argument_schema import (
     NormalizedToolArgumentSchemaTrace,
     ParameterSchema,
@@ -147,6 +153,7 @@ __all__ = [
     "NormalizedSubtaskRedundancyTrace",
     "NormalizedStatementSupportTrace",
     "NormalizedTimeRangeTrace",
+    "NormalizedTokenConsumptionTrace",
     "ParameterValueCandidate",
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
@@ -158,6 +165,7 @@ __all__ = [
     "StatementSupportCandidate",
     "TimeRangeCandidate",
     "TimeRangeDiagnostics",
+    "TokenConsumptionDiagnostics",
     "ParameterSchema",
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
@@ -182,6 +190,7 @@ __all__ = [
     "normalize_chat_subtask_redundancy",
     "normalize_chat_statement_support",
     "normalize_chat_time_range",
+    "normalize_chat_token_consumption",
     "normalize_chat_tool_call_events",
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
@@ -197,6 +206,7 @@ __all__ = [
     "normalize_research_subtask_redundancy",
     "normalize_research_statement_support",
     "normalize_research_time_range",
+    "normalize_research_token_consumption",
     "normalize_research_tool_call_events",
     "normalize_research_tool_argument_schema",
     "normalize_research_tool_timeout_rate",

@@ -1299,3 +1299,59 @@ latency_missing_count = 1
 total_step_duration_ms = 3250
 average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
 ```
+
+## 17. Token 消耗
+
+### 指标定义
+
+本指标衡量单条 Trace 中全部已确认模型步骤的 Token 消耗，稳定指标名为
+`total_token_consumption`，单位为 token。
+
+```text
+聊天模式 Token 消耗 =
+  Σ 唯一模型步骤的 (input_tokens + output_tokens)
+
+研究模式 Token 消耗 =
+  Σ 唯一 step-finish 的 tokens.total
+```
+
+本指标不是费用指标，不应用缓存折扣或模型价格系数。按确认口径不单独输出 cache Token，也不
+从 cache 字段派生辅助指标。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 模型步骤来源：`canvas.agents[].messages[]`。具有 `durationSeconds` 或 `usageTokens` 的消息
+  视为模型步骤；仅含 `tool_result` 的消息是工具结果投影，不进入 Token 覆盖分母。
+- 单步骤值：`content.usageTokens.input_tokens + output_tokens`。
+- `cache_tokens` 不读取、不额外加入总量；其与 `input_tokens` 的包含关系不影响本指标。
+- `canvas.answer.usageTokens` 是某条 Agent message 的重复快照，不进入计算。
+- orchestrator 和 worker 均代表独立模型步骤，其 Token 可以相加。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 权威来源：`message.part.updated.part.type == step-finish` 的 `part.tokens.total`。
+- 使用 `part.messageID` 标识唯一模型步骤；相同重复快照去重并记录
+  `duplicate_token_snapshot_count`，不同快照返回 `ERROR / conflicting_token_snapshot`。
+- `message.updated.info.tokens` 与 step-finish 是重复快照，不参与计算。
+- 每个 loop 的两个 `llm.response.result.usage` 是重复协议投影，不参与计算。
+- `tokens.input/output/reasoning/cache` 不单独解析，直接使用上游 `total`。
+
+Token 消耗必须覆盖全部已识别模型步骤。全部步骤缺少 Token 时返回
+`NOT_COMPUTABLE / no_observable_token_usage`；部分步骤缺失时返回
+`NOT_COMPUTABLE / incomplete_token_coverage`，不得输出部分总量。非负整数校验失败、缺少研究
+步骤 ID 分别返回 `ERROR / invalid_token_count`、`ERROR / missing_step_id`。规范化结果只保留
+逐步骤总数、覆盖计数和重复计数，不保留消息、推理或工具正文。evaluator 版本为 `1.0.0`。
+
+### 模拟计算
+
+```text
+聊天步骤 A：input=100，output=20，cache 字段忽略 -> 120
+聊天步骤 B：input=40，output=10                  -> 50
+单条 Trace Token 消耗 = 120 + 50 = 170
+
+研究步骤 A：tokens.total=100
+研究步骤 B：tokens.total=250
+单条 Trace Token 消耗 = 100 + 250 = 350
+```

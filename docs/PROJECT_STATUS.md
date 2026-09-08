@@ -13,7 +13,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 422 项；最近一次验证全部通过。
+- 公共契约及十七个指标行为测试，共 443 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 18 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -75,8 +75,10 @@ Schema 合法率、
   使用 canvas 请求/回答创建时间差，研究模式优先使用 `turn.end.durationMs` 并交叉校验时间戳。
 - 双模式平均模型步骤时延规范化及 `average_model_step_latency_ms` 评估器，版本 `1.0.0`；聊天
   模式读取 Agent message 自身耗时，研究模式按 message ID 配对步骤边界并诊断事件时间戳差异。
-- 集中式指标规格 `docs/specs/metrics.md`，当前记录十六个已实现指标。
-- 已按新版聊天 JSON 数组结构重算十六个指标的字段映射、确定性基线和条件可计算范围；
+- 双模式 Token 消耗规范化及 `total_token_consumption` 评估器，版本 `1.0.0`；聊天模式累加
+  Agent 模型步骤 input/output，研究模式按 message ID 去重 step-finish total，不处理 cache 分项。
+- 集中式指标规格 `docs/specs/metrics.md`，当前记录十七个已实现指标。
+- 已按新版聊天 JSON 数组结构重算十七个指标的字段映射、确定性基线和条件可计算范围；
   明确区分普通工具请求、子 Agent 调用与结果侧 Agent 返回，未把 Judge 候选覆盖率当成语义得分。
 
 ## 当前状态
@@ -92,9 +94,9 @@ Schema 合法率、
 - 已取消指标：每个成功会话的平均成本、模型工具循环深度；已从开发顺序和原始指标范围删除。
   模型工具循环深度的取消原因为聊天模式缺少模型步骤和轮次边界，无法可靠计算。
 - 最近完成并验收的新版聊天适配指标：陈述支持率。
-- 进行中的具体指标：平均模型步骤时延已按确认口径完成双模式实现和验证，等待指标验收。
-- 下一项指标：研究模式 Token 消耗。
-- 下一动作：验收平均模型步骤时延的双模式计算结果，再确认研究模式 Token 消耗方案。
+- 进行中的具体指标：Token 消耗已按确认口径完成双模式实现和验证，等待指标验收。
+- 下一项指标：研究模式上下文膨胀率。
+- 下一动作：验收 Token 消耗的双模式计算结果，再确认研究模式上下文膨胀率方案。
 
 ## 已知缺口
 
@@ -110,7 +112,8 @@ Schema 合法率、
 - 严格 JSON Schema 只能约束输出形状；verdict 与 reason code 的业务关系仍由 evaluator
   二次校验。回退到 `json_object` 的供应商更可能产生 `invalid_judge_output`，当前尚未实现
   携带校验反馈的业务 Schema 修复重试。
-- 工具结果仅部分提供执行耗时，E2E 与跨层 Token 仍不能直接求和。
+- 工具结果仅部分提供执行耗时；不同层的 Token 快照仍不能跨层直接求和，当前指标已固定聊天
+  Agent message 与研究 step-finish 两个权威来源。
 - 当前没有经服务方确认的生产工具 SLA 目录，因此聊天与研究真实日志的超时率暂时返回
   `missing_tool_sla`，不得使用示例阈值生成生产指标。
 
@@ -147,9 +150,12 @@ MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，13
   6771.766 ms；单 Trace 平均值中位数 6307.155 ms
 平均模型步骤时延研究模式: 27/27 个步骤可计算，总步骤耗时 746917 ms，平均
   27663.593 ms；27 个步骤完成 ts 交叉校验，最大绝对边界差异 439 ms
+Token 消耗聊天模式: 312/336 条可计算，24 条 no_observable_token_usage；可计算 Trace 合计
+  253661221 tokens，中位数 534269，平均 813016.734，范围 9059 至 6756848
+Token 消耗研究模式: 27/27 个 step-finish Token 完整，合计 18064255 tokens
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 422 passed
+pytest: 443 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed

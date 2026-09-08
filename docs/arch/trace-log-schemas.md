@@ -438,7 +438,12 @@ Token 字段为：
 - 4,922 条 Agent message 有完整三字段 Token。
 - 311/336 个最终回答有 Token。
 
-在确认父子 Agent、重复 Agent 条目和最终回答是否重复计费前，不得直接跨层求和。
+Token 消耗以 Agent message 为模型步骤：4,946 条具有 `durationSeconds` 的模型步骤中，4,922 条
+具有合法 input/output Token，24 条缺失 Token；另有 411 条仅含工具结果的消息，不属于新的
+模型调用。312/336 条 Trace 的模型步骤 Token 覆盖完整。orchestrator 与 worker 是独立模型
+步骤，可以累加；`canvas.answer.usageTokens` 在当前 311 条观测中都能匹配某条 Agent message，
+属于重复快照，不得再次计数。按确认口径只累加 `input_tokens + output_tokens`，不单独处理
+`cache_tokens`。
 
 ### 2.10 `canvas.answer`
 
@@ -678,6 +683,9 @@ reasoning    22
 这些 Token 可能与 `message.updated.info.tokens` 和 `llm.response.result.usage` 重复表达同一次
 模型调用，不能跨层直接相加。
 
+Token 消耗以按 `messageID` 去重后的 `step-finish.tokens.total` 为权威来源；
+`message.updated.info.tokens` 和 `llm.response.result.usage` 不参与计算，cache 分项不单独处理。
+
 平均模型步骤时延应按 `messageID` 配对 `step-start` 与 `step-finish`，使用事件数值型 `time`
 计算；两种 part 的 `part.id` 不同，不能按 part ID 配对。事件 `ts` 只用于边界差异诊断。
 `message.updated.info.time.created/completed` 覆盖更宽的消息生命周期，不作为步骤时延边界。
@@ -869,7 +877,7 @@ Agent 执行实例       worker agentId / taskId          当前样本只有 orc
 最终回答             canvas.answer.answer              turn.end 前最后 assistant text part
 回合总时延           answer.create_time -               turn.end.durationMs
                      meta.create_time
-Token                usageTokens                       tokens / usage，需去重投影
+Token                message.content.usageTokens       step-finish.tokens.total
 ```
 
 研究模式当前没有与聊天模式 `traceId` 完全同构的明确字段。`userMessageID` 能标识本轮用户请求，

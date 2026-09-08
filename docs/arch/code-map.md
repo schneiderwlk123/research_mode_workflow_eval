@@ -61,6 +61,9 @@
 - `src/collectors/model_step_latency.py`：聊天模式收集 Agent message 自身耗时并排除 answer
   复制值；研究模式按 message ID 配对 step-start/step-finish 的事件时间，记录缺失、重复及
   时间戳交叉校验诊断，不保留消息或推理正文。
+- `src/collectors/token_consumption.py`：聊天模式汇总模型消息 input/output Token 并排除工具结果
+  消息及 answer 重复快照；研究模式按 message ID 去重 step-finish total，隔离缺失和冲突覆盖，
+  不读取 cache 分项或正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
 - `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
@@ -72,6 +75,8 @@
 - `src/evaluators/model_step_latency.py`：计算单条 Trace 的有效步骤算术平均，输出全量微平均
   所需的 `total_step_duration_ms` 与 `valid_step_count`，并严格校验覆盖和交叉诊断计数；
   evaluator 版本为 `1.0.0`。
+- `src/evaluators/token_consumption.py`：仅在全部已识别模型步骤 Token 覆盖完整时求和，部分或
+  全部缺失返回不可计算，非法与冲突快照返回错误；evaluator 版本为 `1.0.0`。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率，并输出
   不可比较调用、重复请求、重复结果及孤立结果诊断。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
