@@ -7,7 +7,6 @@ from evaluators.evidence_precision import (
     EvidenceRelevanceJudgeRequest,
 )
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
-from evaluators.first_tool_decision_latency import FirstToolDecisionLatencyEvaluator
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudge,
@@ -70,7 +69,6 @@ __all__ = [
     "EvidenceRelevanceJudge",
     "EvidenceRelevanceJudgeRequest",
     "ExactDuplicateToolCallEvaluator",
-    "FirstToolDecisionLatencyEvaluator",
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",

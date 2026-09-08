@@ -422,8 +422,8 @@ trace_wall_clock_duration
 84 秒和约 42.26 秒，335 条中只有 31 条相差不超过 1 秒。使用该派生值前，应保留秒级精度和
 端点语义诊断。
 
-单次工具调用时延可以在有 `tool_result.durationSeconds` 时直接计算。首次工具决策时延缺少
-首个调用的绝对时间，不能沿用旧日志公式，应返回 `missing_tool_decision_timestamp`。
+`tool_result.durationSeconds` 可作为工具执行耗时分位数的直接样本；聊天日志不提供工具决策
+节点的独立绝对时间，不能从消息耗时或数组顺序反推。
 
 Token 字段为：
 
@@ -540,7 +540,7 @@ turn.end                1
 }
 ```
 
-这是研究回合的稳定起点。端到端时延和首次工具决策时延应优先使用该事件的 `ts`，而不是
+这是研究回合的稳定起点。端到端时延应优先使用该事件的 `ts`，而不是
 HTTP `request.ts`。
 
 ### 3.4 Agent 环境事件

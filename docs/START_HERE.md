@@ -5,7 +5,7 @@
 1. `AGENTS.md`：仓库级开发、安全、测试、提交和逐指标确认规则。
 2. `docs/PROJECT_STATUS.md`：当前完成度、下一步和已知缺口。
 3. `docs/arch/code-map.md`：模块、入口、调用方向和测试位置。
-4. `docs/specs/metric-development-order.md`：24 项指标的唯一开发顺序。
+4. `docs/specs/metric-development-order.md`：22 项指标的唯一开发顺序。
 5. 当前任务直接相关的规格、测试和指标章节。
 
 ## 按需阅读

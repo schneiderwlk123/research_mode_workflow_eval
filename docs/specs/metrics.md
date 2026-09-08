@@ -1118,68 +1118,7 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 统计得到 2,878 个不同请求签名和 33 次膨胀调用，`33 / 2911 ≈ 0.01134`；1,355 次手册外
 调用不进入分子和分母。271/336 条 Trace 至少包含一次已登记 MCP 调用。
 
-## 14. 首次工具决策时延
-
-### 指标定义
-
-本指标衡量当前用户请求创建后，模型首次决定进入子 Agent 或工具执行链所需的时间。它只使用
-事件时间，不读取工具参数、响应或用户正文。
-
-```text
-首次工具决策时延（毫秒） = 最早有效决策时间 - 当前请求开始时间
-```
-
-新版聊天日志只保留请求起点，没有子 Agent 或工具决策节点的绝对时间，因此当前不可计算。
-研究日志仍使用工具 `pending` 事件，而不是工具执行开始时间或可能晚于工具完成才写入的
-`llm.response.result.toolCalls` 时间。
-
-### 分模式可计算性与字段映射
-
-聊天模式：`NOT_COMPUTABLE`。
-
-- 当前请求开始可读取 `canvas.meta.create_time`。
-- 子 Agent 和普通工具决策可从 `content.tool_call[]` 识别，但对象都没有独立绝对时间戳。
-- `message.content.durationSeconds` 是当前 Agent 消息或步骤自身耗时，不能反推该消息或其中
-  首个调用的绝对发生时间；数组位置也不能替代时间。
-- 只要存在决策节点就返回 `NOT_COMPUTABLE / missing_tool_decision_timestamp`；完全没有
-  子 Agent 或普通工具决策时返回 `NOT_COMPUTABLE / no_tool_decision`。
-
-研究模式：`DIRECTLY_COMPUTABLE`。
-
-- 当前请求开始：`turn.start.ts`。
-- 工具决策：`message.part.updated` 中 `part.type == "tool"` 且
-  `part.state.status == "pending"` 的事件 `ts`。
-- 相同 `callID` 的重复 pending 事件只保留最早时间，并记录重复计数。
-- `part.state.time.start` 是执行开始时间，不用于本指标。
-
-两种模式都以 `trace_id` 为单次评测边界，结果单位固定为毫秒。没有决策、缺少起点、聊天
-决策时间戳、研究 pending 时间、观察不完整或研究调用 ID 时，分别返回
-`no_tool_decision`、`missing_turn_start_time`、`missing_tool_decision_timestamp`、
-`missing_tool_decision_time`、`incomplete_tool_decision_observation` 或 `missing_call_id`。
-非法时间戳和负时延分别返回 `ERROR / invalid_timestamp` 与 `ERROR / invalid_event_order`，
-不得填零或裁剪长尾。
-
-### 模拟计算
-
-```text
-若未来聊天 schema 增加决策时间：
-请求 create_time = 10:00:00.000
-首个子 Agent 决策时间 = 10:00:06.000
-首个 tool_call 决策时间 = 10:00:09.000
-
-首次工具决策时延 = min(6 秒, 9 秒) = 6000 毫秒
-
-研究 turn.start.ts = 03:25:38.806
-首个工具 pending.ts = 03:26:07.665
-
-首次工具决策时延 = 28859 毫秒
-```
-
-新版聊天日志重算状态：304/336 条 Trace 存在子 Agent 或普通工具决策，但全部缺少决策绝对
-时间，因此返回 `missing_tool_decision_timestamp`；其余 32 条返回 `no_tool_decision`。新版
-聊天模式不能汇总该指标的毫秒值。
-
-## 19. 超时率
+## 17. 超时率
 
 ### 指标定义
 

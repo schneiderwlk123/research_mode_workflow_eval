@@ -4,8 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：24 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
-  工具间空窗时延、首次工具决策时延和研究模式上下文膨胀率。
+- `docs/specs/metric-development-order.md`：22 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
+  工具调用时延分位数、工具间空窗时延和研究模式上下文膨胀率。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
@@ -51,8 +51,6 @@
 - `src/collectors/statement_support.py`：复用证据单元抽取，从新版 canvas 的
   `meta.query/answer.answer` 提取聊天输入，或选择研究模式 `turn.end` 前最后一个 assistant
   文本；区分空证据、缺终态、不完整证据拆分和固定前置服务失败，旧版顶层聊天字段不再支持。
-- `src/collectors/first_tool_decision_latency.py`：提取聊天请求到最早子 Agent/工具决策，以及
-  研究回合到最早工具 pending 事件的时间边界；不保留请求或工具正文。
 - `src/collectors/tool_timeout_rate.py`：构建版本化工具 SLA 与别名目录，按聊天工具对象或研究
   `callID` 规范化显式超时、SLA 超限和缺失时间超时；不保留参数或响应正文。
 - `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
@@ -99,8 +97,6 @@
   按默认 40 单元安全分批提交；全部批次成功后才合并，任一失败不返回部分结果。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
   三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.2.0`。
-- `src/evaluators/first_tool_decision_latency.py`：校验规范化时间边界，以毫秒确定性计算
-  `first_tool_decision_latency_ms`，并隔离缺失、非法和负时延。
 - `src/evaluators/tool_timeout_rate.py`：校验策略版本、唯一调用及分类诊断计数，计算
   `tool_timeout_rate`；缺少工具 SLA 时不估算。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
@@ -144,8 +140,6 @@
   去重、不可拆分响应及研究回归测试。
 - `tests/collectors/test_statement_support.py`：新版 canvas/研究最终回答选择、空证据可计算、
   前置失败、缺终态、部分不可拆分响应、旧结构拒绝和成功产物无正文测试。
-- `tests/collectors/test_first_tool_decision_latency.py`：聊天乱序决策、子 Agent/工具时间选择、
-  研究 pending 去重及缺失时间边界测试。
 - `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、聊天/研究字段映射、生命周期去重、
   显式超时、SLA 超限、缺失时间计超时及错误隔离测试。
 - `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
@@ -182,8 +176,6 @@
   JSON 响应解析和供应商异常脱敏测试。
 - `tests/evaluators/test_statement_support.py`：支持率、正常零分、无可验证陈述、不可判定、
   Judge 完整性、证据引用和敏感正文隔离测试。
-- `tests/evaluators/test_first_tool_decision_latency.py`：双模式毫秒计算、不可计算原因、非法
-  规范化输入和负时延隔离测试。
 - `tests/evaluators/test_tool_timeout_rate.py`：双模式超时率、超时分类计数、缺失 SLA、非法
   规范化输入和错误隔离测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
