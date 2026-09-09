@@ -56,8 +56,10 @@ from evaluators.statement_support import (
 from evaluators.subtask_redundancy import SubtaskRedundancyEvaluator
 from evaluators.time_range_accuracy import (
     TimeRangeAccuracyEvaluator,
+    TimeRangeExpectedField,
+    TimeRangeFieldMatchRequest,
     TimeRangeJudge,
-    TimeRangeJudgeRequest,
+    TimeRangeRequirementRequest,
 )
 from evaluators.token_consumption import TotalTokenConsumptionEvaluator
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
@@ -103,8 +105,10 @@ __all__ = [
     "StatementSupportJudge",
     "StatementSupportJudgeRequest",
     "TimeRangeAccuracyEvaluator",
+    "TimeRangeExpectedField",
+    "TimeRangeFieldMatchRequest",
     "TimeRangeJudge",
-    "TimeRangeJudgeRequest",
+    "TimeRangeRequirementRequest",
     "TotalTokenConsumptionEvaluator",
     "ToolCallEventCompletenessEvaluator",
     "ToolTimeoutRateEvaluator",

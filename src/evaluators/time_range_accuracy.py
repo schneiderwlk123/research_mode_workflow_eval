@@ -1,6 +1,7 @@
-"""使用结构化 Judge 评估时间范围字段是否被正确传递。"""
+"""以两阶段结构化 Judge 评估时间范围字段是否被正确传递。"""
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
@@ -10,7 +11,7 @@ from collectors.time_range_accuracy import TimeRangeCandidate
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 from evaluators.openai_compatible_judge_runtime import judge_error_metadata
 
-_ASSESSED_REASON = "time_fields_compared"
+_EXTRACTED_REASON = "temporal_requirements_extracted"
 _NOT_ASSESSABLE_REASONS = frozenset(
     {
         "no_temporal_requirement",
@@ -19,43 +20,111 @@ _NOT_ASSESSABLE_REASONS = frozenset(
         "insufficient_time_evidence",
     }
 )
+_FIELD_TYPES = frozenset(
+    {
+        "start_time",
+        "end_time",
+        "frequency",
+        "value_type",
+        "freshness",
+        "reporting_period",
+    }
+)
+_FIELD_REASON_CODES = {
+    "correct": frozenset({"matched"}),
+    "incorrect": frozenset(
+        {
+            "missing_expected_field",
+            "contradicts_requirement",
+            "incompatible_temporal_role",
+            "unexpected_constraint",
+        }
+    ),
+    "not_assessable": frozenset({"insufficient_time_evidence"}),
+}
+_FREQUENCY_SIGNAL = re.compile(
+    r"日频|每日|按日|周频|每周|按周|月频|每月|按月|月度|季频|每季|按季|季度|年频|每年|按年|年度"
+)
+_VALUE_TYPE_SIGNAL = re.compile(r"历史|实际|预测|预期|未来|\d{2,4}[AE](?![A-Za-z])", re.I)
+_REPORTING_PERIOD_SIGNAL = re.compile(r"年报|半年报|中报|一季报|三季报|季度报告")
+_FRESHNESS_SIGNAL = re.compile(r"最新|最近一次|近期最新")
+_ROLLING_SIGNAL = re.compile(r"最近半年|近半年|半年内|近\s*\d+\s*(?:年|个月|月|周|日)")
+_RANGE_SIGNAL = re.compile(
+    r"20\d{2}\s*年|(?<!\d)\d{2}\s*年|20\d{2}[-/.]\d{1,2}|以来|截至|从.+到|至|最近半年|近半年|半年内|近\s*\d+\s*(?:年|个月|月|周|日)"
+)
+_FOUR_DIGIT_YEAR = re.compile(r"(?<!\d)(20\d{2})\s*年")
+_TWO_DIGIT_YEAR = re.compile(r"(?<!\d)(\d{2})\s*年")
 
 
 @dataclass(frozen=True, slots=True)
-class TimeRangeJudgeRequest:
-    """单会话 Judge 请求；时间原文和工具参数不得持久化。"""
+class TimeRangeRequirementRequest:
+    """仅包含用户时间需求；工具证据不得进入第一阶段以免反向污染分母。"""
 
     trace_id: str | None
     mode: str
     query: str
     reference_time: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRangeExpectedField:
+    """由程序分配稳定 ID 的内存预期字段，字段值不得持久化。"""
+
+    field_id: str
+    range_index: int
+    field_type: str
+    expected_value: str
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRangeFieldMatchRequest:
+    """将已冻结的用户预期字段与实际工具时间证据逐项比较。"""
+
+    trace_id: str | None
+    mode: str
+    reference_time: str | None
+    expected_fields: tuple[TimeRangeExpectedField, ...]
     tool_calls: tuple[ParameterValueCandidate, ...]
     manual_version: str
 
 
 class TimeRangeJudge(Protocol):
-    """时间范围 Judge 适配器的稳定接口。"""
+    """时间范围两阶段 Judge 适配器的稳定接口。"""
 
     judge_name: str
     judge_version: str
     prompt_version: str
 
-    def judge(self, request: TimeRangeJudgeRequest) -> Mapping[str, object]: ...
+    def extract_requirements(
+        self, request: TimeRangeRequirementRequest
+    ) -> Mapping[str, object]: ...
+
+    def match_fields(self, request: TimeRangeFieldMatchRequest) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True, slots=True)
-class _TimeRangeJudgment:
-    verdict: str
+class _RequirementExtraction:
+    assessment: str
     reason_code: str
-    correct: int
-    incorrect: int
-    not_assessable: int
-    unexpected: int
+    fields: tuple[TimeRangeExpectedField, ...]
     confidence: float
 
 
+@dataclass(frozen=True, slots=True)
+class _FieldResult:
+    field_id: str
+    verdict: str
+    reason_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldMatching:
+    fields: tuple[_FieldResult, ...]
+    unexpected_field_ids: tuple[str, ...]
+
+
 class TimeRangeAccuracyEvaluator(BaseEvaluator):
-    """以正确字段数除以可评估预期字段数，不把缺失输入补零。"""
+    """先冻结 query 预期字段，再逐字段匹配工具证据并计算准确率。"""
 
     def __init__(self, judge: TimeRangeJudge) -> None:
         self._judge = judge
@@ -69,7 +138,7 @@ class TimeRangeAccuracyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.2.0"
+        return "2.0.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -102,6 +171,7 @@ class TimeRangeAccuracyEvaluator(BaseEvaluator):
             "prompt_version": self._prompt_version,
             **diagnostics,
         }
+        judge_validation_retry_count = 0
         if mode not in {"chat", "research"}:
             metadata["reason"] = "unsupported_trace_mode"
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
@@ -115,46 +185,129 @@ class TimeRangeAccuracyEvaluator(BaseEvaluator):
                 {**metadata, "reason": "invalid_normalized_trace"},
             )
 
-        request = TimeRangeJudgeRequest(
+        extraction_request = TimeRangeRequirementRequest(
             trace_id=trace_id,
             mode=mode,
             query=candidate.query,
             reference_time=candidate.reference_time,
-            tool_calls=candidate.tool_calls,
-            manual_version=manual_version,
         )
-        try:
-            response = self._judge.judge(request)
-        except Exception as judge_error:
-            reason, safe_metadata = judge_error_metadata(judge_error)
-            metadata.update(safe_metadata)
-            metadata["reason"] = reason
-            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
-        judgment = _parse_judge_response(response)
-        if judgment is None:
+        extraction: _RequirementExtraction | None = None
+        for attempt in range(2):
+            if attempt:
+                judge_validation_retry_count += 1
+                metadata["judge_validation_retry_count"] = judge_validation_retry_count
+            try:
+                extraction_response = self._judge.extract_requirements(extraction_request)
+            except Exception as judge_error:
+                return self._judge_failure(judge_error, metadata)
+            extraction = _parse_requirement_extraction(extraction_response)
+            if extraction is not None:
+                break
+        if extraction is None:
             metadata["reason"] = "invalid_judge_output"
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
+        extraction = _reconcile_requirement_extraction(candidate.query, extraction)
 
         metadata.update(
             {
-                "judge_reason_code": judgment.reason_code,
-                "judge_confidence": judgment.confidence,
-                "correct_field_count": judgment.correct,
-                "incorrect_field_count": judgment.incorrect,
-                "not_assessable_field_count": judgment.not_assessable,
-                "unexpected_constraint_count": judgment.unexpected,
-                "assessable_field_count": judgment.correct + judgment.incorrect,
+                "extraction_reason_code": extraction.reason_code,
+                "extraction_confidence": extraction.confidence,
+                "expected_field_count": len(extraction.fields),
+                "expected_field_types": tuple(field.field_type for field in extraction.fields),
             }
         )
-        if judgment.verdict == "not_assessable":
-            metadata["reason"] = judgment.reason_code
+        if extraction.assessment == "not_assessable":
+            metadata["reason"] = extraction.reason_code
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
-        denominator = judgment.correct + judgment.incorrect
+
+        if tool_call_count == 0:
+            field_results = tuple(
+                _FieldResult(field.field_id, "incorrect", "missing_expected_field")
+                for field in extraction.fields
+            )
+            return self._computed_result(metadata, extraction.fields, field_results, ())
+        if not candidate.tool_calls:
+            metadata.update(
+                {
+                    "reason": "insufficient_time_evidence",
+                    "not_assessable_field_count": len(extraction.fields),
+                    "assessable_field_count": 0,
+                }
+            )
+            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
+
+        match_request = TimeRangeFieldMatchRequest(
+            trace_id=trace_id,
+            mode=mode,
+            reference_time=candidate.reference_time,
+            expected_fields=extraction.fields,
+            tool_calls=candidate.tool_calls,
+            manual_version=manual_version,
+        )
+        matching: _FieldMatching | None = None
+        for attempt in range(2):
+            if attempt:
+                judge_validation_retry_count += 1
+                metadata["judge_validation_retry_count"] = judge_validation_retry_count
+            try:
+                match_response = self._judge.match_fields(match_request)
+            except Exception as judge_error:
+                return self._judge_failure(judge_error, metadata)
+            matching = _parse_field_matching(match_response, extraction.fields)
+            if matching is not None:
+                break
+        if matching is None:
+            metadata["reason"] = "invalid_judge_output"
+            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
+        return self._computed_result(
+            metadata,
+            extraction.fields,
+            matching.fields,
+            matching.unexpected_field_ids,
+        )
+
+    def _computed_result(
+        self,
+        metadata: dict[str, object],
+        expected_fields: tuple[TimeRangeExpectedField, ...],
+        field_results: tuple[_FieldResult, ...],
+        unexpected_field_ids: tuple[str, ...],
+    ) -> EvaluationResult:
+        correct = sum(field.verdict == "correct" for field in field_results)
+        incorrect = sum(field.verdict == "incorrect" for field in field_results)
+        not_assessable = sum(field.verdict == "not_assessable" for field in field_results)
+        metadata.update(
+            {
+                "correct_field_count": correct,
+                "incorrect_field_count": incorrect,
+                "not_assessable_field_count": not_assessable,
+                "unexpected_constraint_count": len(unexpected_field_ids),
+                "assessable_field_count": correct + incorrect,
+                "field_verdicts": tuple(
+                    (field.field_id, field.verdict, field.reason_code)
+                    for field in field_results
+                ),
+            }
+        )
+        if len(field_results) != len(expected_fields):
+            metadata["reason"] = "invalid_judge_output"
+            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
+        if not_assessable:
+            metadata["reason"] = "insufficient_time_evidence"
+            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
         return self._result(
-            judgment.correct / denominator,
+            correct / (correct + incorrect),
             EvaluationStatus.COMPUTED,
             metadata,
         )
+
+    def _judge_failure(
+        self, judge_error: Exception, metadata: dict[str, object]
+    ) -> EvaluationResult:
+        reason, safe_metadata = judge_error_metadata(judge_error)
+        metadata.update(safe_metadata)
+        metadata["reason"] = reason
+        return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
 
     def _result(
         self,
@@ -171,57 +324,207 @@ class TimeRangeAccuracyEvaluator(BaseEvaluator):
         )
 
 
-def _parse_judge_response(response: Mapping[str, object]) -> _TimeRangeJudgment | None:
-    required_keys = {
-        "verdict",
-        "reason_code",
-        "correct_field_count",
-        "incorrect_field_count",
-        "not_assessable_field_count",
-        "unexpected_constraint_count",
-        "confidence",
-    }
-    if set(response) != required_keys:
+def _parse_requirement_extraction(
+    response: Mapping[str, object],
+) -> _RequirementExtraction | None:
+    if set(response) != {"assessment", "reason_code", "fields", "confidence"}:
         return None
-    verdict = _text(response.get("verdict"))
+    assessment = _text(response.get("assessment"))
     reason_code = _text(response.get("reason_code"))
-    correct = _non_negative_int(response.get("correct_field_count"))
-    incorrect = _non_negative_int(response.get("incorrect_field_count"))
-    not_assessable = _non_negative_int(response.get("not_assessable_field_count"))
-    unexpected = _non_negative_int(response.get("unexpected_constraint_count"))
-    confidence_value = response.get("confidence")
+    fields_value = response.get("fields")
+    confidence = _confidence(response.get("confidence"))
     if (
-        verdict not in {"assessed", "not_assessable"}
+        assessment not in {"assessable", "not_assessable"}
         or reason_code is None
-        or correct is None
-        or incorrect is None
-        or not_assessable is None
-        or unexpected is None
-        or isinstance(confidence_value, bool)
-        or not isinstance(confidence_value, (int, float))
-        or not math.isfinite(float(confidence_value))
-        or not 0 <= float(confidence_value) <= 1
+        or not isinstance(fields_value, list)
+        or confidence is None
     ):
         return None
-    if verdict == "assessed":
-        if reason_code != _ASSESSED_REASON or correct + incorrect == 0:
+
+    fields: list[TimeRangeExpectedField] = []
+    seen_slots: set[tuple[int, str]] = set()
+    for index, raw_field in enumerate(fields_value, start=1):
+        if not isinstance(raw_field, Mapping) or set(raw_field) != {
+            "range_index",
+            "field_type",
+            "expected_value",
+        }:
             return None
-    elif (
-        reason_code not in _NOT_ASSESSABLE_REASONS
-        or correct != 0
-        or incorrect != 0
-        or unexpected != 0
+        range_index = _non_negative_int(raw_field.get("range_index"))
+        field_type = _text(raw_field.get("field_type"))
+        expected_value = _text(raw_field.get("expected_value"))
+        if (
+            range_index is None
+            or field_type not in _FIELD_TYPES
+            or expected_value is None
+            or (range_index, field_type) in seen_slots
+        ):
+            return None
+        seen_slots.add((range_index, field_type))
+        fields.append(
+            TimeRangeExpectedField(
+                field_id=f"time_field_{index:04d}",
+                range_index=range_index,
+                field_type=field_type,
+                expected_value=expected_value,
+            )
+        )
+
+    if assessment == "assessable":
+        if reason_code != _EXTRACTED_REASON or not fields:
+            return None
+    elif reason_code not in _NOT_ASSESSABLE_REASONS or fields:
+        return None
+    return _RequirementExtraction(assessment, reason_code, tuple(fields), confidence)
+
+
+def _reconcile_requirement_extraction(
+    query: str, extraction: _RequirementExtraction
+) -> _RequirementExtraction:
+    """用高置信度词法约束修正 Judge 的明显漏提取和字段过度扩张。"""
+
+    supports_range = _RANGE_SIGNAL.search(query) is not None
+    supports_frequency = _FREQUENCY_SIGNAL.search(query) is not None
+    supports_value_type = _VALUE_TYPE_SIGNAL.search(query) is not None
+    supports_reporting_period = _REPORTING_PERIOD_SIGNAL.search(query) is not None
+    supports_freshness = _FRESHNESS_SIGNAL.search(query) is not None
+    has_rolling_range = _ROLLING_SIGNAL.search(query) is not None
+
+    filtered = [
+        field
+        for field in extraction.fields
+        if (
+            (field.field_type not in {"start_time", "end_time"} or supports_range)
+            and (field.field_type != "frequency" or supports_frequency)
+            and (field.field_type != "value_type" or supports_value_type)
+            and (field.field_type != "reporting_period" or supports_reporting_period)
+            and (
+                field.field_type != "freshness"
+                or (supports_freshness and not has_rolling_range)
+            )
+        )
+    ]
+    present_types = {field.field_type for field in filtered}
+    deterministic: list[tuple[int, str, str]] = []
+    year = _single_explicit_year(query)
+    if year is not None:
+        if "start_time" not in present_types:
+            deterministic.append((1, "start_time", f"{year:04d}-01-01"))
+        if "end_time" not in present_types:
+            deterministic.append((1, "end_time", f"{year:04d}-12-31"))
+    if supports_freshness and not has_rolling_range and "freshness" not in present_types:
+        freshness = "exclude_latest" if "最新一次的不算" in query else "latest"
+        deterministic.append((0, "freshness", freshness))
+    if supports_value_type and re.search(r"预测|预期|未来|\d{2,4}E(?![A-Za-z])", query, re.I):
+        if "value_type" not in present_types:
+            deterministic.append((0, "value_type", "forecast"))
+
+    combined = [
+        (field.range_index, field.field_type, field.expected_value) for field in filtered
+    ]
+    occupied = {(range_index, field_type) for range_index, field_type, _ in combined}
+    combined.extend(
+        field for field in deterministic if (field[0], field[1]) not in occupied
+    )
+    fields = tuple(
+        TimeRangeExpectedField(
+            field_id=f"time_field_{index:04d}",
+            range_index=range_index,
+            field_type=field_type,
+            expected_value=expected_value,
+        )
+        for index, (range_index, field_type, expected_value) in enumerate(combined, start=1)
+    )
+    if fields:
+        return _RequirementExtraction(
+            "assessable",
+            _EXTRACTED_REASON,
+            fields,
+            extraction.confidence,
+        )
+    reason = (
+        extraction.reason_code
+        if extraction.assessment == "not_assessable"
+        else "no_temporal_requirement"
+    )
+    return _RequirementExtraction("not_assessable", reason, (), extraction.confidence)
+
+
+def _single_explicit_year(query: str) -> int | None:
+    years = {int(value) for value in _FOUR_DIGIT_YEAR.findall(query)}
+    years.update(2000 + int(value) for value in _TWO_DIGIT_YEAR.findall(query))
+    return next(iter(years)) if len(years) == 1 else None
+
+
+def _parse_field_matching(
+    response: Mapping[str, object],
+    expected_fields: tuple[TimeRangeExpectedField, ...],
+) -> _FieldMatching | None:
+    expected_ids = {field.field_id for field in expected_fields}
+    diagnostic_keys = {
+        "missing_expected_field_ids",
+        "unexpected_constraint_field_ids",
+        "incompatible_temporal_role_field_ids",
+    }
+    response_keys = set(response)
+    if not expected_ids.issubset(response_keys) or not response_keys.issubset(
+        expected_ids | diagnostic_keys
     ):
         return None
-    return _TimeRangeJudgment(
-        verdict,
-        reason_code,
-        correct,
-        incorrect,
-        not_assessable,
-        unexpected,
-        float(confidence_value),
-    )
+    # 部分兼容端点在 JSON-object 回退模式下会省略空诊断数组；字段 verdict 完整时按空数组处理。
+    raw_missing = response.get("missing_expected_field_ids", [])
+    raw_unexpected = response.get("unexpected_constraint_field_ids", [])
+    raw_incompatible = response.get("incompatible_temporal_role_field_ids", [])
+    if (
+        not isinstance(raw_missing, list)
+        or not isinstance(raw_unexpected, list)
+        or not isinstance(raw_incompatible, list)
+    ):
+        return None
+
+    missing_ids = _field_id_list(raw_missing, expected_ids)
+    unexpected_ids = _field_id_list(raw_unexpected, expected_ids)
+    incompatible_ids = _field_id_list(raw_incompatible, expected_ids)
+    if missing_ids is None or unexpected_ids is None or incompatible_ids is None:
+        return None
+    if (
+        set(missing_ids) & set(unexpected_ids)
+        or set(missing_ids) & set(incompatible_ids)
+        or set(unexpected_ids) & set(incompatible_ids)
+    ):
+        return None
+
+    results: list[_FieldResult] = []
+    for field in expected_fields:
+        verdict = _text(response.get(field.field_id))
+        if verdict not in _FIELD_REASON_CODES:
+            return None
+        if field.field_id in missing_ids:
+            reason_code = "missing_expected_field"
+        elif field.field_id in unexpected_ids:
+            reason_code = "unexpected_constraint"
+        elif field.field_id in incompatible_ids:
+            reason_code = "incompatible_temporal_role"
+        elif verdict == "correct":
+            reason_code = "matched"
+        elif verdict == "incorrect":
+            reason_code = "contradicts_requirement"
+        else:
+            reason_code = "insufficient_time_evidence"
+        if reason_code not in _FIELD_REASON_CODES[verdict]:
+            return None
+        results.append(_FieldResult(field.field_id, verdict, reason_code))
+    return _FieldMatching(tuple(results), unexpected_ids)
+
+
+def _field_id_list(value: list[object], expected_ids: set[str]) -> tuple[str, ...] | None:
+    result: list[str] = []
+    for raw_id in value:
+        field_id = _text(raw_id)
+        if field_id not in expected_ids or field_id in result:
+            return None
+        result.append(field_id)
+    return tuple(result)
 
 
 def _parse_trace(
@@ -292,6 +595,13 @@ def _required_string(value: object) -> str:
     if parsed is None:
         raise ValueError("Judge 版本标识必须是非空字符串")
     return parsed
+
+
+def _confidence(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) and 0 <= parsed <= 1 else None
 
 
 def _text(value: object) -> str | None:

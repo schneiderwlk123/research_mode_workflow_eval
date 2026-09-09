@@ -800,21 +800,28 @@ T3 的时间约束不同，不属于冗余。
   正确提取的预期时间字段数 ÷ 用户需求中可评估的时间字段总数
 ```
 
-- 评估字段包括开始时间、结束时间、数据频率，以及实际值/预测值属性；多段区间分别计数。
+- 评估字段包括开始时间、结束时间、数据频率、实际值/预测值属性、最新性要求和报告期；
+  多段区间分别计数。
 - 用户未指定的字段不进入分母；明确要求但工具参数遗漏的字段计为错误。
 - 额外时间条件若改变查询范围，应使受影响的预期字段判错，并计入
   `unexpected_constraint_count` 安全诊断。
-- 本指标使用 LLM Judge 代理标准，不等同于人工 Golden Benchmark。Judge 只返回聚合计数、
-  固定 reason code 和 confidence，不得返回日期、query、参数值或解释正文。
-- Judge 返回 `assessed` 时，`correct_field_count + incorrect_field_count` 必须大于零；结果为
-  `correct_field_count / assessable_field_count`。
-- Judge 返回 `not_assessable` 时，使用 `no_temporal_requirement`、
+- 本指标使用两阶段 LLM Judge 代理标准，不等同于人工 Golden Benchmark。第一阶段只能读取
+  query 与 reference time，提取用户预期字段；工具参数不得参与分母构造。程序为预期字段分配
+  `time_field_0001` 等稳定 ID。第二阶段只按这些 ID 返回 `correct`、`incorrect` 或
+  `not_assessable`，最终计数和准确率由程序计算。
+- 第一阶段返回 `not_assessable` 时，使用 `no_temporal_requirement`、
   `missing_reference_time`、`ambiguous_temporal_requirement` 或
   `insufficient_time_evidence`，结果为 `NOT_COMPUTABLE`。
+- 第二阶段必须完整返回全部冻结字段 ID；`missing_expected_field_ids`、
+  `unexpected_constraint_field_ids` 和 `incompatible_temporal_role_field_ids` 仅用于安全诊断。
+  JSON-object 兼容端点省略空诊断数组时按空数组处理，但不得遗漏字段 verdict 或返回未知键。
+- 业务结构校验失败时安全重试一次；再次非法才返回
+  `NOT_COMPUTABLE / invalid_judge_output`，重试次数记录为
+  `judge_validation_retry_count`。
 - Judge 调用异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码，未知异常仍归为
   `judge_failure`；输出非法返回
   `NOT_COMPUTABLE / invalid_judge_output`。
-- evaluator 版本为 `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge、模型、prompt 和 MCP
+- evaluator 版本为 `2.0.0`，Judge prompt 版本为 `2.0.0`；Judge、模型、prompt 和 MCP
   手册版本进入安全元数据。
 
 ### 相对时间规则
@@ -825,6 +832,20 @@ T3 的时间约束不同，不属于冗余。
   `上一完整年度` 为锚点年份之前的一个自然年。
 - 用户要求相对时间但没有可靠锚点时返回 `missing_reference_time`。
 - 工具省略可选日期时，只有 MCP 参数说明明确给出默认观察日语义，Judge 才能使用该默认值。
+- `最近半年/近 N 年` 只形成起止字段，不因时间长度自动生成 frequency；只有用户明确要求
+  日频、周频、月度、季度或年度观察频率时才生成 frequency。
+- `最新` 形成 `freshness`；`未来/预测/预期` 形成 forecast `value_type`。单一明确年份由
+  程序补齐该自然年的开始与结束字段，避免 Judge 漏提取。
+
+### 时间证据角色
+
+- `data_period`：业务数据覆盖期间，可匹配开始和结束字段。
+- `reporting_period`：财报或报告期，只匹配报告期要求。
+- `retrieval_window`：搜索语料回溯窗口，不能单独满足或反驳业务数据期间。
+- `frequency`：观察频率；`value_type`：历史实际或预测属性；`free_text_query`：工具自由文本
+  中明确写出的时间语义。
+- 工具自行选择的默认日期不能创造用户预期字段；宽于用户需求的检索窗口通常也不构成额外
+  业务约束。
 
 ### 分模式可计算性与字段映射
 
@@ -853,11 +874,13 @@ T3 的时间约束不同，不属于冗余。
 两种模式的 query、reference time、参数值、日期原文和 Judge 原始响应只允许在内存中存在。
 持久化结果仅保留字段计数、调用与异常诊断、版本标识、reference time 是否存在及其来源。
 
-新版聊天日志重算状态：312/336 条 Trace 可构造时间范围 Judge 候选，24 条为明确前置失败；
-336 条均具有可解析的 `canvas.meta.create_time`，候选中包含 4,266 次唯一普通工具调用，
-其中 2,911 次被手册覆盖、1,355 次为未知 Schema。当前未执行时间 Judge，因此本次不产生
-`time_range_extraction_accuracy` 数值。研究日志形成 1 个候选，30 次唯一调用中 5 次被手册
-覆盖，时间锚点来源为 `event`。
+2026-09-09 使用 `qwen-flash` 对前 30 条新版聊天 Trace 复验：11 条可计算，15 条为
+`no_temporal_requirement`，2 条为 `pre_time_extraction_failure`，2 条为
+`insufficient_time_evidence`。可判定字段共 18 个，其中正确 9 个、错误 9 个，字段微平均
+`9 / 18 = 0.5`。第 10、21、25 条不再被工具默认日期制造假分母；第 19 条稳定提取单一年度的
+起止字段并得到 `2 / 2`。研究日志本次可直接计算，结果为 `0 / 2 = 0`；该模式总体仍标记为
+`CONDITIONALLY_COMPUTABLE`，因为缺少 query、可靠锚点、完整调用或可识别 Schema 时必须返回
+稳定的 `NOT_COMPUTABLE`，不得估算。
 
 ### 模拟计算
 

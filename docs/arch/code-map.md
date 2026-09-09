@@ -111,11 +111,14 @@
 - `src/evaluators/openai_compatible_intent_judge.py`：把不可信 query 与最小代理行为证据提交给
   OpenAI-compatible Judge；固定枚举 Schema 与 three-shot 示例约束分项标签，使用共享严格
   结构化运行时并隔离供应商响应和密钥。
-- `src/evaluators/time_range_accuracy.py`：严格校验时间字段聚合计数、三态可计算边界和安全
-  reason code，接受 `provided/canvas_meta/event/missing` 时间锚点来源并计算
-  `time_range_extraction_accuracy`；新版 canvas 适配版本为 `1.2.0`。
-- `src/evaluators/openai_compatible_time_range_judge.py`：将 query、相对时间锚点、工具参数及
-  MCP 字段说明提交给 OpenAI-compatible Judge，并对供应商异常做脱敏隔离。
+- `src/evaluators/time_range_accuracy.py`：第一阶段仅从 query 与锚点冻结用户预期时间字段并由
+  程序分配稳定 ID，第二阶段逐 ID 聚合三态 verdict；包含明确年份、最新性、预测属性的确定性
+  补漏、一次业务结构校验重试和安全 reason code，计算 `time_range_extraction_accuracy`；
+  evaluator 版本为 `2.0.0`。
+- `src/evaluators/openai_compatible_time_range_judge.py`：执行 query-only 需求提取和字段证据匹配，
+  将工具参数标注为 data period、reporting period、retrieval window、frequency、value type
+  或 free-text query，隔离检索窗口与业务期间，并对供应商异常做脱敏处理；prompt 版本为
+  `2.0.0`。
 - `src/evaluators/evidence_precision.py`：定义证据相关性 Judge 契约，严格校验逐单元三态
   判断，在完整证据分母上计算 `evidence_precision_rate`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/openai_compatible_evidence_judge.py`：把不可信 query 与来源原生证据单元
@@ -193,10 +196,11 @@
   不可判定、Judge 失败、业务校验重试、严格输出白名单和敏感正文隔离测试。
 - `tests/evaluators/test_openai_compatible_intent_judge.py`：意图证据请求结构、确定性采样、
   固定 JSON Schema、few-shot、校验反馈、响应解析和供应商异常脱敏测试。
-- `tests/evaluators/test_time_range_accuracy.py`：字段准确率、正常零分、不可计算边界、严格
-  Judge 输出校验和敏感异常隔离测试。
-- `tests/evaluators/test_openai_compatible_time_range_judge.py`：时间需求、锚点、Schema 语义与
-  工具参数的结构化请求及供应商异常脱敏测试。
+- `tests/evaluators/test_time_range_accuracy.py`：两阶段稳定字段 ID、显式年份/最新性/预测补漏、
+  检索窗口隔离、无调用零分、不可计算边界、业务校验重试、兼容空诊断省略、严格 Judge 输出
+  校验和敏感异常隔离测试。
+- `tests/evaluators/test_openai_compatible_time_range_judge.py`：query-only 提取请求、带角色时间
+  证据、动态字段 ID Schema、检索窗口隔离及供应商异常脱敏测试。
 - `tests/evaluators/test_evidence_precision.py`：查准率、完整分母、三态 Judge、严格输出校验、
   规范化错误和敏感正文隔离测试。
 - `tests/evaluators/test_openai_compatible_evidence_judge.py`：证据单元请求结构、确定性采样、

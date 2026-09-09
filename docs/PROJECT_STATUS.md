@@ -1,6 +1,6 @@
 # Project Status
 
-更新时间：2026-09-08
+更新时间：2026-09-09
 
 ## 当前里程碑
 
@@ -13,7 +13,7 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十七个指标行为测试，共 459 项；最近一次验证全部通过。
+- 公共契约及十七个指标行为测试，共 462 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
 - 代码地图和 17 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
@@ -56,10 +56,11 @@ Schema 合法率、
   程序按 45% 意图覆盖、20% 规划、15% MCP 合理性、20% 最终回答加权，主意图错误或冲突
   硬归零；研究模式补取最终回答，声明型手册外 MCP 作为行为证据，业务输出非法时安全重试
   一次；`intent_recognition_accuracy` 版本为 `1.3.0`，原始正文和 Judge 响应不落盘。
-- 聊天与研究模式的时间需求、工具参数和可复现时间锚点规范化，严格字段计数 Judge 契约
-  及 OpenAI-compatible 适配器；新版 canvas 的 `canvas_meta` 锚点已贯通 collector 与
-  evaluator，`time_range_extraction_accuracy` 版本为 `1.2.0`，
-  query、日期原文、参数值和 Judge 响应不落盘。
+- 聊天与研究模式的时间需求、工具参数和可复现时间锚点规范化；时间指标升级为 query-only
+  需求提取与带角色证据匹配两阶段契约，程序分配稳定字段 ID，并隔离 retrieval window 与
+  business data period。显式年份、最新性和预测属性提供确定性补漏，业务结构非法时安全重试
+  一次；`time_range_extraction_accuracy` evaluator 与 prompt 版本均为 `2.0.0`，query、日期
+  原文、参数值和 Judge 响应不落盘。
 - 显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存证据去重；
   新版 canvas 按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、孤立结果
   及冲突生命周期，旧版聊天解析已删除；`evidence_precision_rate` 版本为 `1.2.0`，Judge
@@ -101,6 +102,9 @@ Schema 合法率、
 - 最近完成并验收的新版聊天适配指标：陈述支持率。
 - 最近完成的路由修正：Judge 只返回子任务并由程序派生能力并集；日志声明的手册外 MCP
   自动计为匹配 TP；动态 Schema、一次安全业务重试和映射元数据降级已完成真实日志复验。
+- 最近完成的时间范围修正：前 30 条聊天 Trace 中 11 条可计算、15 条无时间要求、2 条前置
+  失败、2 条证据不足；18 个可判定字段为 `9/18 = 0.5`。研究日志本次为 `0/2 = 0`。
+  工具默认日期不再制造分母，单一年份不再漏提取，兼容端点省略空诊断数组时不再误判非法。
 - 进行中的具体指标：Token 消耗已按确认口径完成双模式实现和验证，等待指标验收。
 - 下一项指标：当前开发顺序中的指标已全部处理。
 - 下一动作：验收 Token 消耗的双模式计算结果，再决定是否补充新的指标范围。
