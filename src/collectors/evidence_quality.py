@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import TypedDict, TypeGuard
 
 _ENVELOPE_KEYS = ("data", "items", "results", "documents", "chunks", "records")
+_EVIDENCE_EXTRACTION_VERSION = "2.0.0"
 _FAILED_STATUSES = frozenset({"failed", "error", "cancelled", "canceled", "timeout", "timed_out"})
 _STATUS_ONLY_KEYS = frozenset(
     {
@@ -151,6 +152,7 @@ def build_evidence_source_catalog(
             raise ValueError(f"证据工具别名冲突: {alias}")
         resolved_aliases[alias] = name
     scope_payload = {
+        "evidence_extraction_version": _EVIDENCE_EXTRACTION_VERSION,
         "evidence_tool_names": sorted(selected),
         "aliases": sorted(
             (alias, target)
@@ -664,7 +666,9 @@ def _extract_stable_contents(payload: object) -> tuple[str, ...] | None:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError:
-            return None
+            # 陈述支持率的分母是原子陈述，不是证据记录数。对已登记证据工具的完整文本响应，
+            # 保留为响应级证据材料；后续仅为传输限额切块，不猜测其内部来源条数。
+            return (json.dumps(text, ensure_ascii=False),)
     raw_units: Sequence[object]
     if isinstance(parsed, Mapping):
         selected: object | None = None
@@ -681,6 +685,8 @@ def _extract_stable_contents(payload: object) -> tuple[str, ...] | None:
             if not all(isinstance(key, str) for key in selected):
                 return ()
             raw_units = tuple({key: selected[key]} for key in sorted(selected))
+        elif isinstance(selected, str):
+            return _extract_stable_contents(selected)
         else:
             return None
     elif _is_sequence(parsed):

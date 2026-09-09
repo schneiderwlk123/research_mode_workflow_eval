@@ -243,8 +243,9 @@ evaluation_run_id + trace_id + metric_name + evaluator_version
 - 成功计算 Trace 数。
 - `NOT_COMPUTABLE` Trace 数及原因分布。
 - supported 与 unsupported 的总计数。
+- not_assessable 总计数与 `automatic_assessment_coverage`。
 - 基于完整可计算分母的微平均。
-- evaluator、Judge prompt、模型和证据工具目录版本。
+- evaluator、规则集和证据工具目录版本；仅实际使用模型的指标记录 Judge prompt 与模型版本。
 
 只显示成功子集的平均值而不显示覆盖率，会产生误导。
 
@@ -340,7 +341,7 @@ Content-Type: application/json
       "trace_id": "stable-trace-id",
       "mode": "chat",
       "metric_name": "statement_support_rate",
-      "evaluator_version": "1.2.0",
+      "evaluator_version": "3.0.0",
       "status": "computed",
       "metric_value": 0.87,
       "reason_code": null,
@@ -350,8 +351,9 @@ Content-Type: application/json
         "verifiable_claim_count": 100,
         "supported_claim_count": 87,
         "unsupported_claim_count": 13,
-        "judge_version": "approved-model-version",
-        "prompt_version": "1.1.0",
+        "judge_version": "rules-1.0.0",
+        "prompt_version": "not-applicable",
+        "automatic_assessment_coverage": 0.94,
         "evidence_scope_version": "approved-scope-version"
       }
     }

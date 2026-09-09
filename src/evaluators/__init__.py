@@ -1,6 +1,7 @@
 """评测器及其公共契约。"""
 
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.deterministic_statement_support import DeterministicStatementSupportJudge
 from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
 from evaluators.intent_recognition import (
@@ -62,6 +63,7 @@ from evaluators.tool_timeout_rate import ToolTimeoutRateEvaluator
 
 __all__ = [
     "BaseEvaluator",
+    "DeterministicStatementSupportJudge",
     "EvaluationResult",
     "EvaluationStatus",
     "EndToEndLatencyEvaluator",

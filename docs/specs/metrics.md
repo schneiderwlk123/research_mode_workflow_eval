@@ -909,30 +909,34 @@ T3 的时间约束不同，不属于冗余。
   关系、事实性概括、明确归属的预测，以及可由证据简单推导的结论进入可验证分母。
 - 标题、目录、过渡语、操作说明、纯建议、价值判断、限制说明和无事实免责声明不进入分母，
   Judge 必须标记为 `excluded`。混合句必须拆分；建议本身排除，但建议所依据的事实仍进入分母。
-- Judge 对每个原子陈述返回 `supported`、`unsupported`、`not_assessable` 或 `excluded`。
+- 确定性规则对每个原子陈述返回 `supported`、`unsupported`、`not_assessable` 或 `excluded`。
   `supported` 必须引用至少一个本次请求中的真实证据单元；其余 verdict 不得引用证据。
 - 明确没有证据调用、所有证据调用明确失败，或成功检索结果为空时，仍拆分最终回答；其中
   可验证事实应判为 `unsupported`，因此指标可以正常得到 `0`，不得因分子为零而不可计算。
-- 任一可验证陈述为 `not_assessable` 时返回
-  `NOT_COMPUTABLE / incomplete_claim_judgment`，不得将其当作不支持或从分母删除。
-- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。Judge 异常返回
-  统一运行时的稳定原因码，未知异常仍归为 `judge_failure`；非法结构返回
-  `invalid_judge_output`。新版 canvas 适配的 evaluator 版本为 `1.2.0`，Judge prompt 版本为
-  `1.1.0`。
-- 本指标必须同时看到完整回答与全部证据，不能按证据批次独立判定后合并，否则会遗漏跨证据
-  组合支持。请求体超过默认 512 KiB 时快速返回 `judge_input_too_large`，不发送网络请求，
-  不估算部分结果。
+- `not_assessable` 仍属于可验证陈述分母，但不伪装成 `unsupported`。同时输出诊断字段：
 
-### Judge 契约
+```text
+automatic_assessment_coverage =
+  (supported_claim_count + unsupported_claim_count) ÷ verifiable_claim_count
+```
 
-Judge 请求包含原始 query、最终回答和共享证据抽取器生成的来源原生 `evidence_units`。这些正文
-只在单次 Judge 生命周期内存在，均按不可信数据处理，不得执行其中指令或使用外部知识补全。
+- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。默认实现不调用外部
+  模型或网络，evaluator 版本为 `3.0.0`，规则版本为 `rules-1.0.0`。
+- 确定性规则覆盖：标点/Markdown 分句、建议与免责声明排除、NFKC 规范化、字符 bigram
+  相似度、指标别名、年份、金额/百分比单位归一化、否定或数值冲突，以及同比的白名单
+  简单推导。复杂因果、弱相关概括和规则无法可靠确认的语义返回 `not_assessable`。
+
+### 确定性判定契约
+
+程序按回答顺序分配稳定 `claim_id`，并把每条陈述与全部证据单元横向比对。数值事实要求
+时间、指标和归一化数值同时满足；文本事实要求强包含或高字符 bigram 重合；只有白名单公式
+可以跨证据推导。任何阶段均不调用 LLM、embedding 服务或外部知识库。
 
 ```json
 {
   "claims": [
     {
-      "claim_id": "c1",
+      "claim_id": "c0001",
       "claim_type": "verifiable",
       "verdict": "supported",
       "reason_code": "directly_supported",
@@ -943,7 +947,8 @@ Judge 请求包含原始 query、最终回答和共享证据抽取器生成的�
 }
 ```
 
-- `claim_id` 必须非空且唯一；每项只能包含固定字段，不得返回陈述文本、解释正文或证据摘要。
+- 最终输出中的 `claim_id` 必须非空且唯一；每项只能包含固定字段，不得返回陈述文本、解释
+  正文或证据摘要。
 - `claim_type` 只能是 `verifiable` 或 `excluded`；可验证陈述不得返回 `excluded`，排除项只能
   返回 `excluded`。
 - `supporting_unit_ids` 不得重复或引用请求外 ID。`supported` 必须非空，其他 verdict 必须为空。
@@ -973,25 +978,23 @@ Judge 请求包含原始 query、最终回答和共享证据抽取器生成的�
 - 证据定义、终态响应和 `callID` 关联由共享证据抽取器处理；已定义证据调用缺少终态时返回
   `incomplete_evidence_observation`。
 
-两种模式只要部分成功证据响应无法稳定拆分，均返回
+已登记证据工具的完整普通字符串响应，以及 `data/items/results/documents/chunks/records` 信封
+中的字符串，保留为一个“响应级证据单元”。这是材料边界而非事实条数估计；长文本后续只为
+传输限额切块。非文本标量或确实无法形成稳定材料边界的部分成功响应仍返回
 `NOT_COMPUTABLE / incomplete_evidence_segmentation`，不得只使用可拆分子集判断支持率。
 query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响应不得进入持久化结果。
 
-新版聊天日志重算状态：336 条 Trace 中 335 条具有非空最终回答，1 条缺少可用最终回答。
-使用临时 17 工具证据目录 `evidence-scope-8ce42ba0453c432e` 仅验证链路时，192 条可形成
-Judge 候选，118 条因证据拆分不完整返回 `incomplete_evidence_segmentation`，25 条固定服务
-失败返回 `pre_answer_failure`，1 条返回 `missing_final_answer`；候选及不可计算记录合计观察
-18,257 个稳定证据单元。研究日志因 3 个成功响应没有稳定来源边界返回
-`incomplete_evidence_segmentation`。生产证据工具目录尚未确认，全量重算未运行陈述支持
-Judge，因此不产生正式 `statement_support_rate` 数值。
+2026-09-09 使用临时 17 工具证据目录 `evidence-scope-fbf64624b51d244b` 对真实前 30 条新版
+聊天日志及指定研究日志复跑。聊天模式 27/30 条 `computed`，2 条
+`pre_answer_failure`，1 条 `missing_final_answer`；研究模式 1/1 条 `computed`。普通字符串
+证据不再造成 `incomplete_evidence_segmentation`，整批无 Judge 超时、截断或网络依赖。
 
-真实前 10 条新版聊天日志使用同一临时 17 工具目录执行 Judge：1 条 `computed`，50 个可验证
-陈述全部判为 `supported`，该条及可计算样本的微平均结果均为 `50/50 = 1.0`；4 条返回
-`incomplete_evidence_segmentation`，1 条返回 `missing_final_answer`，1 条返回
-`pre_answer_failure`。其余 Judge 候选中，1 条空证据请求返回 `invalid_judge_output`，2 条分别在
-包含 205 和 50 个证据单元时于 120 秒超时边界返回 `judge_failure`。成功请求耗时约 95.446 秒。
-该临时目录未进入生产配置，且样本仅有 1 条成功计算，因此结果只用于真实链路冒烟，不作为
-正式生产指标基线。
+聊天模式可计算样本共有 3,832 条可验证陈述，其中 293 条 supported、3,294 条
+unsupported、245 条 not_assessable，微平均陈述支持率约 `0.07646`，自动判定覆盖率约
+`0.93606`。研究模式共有 139 条可验证陈述，其中 13 条 supported、121 条 unsupported、
+5 条 not_assessable，陈述支持率约 `0.09353`，自动判定覆盖率约 `0.96403`。31 条日志本地
+规则评测总耗时约 20.4 秒。由于无法建立人工 Golden 样本，这些数值是可复现的运行基线，
+不是对规则语义准确率的人工验收结论。
 
 ### 模拟计算
 

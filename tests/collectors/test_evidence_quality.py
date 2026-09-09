@@ -140,7 +140,7 @@ def test_identical_content_without_source_identity_is_not_merged() -> None:
     assert normalized["diagnostics"]["duplicate_evidence_unit_count"] == 0
 
 
-def test_chat_missing_inputs_and_unsegmentable_text_are_explicit() -> None:
+def test_chat_missing_inputs_and_plain_text_evidence_are_explicit() -> None:
     catalog = _catalog()
     missing_query = normalize_chat_evidence(
         {"canvas": {"meta": {"traceId": "trace-1"}, "agents": []}}, catalog
@@ -150,7 +150,7 @@ def test_chat_missing_inputs_and_unsegmentable_text_are_explicit() -> None:
         _chat_trace("查询行情", calls=[_chat_call("call-1", "quote")]),
         catalog,
     )
-    unsegmentable = normalize_chat_evidence(
+    plain_text = normalize_chat_evidence(
         _chat_trace(
             "查询报告",
             calls=[_chat_call("call-1", "search")],
@@ -162,11 +162,12 @@ def test_chat_missing_inputs_and_unsegmentable_text_are_explicit() -> None:
     assert missing_query["normalization_error"] == "missing_query"
     assert no_calls["normalization_error"] == "no_evidence_calls"
     assert no_response["normalization_error"] == "no_successful_evidence_responses"
-    assert unsegmentable["normalization_error"] == "no_stable_evidence_units"
-    assert unsegmentable["diagnostics"]["unsegmentable_evidence_response_count"] == 1
+    assert plain_text["normalization_error"] is None
+    assert plain_text["evidence_unit_count"] == 1
+    assert plain_text["diagnostics"]["unsegmentable_evidence_response_count"] == 0
 
 
-def test_partial_unsegmentable_responses_do_not_silently_shrink_denominator() -> None:
+def test_plain_text_and_structured_responses_are_both_retained() -> None:
     normalized = normalize_chat_evidence(
         _chat_trace(
             "查询行情和研报",
@@ -179,9 +180,43 @@ def test_partial_unsegmentable_responses_do_not_silently_shrink_denominator() ->
         _catalog(),
     )
 
+    assert normalized["evidence_unit_count"] == 2
+    assert normalized["candidate"] is not None
+    assert normalized["normalization_error"] is None
+
+
+def test_nested_plain_text_payload_is_retained_as_response_level_evidence() -> None:
+    normalized = normalize_chat_evidence(
+        _chat_trace(
+            "查询行业指标",
+            calls=[_chat_call("call-1", "search")],
+            results=[
+                _chat_result(
+                    "call-1",
+                    {"code": 0, "data": "指标名称 | 单位\n产量 | 万吨", "msg": "ok"},
+                )
+            ],
+        ),
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is not None
     assert normalized["evidence_unit_count"] == 1
+    assert normalized["normalization_error"] is None
+
+
+def test_non_text_scalar_response_remains_unsegmentable() -> None:
+    normalized = normalize_chat_evidence(
+        _chat_trace(
+            "查询报告",
+            calls=[_chat_call("call-1", "search")],
+            results=[_chat_result("call-1", 42)],
+        ),
+        _catalog(),
+    )
+
     assert normalized["candidate"] is None
-    assert normalized["normalization_error"] == "incomplete_evidence_segmentation"
+    assert normalized["normalization_error"] == "no_stable_evidence_units"
 
 
 def test_successful_empty_result_has_no_evidence_units_without_segmentation_error() -> None:
@@ -361,6 +396,33 @@ def test_research_joins_completed_outputs_by_call_id_and_deduplicates_lifecycle(
     assert candidate.evidence_units[0].tool_name == "quote"
     assert normalized["diagnostics"]["duplicate_call_definition_count"] == 1
     assert normalized["diagnostics"]["successful_evidence_response_count"] == 1
+
+
+def test_research_plain_text_output_is_retained_as_response_level_evidence() -> None:
+    normalized = normalize_research_evidence(
+        [
+            {
+                "sessionID": "session-1",
+                "userMessageID": "message-1",
+                "query": "查询财务数据",
+                "result": {
+                    "toolCalls": [{"toolCallId": "call-1", "toolName": "mcp__finance__quote"}]
+                },
+            },
+            {
+                "part": {
+                    "type": "tool",
+                    "callID": "call-1",
+                    "state": {"status": "completed", "output": "收入为 100 亿元"},
+                }
+            },
+        ],
+        _catalog(),
+    )
+
+    assert normalized["candidate"] is not None
+    assert normalized["evidence_unit_count"] == 1
+    assert normalized["normalization_error"] is None
 
 
 def test_research_missing_call_id_and_conflicting_definitions_are_not_computable() -> None:

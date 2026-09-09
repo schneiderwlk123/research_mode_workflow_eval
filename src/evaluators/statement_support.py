@@ -61,7 +61,13 @@ class StatementSupportJudge(Protocol):
 class StatementSupportEvaluator(BaseEvaluator):
     """严格校验原子陈述覆盖后，计算 supported / verifiable。"""
 
-    def __init__(self, judge: StatementSupportJudge) -> None:
+    def __init__(self, judge: StatementSupportJudge | None = None) -> None:
+        if judge is None:
+            from evaluators.deterministic_statement_support import (
+                DeterministicStatementSupportJudge,
+            )
+
+            judge = DeterministicStatementSupportJudge()
         self._judge = judge
         self._judge_name = _required_string(judge.judge_name)
         self._judge_version = _required_string(judge.judge_version)
@@ -73,7 +79,7 @@ class StatementSupportEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.2.0"
+        return "3.0.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -143,10 +149,10 @@ class StatementSupportEvaluator(BaseEvaluator):
             unsupported_claim_count=unsupported,
             not_assessable_claim_count=not_assessable,
             excluded_claim_count=excluded,
+            automatic_assessment_coverage=(
+                (supported + unsupported) / verifiable if verifiable else None
+            ),
         )
-        if not_assessable:
-            metadata["reason"] = "incomplete_claim_judgment"
-            return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
         if verifiable == 0:
             metadata["reason"] = "no_verifiable_claims"
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)

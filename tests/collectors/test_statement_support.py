@@ -96,7 +96,7 @@ def test_chat_evidence_call_without_terminal_response_is_not_computable() -> Non
     assert normalized["normalization_error"] == "incomplete_evidence_observation"
 
 
-def test_partial_unsegmentable_evidence_does_not_silently_shrink_support_basis() -> None:
+def test_plain_text_response_is_preserved_as_complete_support_basis() -> None:
     normalized = normalize_chat_statement_support(
         _chat_trace(
             "分析公司收入",
@@ -113,9 +113,9 @@ def test_partial_unsegmentable_evidence_does_not_silently_shrink_support_basis()
         _catalog(),
     )
 
-    assert normalized["candidate"] is None
-    assert normalized["evidence_unit_count"] == 1
-    assert normalized["normalization_error"] == "incomplete_evidence_segmentation"
+    assert normalized["candidate"] is not None
+    assert normalized["evidence_unit_count"] == 2
+    assert normalized["normalization_error"] is None
 
 
 def test_chat_rejects_legacy_top_level_query_answer_and_queue() -> None:

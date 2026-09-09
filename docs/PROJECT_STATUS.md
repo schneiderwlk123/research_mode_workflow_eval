@@ -63,13 +63,15 @@ Schema 合法率、
   原文、参数值和 Judge 响应不落盘。
 - 陈述支持率共享显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存
   证据去重；新版 canvas 按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、
-  孤立结果及冲突生命周期，旧版聊天解析已删除；不可拆分文本不估算，query、证据正文和摘要
-  不落盘；显式证据工具范围生成稳定 `evidence_scope_version`。
+  孤立结果及冲突生命周期，旧版聊天解析已删除；已登记证据工具的普通字符串响应保留为
+  响应级证据，非文本标量仍不估算，query、证据正文和摘要不落盘；解析契约版本进入稳定
+  `evidence_scope_version`。
 - 聊天最终回答和研究模式 `turn.end` 前最后一个 assistant 文本提取、空证据零分入口、严格
-  原子陈述 Judge 契约及 OpenAI-compatible 适配器；新版 canvas 从
+  原子陈述结果契约及确定性规则评测器；新版 canvas 从
   `meta.query/answer.answer` 提取聊天输入，旧版顶层字段不再支持；`statement_support_rate`
-  版本为 `1.2.0`；为保留跨证据组合支持语义不做证据分批，超过 512 KiB 时快速返回
-  `judge_input_too_large`，query、回答、原子陈述、证据正文和 Judge 原始响应不落盘。
+  版本为 `3.0.0`。默认路径不调用 LLM 或网络，使用规则分句、字符 bigram、指标别名、时间、
+  数值与单位归一化、冲突检测和同比白名单推导；复杂语义保留为 `not_assessable`，并
+  输出自动判定覆盖率，query、回答、原子陈述和证据正文不落盘。
 - 版本化工具 SLA 与别名目录，以及新版 canvas/研究调用的显式超时、SLA 超限和缺失时间
   分类；聊天模式按 `traceId + toolId` 跨 Agent/message 关联请求与结果，排除子 Agent、孤立
   结果和旧版 `tool_call_queue`。`tool_timeout_rate` 版本为 `1.1.0`；工具 SLA 缺失时不可计算，
@@ -145,7 +147,8 @@ Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规�
   去重行为证据和 950 个实际 MCP 能力，另有 2 个无文本子 Agent 诊断；无最终得分
 时间范围提取准确率候选: 312/336 条 Trace 可提交 Judge，24 条前置失败；336 条均使用
   canvas_meta 时间锚点，候选含 4266 次唯一调用，其中 2911 次被手册覆盖；无最终得分
-陈述支持率/最终数值一致率: 缺生产证据工具目录且未运行 Judge，无最终得分
+陈述支持率: 临时 17 工具目录下，聊天前 30 条微平均约 0.07646、自动判定覆盖率约
+  0.93606；研究日志约 0.09353、覆盖率约 0.96403；生产证据工具目录仍待管理员确认
 MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，1355 次手册外调用被排除
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
 端到端时延聊天模式: 336/336 条可计算；最小 0 ms、中位数 84500 ms、平均
@@ -223,24 +226,25 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 时间范围提取准确率模拟计算: 正确字段 6、错误字段 1，结果 6/7 ≈ 0.85714, computed
 时间范围提取准确率真实前 10 条聊天日志: 2 条可计算、1 条无时间需求、7 条前置模型服务
   失败；可计算日志正确字段 5、错误字段 2，微平均 5/7 ≈ 0.71429；Judge 失败 0
-陈述支持率定向与共享回归测试: 21 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
-  evaluator 版本 `1.2.0`
+陈述支持率定向与共享回归测试: 58 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
+  evaluator 版本 `3.0.0`，确定性规则版本 `rules-1.0.0`
 陈述支持率新版聊天结构验算: 使用临时 17 工具目录时，336 条中 192 条形成 Judge 候选，
-  共观察 18257 个稳定证据单元；118 条 incomplete_evidence_segmentation，25 条
-  pre_answer_failure，1 条 missing_final_answer。没有证据或明确空结果仍可进入 Judge 并得到
-  0 分；旧版顶层 query/answer/tool_call_queue 不再支持
+  历史上共观察 18257 个稳定证据单元；普通字符串响应现已改为响应级证据，不再因缺少内部
+  来源边界直接判为 incomplete_evidence_segmentation。没有证据或明确空结果仍可进入 Judge
+  并得到 0 分；旧版顶层 query/answer/tool_call_queue 不再支持
 陈述支持率研究模式: 通过 assistant message ID 选择 turn.end 前最后一个非空文本；成功产物
-  无最终正文返回 missing_final_artifact_content，缺少证据终态和不完整拆分不估算；当前研究
-  日志因 3 个成功响应不可稳定拆分而返回 incomplete_evidence_segmentation
+  无最终正文返回 missing_final_artifact_content，缺少证据终态和非文本标量响应不估算；普通
+  字符串工具输出现作为响应级证据进入确定性横向比对
 陈述支持率模拟计算: 2 个可验证原子陈述中 1 个 supported、1 个 unsupported，另有 1 个
   excluded 建议，结果 1/2 = 0.5, computed；聊天与研究 evaluator 路径均通过
-陈述支持率真实前 10 条新版聊天日志: 使用临时 17 工具目录执行 Judge，1 条 computed，50 个
-  可验证陈述全部 supported，结果及可计算样本微平均均为 50/50 = 1.0；4 条
-  incomplete_evidence_segmentation，1 条 missing_final_answer，1 条 pre_answer_failure，
-  1 条 invalid_judge_output，2 条在 120 秒超时边界返回 judge_failure。该结果为共享运行时
-  改良前的历史记录；其中约 815 KiB 的超大请求在新版本会于网络调用前返回
-  `judge_input_too_large`，尚未重新运行真实 Judge。成功请求耗时约 95.446 秒；临时目录未
-  进入生产配置，结果不作为正式生产基线
+陈述支持率真实前 30 条新版聊天日志: 使用临时 17 工具目录与无 LLM 规则版复跑，27 条
+  computed，2 条 pre_answer_failure，1 条 missing_final_answer；3,832 条可验证陈述中
+  293 条 supported、3,294 条 unsupported、245 条 not_assessable，微平均支持率约
+  0.07646，自动判定覆盖率约 0.93606
+陈述支持率研究日志: 1 条 computed；9 个证据单元，139 条可验证陈述中 13 条 supported、
+  121 条 unsupported、5 条 not_assessable，支持率约 0.09353，自动判定覆盖率约 0.96403；
+  聊天与研究共 31 条规则评测本地耗时约 20.4 秒，无网络或 Judge 依赖。因无法建立人工
+  Golden 样本，该结果作为可复现运行基线，不声明规则语义准确率已获人工验收
 超时率测试: 22 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；新版聊天按
   `canvas.meta.traceId` 与跨 Agent/message 的 `content.tool_call[]/tool_result[]` 关联唯一调用，
   排除子 Agent、孤立结果和旧版 `tool_call_queue`

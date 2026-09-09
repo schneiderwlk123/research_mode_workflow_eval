@@ -120,12 +120,14 @@
   或 free-text query，隔离检索窗口与业务期间，并对供应商异常做脱敏处理；prompt 版本为
   `2.0.0`。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
-  三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.2.0`。
+  三态可验证结论和排除项，默认装配确定性规则并计算 `statement_support_rate` 与自动判定
+  覆盖率；新版 canvas 适配版本为 `3.0.0`。
+- `src/evaluators/deterministic_statement_support.py`：不调用 LLM，执行规则分句、建议排除、
+  字符 bigram 检索、指标/年份/金额/百分比匹配、数值冲突识别和同比白名单推导。
 - `src/evaluators/tool_timeout_rate.py`：校验策略版本、唯一调用及分类诊断计数，计算
   `tool_timeout_rate`；缺少工具 SLA 时不估算，新版 canvas 适配版本为 `1.1.0`。
 - `src/evaluators/openai_compatible_statement_support_judge.py`：把不可信 query、最终回答和
-  全部证据单元整体提交给 OpenAI-compatible Judge；超过请求上限时快速失败，避免不安全的
-  语义分批，禁止输出陈述正文并隔离供应商异常。
+  全部证据提交给 OpenAI-compatible Judge 的历史可注入适配器；不再是陈述支持率默认路径。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/`：跨 Trace 聚合与报告输出；尚待实现。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
@@ -162,7 +164,7 @@
   去重、缺失调用字段、非法结构、旧结构拒绝、无调用零分入口、前置失败和不完整参数观察测试。
 - `tests/collectors/test_evidence_quality.py`：显式证据工具范围、新版 canvas 跨 Agent/message
   关联、子 Agent 与孤立结果排除、重复和冲突生命周期、旧结构拒绝、结构化单元拆分、内存
-  去重、不可拆分响应及研究回归测试。
+  去重、响应级普通字符串证据、非文本标量拒绝及研究回归测试。
 - `tests/collectors/test_statement_support.py`：新版 canvas/研究最终回答选择、空证据可计算、
   前置失败、缺终态、部分不可拆分响应、旧结构拒绝和成功产物无正文测试。
 - `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、新版 canvas 跨 Agent/message 关联、
@@ -198,11 +200,13 @@
 - `tests/evaluators/test_openai_compatible_time_range_judge.py`：query-only 提取请求、带角色时间
   证据、动态字段 ID Schema、检索窗口隔离及供应商异常脱敏测试。
 - `tests/evaluators/test_statement_support.py`：支持率、正常零分、无可验证陈述、不可判定、
-  Judge 完整性、证据引用和敏感正文隔离测试。
+  自动判定覆盖率、默认规则装配、Judge 兼容性、证据引用和敏感正文隔离测试。
+- `tests/evaluators/test_deterministic_statement_support.py`：金额/百分比/时间匹配、数值冲突、
+  文本事实、复杂语义保守判定、跨证据同比推导和空证据测试。
 - `tests/evaluators/test_tool_timeout_rate.py`：双模式超时率、超时分类计数、缺失 SLA、非法
   规范化输入和错误隔离测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
-  JSON 响应解析和供应商异常脱敏测试。
+  历史可注入 Judge 的请求结构、JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
   检索测试。
 - `docs/specs/metrics.md`：按开发顺序集中记录所有指标的定义和原始字段映射。
