@@ -7,15 +7,15 @@
 评测框架基础骨架、调用事件完整率、完全重复调用率、MCP 工具调用膨胀率、必填参数完整率、
 Schema 合法率、
 参数值准确率核心、路由 Precision、路由 Recall、子任务冗余率和意图识别准确率已经实现。
-时间范围提取准确率、证据查准率和陈述支持率已验收。工具超时率已实现。
+时间范围提取准确率和陈述支持率已验收。工具超时率已实现。
 
 已完成：
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十七个指标行为测试，共 462 项；最近一次验证全部通过。
+- 公共契约及十六个指标行为测试，共 443 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
-- 代码地图和 17 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
+- 代码地图和 16 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
 - 新版 canvas 和研究工具调用事件的最小规范化切片，不保留工具参数或响应正文；新版聊天按
   `traceId + toolId` 跨消息关联请求与结果，并隔离孤立 Agent 返回；旧版聊天解析已删除。
@@ -42,7 +42,7 @@ Schema 合法率、
   数组路径展开和自由原因码导致的非法输出；支持部分失败隔离，最终结果不输出辅助率指标。
 - OpenAI-compatible Judge 共享运行时与常用 dotenv 配置加载：远程端点强制 HTTPS，优先
   使用严格 JSON Schema，供应商拒绝时回退 JSON 对象模式；默认 512 KiB 请求上限、2 次
-  瞬态重试、输出截断检测及稳定脱敏错误分类已覆盖六类 Judge 指标。
+  瞬态重试、输出截断检测及稳定脱敏错误分类已覆盖五类 Judge 指标。
 - LLM 结合整体意图、全部可见子任务和 MCP Schema 生成子任务路由，程序派生标准能力并集；
   动态 Schema 声明安全 snake_case 标签与目录内能力 ID 约束，业务输出非法时携带安全原因码重试
   一次，重试后仅映射元数据非法时跳过持久化但保留合法能力计数。日志明确声明但手册缺失的
@@ -61,11 +61,10 @@ Schema 合法率、
   business data period。显式年份、最新性和预测属性提供确定性补漏，业务结构非法时安全重试
   一次；`time_range_extraction_accuracy` evaluator 与 prompt 版本均为 `2.0.0`，query、日期
   原文、参数值和 Judge 响应不落盘。
-- 显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存证据去重；
-  新版 canvas 按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、孤立结果
-  及冲突生命周期，旧版聊天解析已删除；`evidence_precision_rate` 版本为 `1.2.0`，Judge
-  默认每 40 个证据单元分批且任一批失败不返回部分结果；不可拆分文本不估算，query、证据
-  正文、摘要和 Judge 原始响应不落盘；显式证据工具范围生成稳定 `evidence_scope_version`。
+- 陈述支持率共享显式 MCP 证据工具目录、聊天/研究成功响应关联、来源原生结构拆分和内存
+  证据去重；新版 canvas 按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、
+  孤立结果及冲突生命周期，旧版聊天解析已删除；不可拆分文本不估算，query、证据正文和摘要
+  不落盘；显式证据工具范围生成稳定 `evidence_scope_version`。
 - 聊天最终回答和研究模式 `turn.end` 前最后一个 assistant 文本提取、空证据零分入口、严格
   原子陈述 Judge 契约及 OpenAI-compatible 适配器；新版 canvas 从
   `meta.query/answer.answer` 提取聊天输入，旧版顶层字段不再支持；`statement_support_rate`
@@ -81,15 +80,15 @@ Schema 合法率、
   模式读取 Agent message 自身耗时，研究模式按 message ID 配对步骤边界并诊断事件时间戳差异。
 - 双模式 Token 消耗规范化及 `total_token_consumption` 评估器，版本 `1.0.0`；聊天模式累加
   Agent 模型步骤 input/output，研究模式按 message ID 去重 step-finish total，不处理 cache 分项。
-- 集中式指标规格 `docs/specs/metrics.md`，当前记录十七个已实现指标。
-- 已按新版聊天 JSON 数组结构重算十七个指标的字段映射、确定性基线和条件可计算范围；
+- 集中式指标规格 `docs/specs/metrics.md`，当前记录十六个已实现指标。
+- 已按新版聊天 JSON 数组结构重算十六个指标的字段映射、确定性基线和条件可计算范围；
   明确区分普通工具请求、子 Agent 调用与结果侧 Agent 返回，未把 Judge 候选覆盖率当成语义得分。
 
 ## 当前状态
 
 - 已暂时跳过指标：调用成功率、异常率、重试成功率、重试率、平均重试尝试次数和
   实体映射准确率；相关实现、测试和专用规格已删除。
-- 已删除指标：证据查全率、证据时效合格率、证据可追溯率、无依据陈述率、数值忠实度、
+- 已删除指标：证据查准率、证据查全率、证据时效合格率、证据可追溯率、无依据陈述率、数值忠实度、
   最终数值与召回证据一致率、硬编码率、循环引用率、需求覆盖率、严格任务完成率、信息保留率、
   信息坍缩率和中间结果与最终结果一致率、公式计算准确率、公式单元格覆盖率、首次工具决策
   时延、单次工具调用时延、工具调用时延 P50、工具调用时延 P95、工具调用时延 P99、工具间
@@ -113,7 +112,7 @@ Schema 合法率、
 
 - 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
   调用率、MCP 工具调用膨胀率、必填参数完整率、Schema 合法率、参数值准确率、路由
-  Precision/Recall、子任务冗余率、意图识别准确率、时间范围提取准确率、证据查准率和陈述
+  Precision/Recall、子任务冗余率、意图识别准确率、时间范围提取准确率和陈述
   支持率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版字段读取，完整统一
   Trace 模型尚未实现。
 - collectors、聚合器、报告器、配置加载器和可运行 CLI 尚未实现。
@@ -146,10 +145,6 @@ Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规�
   去重行为证据和 950 个实际 MCP 能力，另有 2 个无文本子 Agent 诊断；无最终得分
 时间范围提取准确率候选: 312/336 条 Trace 可提交 Judge，24 条前置失败；336 条均使用
   canvas_meta 时间锚点，候选含 4266 次唯一调用，其中 2911 次被手册覆盖；无最终得分
-证据查准率结构上限: 缺生产证据工具目录且未运行 Judge，无最终得分；以手册全部 77 个工具
-  仅验证解析链路时，140/336 条形成候选，含 2911 次目录内调用、2820 次成功响应和 26564 个
-  结构化单元；120 条 incomplete_evidence_segmentation，65 条 no_evidence_calls，
-  10 条 no_stable_evidence_units，1 条 no_successful_evidence_responses
 陈述支持率/最终数值一致率: 缺生产证据工具目录且未运行 Judge，无最终得分
 MCP 工具调用膨胀率: 33/2911 ≈ 0.01134；2878 个不同请求签名，1355 次手册外调用被排除
 超时率: 3443/4266 次调用有工具执行耗时，823 次缺失；缺生产 SLA，返回 missing_tool_sla
@@ -166,7 +161,7 @@ Token 消耗聊天模式: 312/336 条可计算，24 条 no_observable_token_usag
 Token 消耗研究模式: 27/27 个 step-finish Token 完整，合计 18064255 tokens
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 451 passed
+pytest: 443 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -228,22 +223,6 @@ Schema 合法率研究日志验算: 5/5 = 1.0
 时间范围提取准确率模拟计算: 正确字段 6、错误字段 1，结果 6/7 ≈ 0.85714, computed
 时间范围提取准确率真实前 10 条聊天日志: 2 条可计算、1 条无时间需求、7 条前置模型服务
   失败；可计算日志正确字段 5、错误字段 2，微平均 5/7 ≈ 0.71429；Judge 失败 0
-证据查准率定向测试: 31 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；evaluator
-  版本 `1.2.0`
-证据查准率新版聊天结构上限验算: 使用手册全部 77 个工具仅验证解析链路，336 条中 140 条
-  形成 Judge 候选，2911 次目录内调用产生 2820 次成功响应和 26564 个稳定结构化单元；
-  120 条 incomplete_evidence_segmentation，65 条 no_evidence_calls，10 条
-  no_stable_evidence_units，1 条 no_successful_evidence_responses；另隔离 411 个孤立结果
-证据查准率研究日志结构上限验算: 5 个目录内调用中抽取 7 个稳定证据单元，但另有 3 个
-  成功响应无稳定来源边界，因此返回 incomplete_evidence_segmentation，不缩小分母；未调用
-  真实 Judge，未生成语义分数
-证据查准率真实前 10 条聊天日志: 使用仅覆盖样本内明确外部检索、行情、财务、公告和文档
-  来源的临时 17 工具目录 `evidence-scope-8ce42ba0453c432e`；1 条 computed，50 个证据单元中
-  relevant 37、irrelevant 13，结果 37/50 = 0.74；1 条因 24 个单元中存在 1 个
-  not_assessable 返回 incomplete_relevance_judgment；1 条含 205 个单元的请求返回
-  judge_failure；5 条 incomplete_evidence_segmentation，2 条 no_evidence_calls。该结果为
-  共享运行时改良前的历史记录；新版本会对证据单元分批，尚未重新运行真实 Judge。该临时
-  目录未进入生产配置，结果不得作为正式生产基线
 陈述支持率定向与共享回归测试: 21 项通过；聊天与研究模式均为 CONDITIONALLY_COMPUTABLE；
   evaluator 版本 `1.2.0`
 陈述支持率新版聊天结构验算: 使用临时 17 工具目录时，336 条中 192 条形成 Judge 候选，

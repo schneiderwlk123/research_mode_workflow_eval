@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TypedDict, TypeGuard
 
 from collectors.evidence_quality import (
+    EvidenceCandidate,
     EvidenceDiagnostics,
-    EvidencePrecisionCandidate,
     EvidenceSourceCatalog,
     EvidenceUnit,
     NormalizedEvidenceTrace,
@@ -111,11 +111,7 @@ def _build_result(
     error: str | None,
 ) -> NormalizedStatementSupportTrace:
     raw_candidate = evidence.get("candidate")
-    units = (
-        raw_candidate.evidence_units
-        if isinstance(raw_candidate, EvidencePrecisionCandidate)
-        else ()
-    )
+    units = raw_candidate.evidence_units if isinstance(raw_candidate, EvidenceCandidate) else ()
     candidate = (
         StatementSupportCandidate(query, answer, units)
         if query is not None and answer is not None and error is None

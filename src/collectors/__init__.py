@@ -7,8 +7,8 @@ from collectors.end_to_end_latency import (
     normalize_research_end_to_end_latency,
 )
 from collectors.evidence_quality import (
+    EvidenceCandidate,
     EvidenceDiagnostics,
-    EvidencePrecisionCandidate,
     EvidenceSourceCatalog,
     EvidenceUnit,
     NormalizedEvidenceTrace,
@@ -123,8 +123,8 @@ from collectors.tool_timeout_rate import (
 
 __all__ = [
     "ExactDuplicateDiagnostics",
+    "EvidenceCandidate",
     "EvidenceDiagnostics",
-    "EvidencePrecisionCandidate",
     "EvidenceSourceCatalog",
     "EvidenceUnit",
     "EndToEndLatencyDiagnostics",

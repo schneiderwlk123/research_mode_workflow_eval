@@ -238,11 +238,11 @@ evaluation_run_id + trace_id + metric_name + evaluator_version
 
 聚合层只统计 `computed` 结果，并单独展示不可计算率和错误率。
 
-例如证据查准率应同时展示：
+例如陈述支持率应同时展示：
 
 - 成功计算 Trace 数。
 - `NOT_COMPUTABLE` Trace 数及原因分布。
-- relevant 与 irrelevant 的总计数。
+- supported 与 unsupported 的总计数。
 - 基于完整可计算分母的微平均。
 - evaluator、Judge prompt、模型和证据工具目录版本。
 
@@ -339,7 +339,7 @@ Content-Type: application/json
     {
       "trace_id": "stable-trace-id",
       "mode": "chat",
-      "metric_name": "evidence_precision_rate",
+      "metric_name": "statement_support_rate",
       "evaluator_version": "1.2.0",
       "status": "computed",
       "metric_value": 0.87,
@@ -347,9 +347,9 @@ Content-Type: application/json
       "source_schema_version": "canvas-v2",
       "input_revision": "safe-source-digest",
       "safe_metadata": {
-        "evidence_unit_count": 100,
-        "relevant_evidence_unit_count": 87,
-        "irrelevant_evidence_unit_count": 13,
+        "verifiable_claim_count": 100,
+        "supported_claim_count": 87,
+        "unsupported_claim_count": 13,
         "judge_version": "approved-model-version",
         "prompt_version": "1.1.0",
         "evidence_scope_version": "approved-scope-version"

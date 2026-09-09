@@ -4,7 +4,7 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：17 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
+- `docs/specs/metric-development-order.md`：16 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
   工具超时率、双模式端到端时延、平均模型步骤时延和 Token 消耗。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
@@ -48,7 +48,7 @@
 - `src/collectors/evidence_quality.py`：使用显式 MCP 证据工具目录连接新版 canvas/研究调用与
   成功响应；聊天模式按 `traceId + toolId` 跨 Agent/message 关联请求和结果，隔离子 Agent、
   孤立结果及冲突生命周期，旧版 `tool_call_queue` 不再支持；证据按来源原生结构拆分并在
-  内存去重，无边界长文本和派生工具不进入指标。
+  内存去重，无边界长文本和派生工具不进入陈述支持率的证据输入。
 - `src/collectors/statement_support.py`：复用证据单元抽取，从新版 canvas 的
   `meta.query/answer.answer` 提取聊天输入，或选择研究模式 `turn.end` 前最后一个 assistant
   文本；区分空证据、缺终态、不完整证据拆分和固定前置服务失败，旧版顶层聊天字段不再支持。
@@ -119,10 +119,6 @@
   将工具参数标注为 data period、reporting period、retrieval window、frequency、value type
   或 free-text query，隔离检索窗口与业务期间，并对供应商异常做脱敏处理；prompt 版本为
   `2.0.0`。
-- `src/evaluators/evidence_precision.py`：定义证据相关性 Judge 契约，严格校验逐单元三态
-  判断，在完整证据分母上计算 `evidence_precision_rate`；新版 canvas 适配版本为 `1.2.0`。
-- `src/evaluators/openai_compatible_evidence_judge.py`：把不可信 query 与来源原生证据单元
-  按默认 40 单元安全分批提交；全部批次成功后才合并，任一失败不返回部分结果。
 - `src/evaluators/statement_support.py`：定义原子陈述支持 Judge 契约，严格校验证据引用、
   三态可验证结论和排除项，并计算 `statement_support_rate`；新版 canvas 适配版本为 `1.2.0`。
 - `src/evaluators/tool_timeout_rate.py`：校验策略版本、唯一调用及分类诊断计数，计算
@@ -201,10 +197,6 @@
   校验和敏感异常隔离测试。
 - `tests/evaluators/test_openai_compatible_time_range_judge.py`：query-only 提取请求、带角色时间
   证据、动态字段 ID Schema、检索窗口隔离及供应商异常脱敏测试。
-- `tests/evaluators/test_evidence_precision.py`：查准率、完整分母、三态 Judge、严格输出校验、
-  规范化错误和敏感正文隔离测试。
-- `tests/evaluators/test_openai_compatible_evidence_judge.py`：证据单元请求结构、确定性采样、
-  JSON 响应解析和供应商异常脱敏测试。
 - `tests/evaluators/test_statement_support.py`：支持率、正常零分、无可验证陈述、不可判定、
   Judge 完整性、证据引用和敏感正文隔离测试。
 - `tests/evaluators/test_tool_timeout_rate.py`：双模式超时率、超时分类计数、缺失 SLA、非法

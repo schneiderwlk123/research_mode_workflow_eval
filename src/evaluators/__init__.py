@@ -2,11 +2,6 @@
 
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
-from evaluators.evidence_precision import (
-    EvidencePrecisionEvaluator,
-    EvidenceRelevanceJudge,
-    EvidenceRelevanceJudgeRequest,
-)
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
@@ -15,7 +10,6 @@ from evaluators.intent_recognition import (
 )
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
 from evaluators.model_step_latency import AverageModelStepLatencyEvaluator
-from evaluators.openai_compatible_evidence_judge import OpenAICompatibleEvidenceRelevanceJudge
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
 from evaluators.openai_compatible_judge_runtime import (
     JudgeExecutionError,
@@ -71,9 +65,6 @@ __all__ = [
     "EvaluationResult",
     "EvaluationStatus",
     "EndToEndLatencyEvaluator",
-    "EvidencePrecisionEvaluator",
-    "EvidenceRelevanceJudge",
-    "EvidenceRelevanceJudgeRequest",
     "ExactDuplicateToolCallEvaluator",
     "IntentRecognitionAccuracyEvaluator",
     "IntentRecognitionJudge",
@@ -83,7 +74,6 @@ __all__ = [
     "AverageModelStepLatencyEvaluator",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
-    "OpenAICompatibleEvidenceRelevanceJudge",
     "OpenAICompatibleIntentRecognitionJudge",
     "OpenAICompatibleJudgeClient",
     "OpenAICompatibleRoutingJudge",

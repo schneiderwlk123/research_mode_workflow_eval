@@ -27,8 +27,8 @@
 
 ### OpenAI-compatible Judge 统一执行约定
 
-参数值准确率、路由 Precision/Recall、意图识别准确率、时间范围提取准确率、证据查准率和
-陈述支持率共用同一 Judge 运行时：
+参数值准确率、路由 Precision/Recall、意图识别准确率、时间范围提取准确率和陈述支持率
+共用同一 Judge 运行时：
 
 - 首选严格 `response_format.type = json_schema`；仅当供应商以 HTTP 400 拒绝该格式时，回退
   一次 `json_object`。无论供应商是否执行 Schema，evaluator 都必须再次校验业务约束。
@@ -894,113 +894,7 @@ T3 的时间约束不同，不属于冗余。
 时间范围提取准确率 = 6 ÷ 7 ≈ 0.85714
 ```
 
-## 11. 证据查准率
-
-### 指标定义
-
-稳定指标名：`evidence_precision_rate`
-
-```text
-证据查准率 =
-  Judge 判定为 relevant 的唯一证据单元数 ÷ 实际取得的唯一证据单元总数
-```
-
-- `evidence_unit` 是 Agent 从外部数据源成功取得、具有稳定来源边界、包含可验证事实，且能
-  独立参与相关性判断的最小来源记录。RAG Chunk、单条搜索结果、数据库行、行情或财务
-  记录、带来源定位的网页/报告片段均可属于证据。
-- 用户 query、规划、推理、最终回答、工具参数、错误消息、框架工具输出，以及 Excel、代码
-  或公式生成的派生结果不属于本指标的证据。证据工具必须通过版本化 MCP 手册和显式工具
-  名单共同登记，避免把计算或写作工具误计为外部来源。
-- 显式工具名单和别名映射生成稳定 `evidence_scope_version`；它与 MCP 手册版本一同进入
-  结果，工具范围改变时不会与旧口径混合聚合。
-- JSON 数组及明确的 `data/items/results/documents/chunks/records` 容器按原生元素拆分；单条
-  结构化记录作为一个单元；字符串化 JSON 先解析。没有原生边界的长文本不按标点或长度
-  猜测切分。
-- 只有记录自带 `chunk_id/record_id/row_id/source_id/document_id/doc_id/url/link` 等稳定
-  来源标识，且来源标识与规范化内容都相同时才在会话内去重。缺少来源标识时保留每次实际
-  返回，避免合并不同来源的相同事实；SHA-256 摘要仅用于内存去重，不进入结果。重复调用
-  成本仍由 `exact_duplicate_tool_call_rate` 评估。
-- Judge 必须为每个单元返回一次 `relevant`、`irrelevant` 或 `not_assessable`。只要存在
-  `not_assessable`，完整分母就无法可靠判断，返回
-  `NOT_COMPUTABLE / incomplete_relevance_judgment`，不得将其当作无关或从分母删除。
-- Judge 输入默认按每批 40 个证据单元安全分批，所有批次成功后才合并；任一批失败时整条
-  Trace 不可计算，不返回部分分数，也不缩小完整证据分母。
-- Judge 异常返回 `NOT_COMPUTABLE` 及统一运行时的稳定原因码，未知异常仍归为
-  `judge_failure`；非法结构返回 `NOT_COMPUTABLE / invalid_judge_output`。evaluator 版本为
-  `1.2.0`，Judge prompt 版本为 `1.1.0`；Judge 名称、模型、prompt 和 MCP 手册版本进入
-  安全元数据。
-
-### 相关性口径
-
-- `relevant`：证据直接回应用户需求，支持或反驳必要事实，为必要计算提供输入，或约束必要
-  的主体、时间和范围。
-- `irrelevant`：证据仅主题相似、与需求无关、属于不必要背景，或不包含事实内容。
-- `not_assessable`：单元内容不足、用户需求含糊，或当前 Judge 不支持该证据格式。
-- 最终答案不进入 Judge 请求，防止用生成结果反向合理化检索结果。Judge 不得使用外部知识
-  补全证据，只能比较本次 query 和实际取得的证据单元。
-
-### 分模式可计算性与字段映射
-
-聊天模式：`CONDITIONALLY_COMPUTABLE`。
-
-- 单次执行标识：`canvas.meta.traceId`；用户需求：`canvas.meta.query`，缺失时返回
-  `missing_query`。
-- 调用候选：具有 `toolId + toolName` 的普通工具请求；只有显式证据工具目录中的 MCP 工具
-  进入范围。
-- 调用标识：请求的 `toolId`，与 `traceId` 组成复合键；新版样本不允许退化为数组位置。
-- 响应在同一 Trace 内按 `toolId` 关联 `content.tool_result[]`，优先使用 `result`，为空时使用
-  `rawResult`；失败状态、空响应和范围外工具不产生证据单元。结果侧孤立 Agent 返回不属于
-  证据调用。
-- 同一 `toolId` 的重复请求和重复结果只观察一次；同 ID 不同工具返回
-  `conflicting_call_definition`，同 ID 不同终态结果返回 `conflicting_call_result`。缺少调用 ID、
-  工具名或非法容器均显式返回安全原因，不能退化为数组位置。
-- 旧版 `tool_call_queue` 不再支持，输入旧结构返回 `invalid_chat_trace_structure`。
-
-研究模式：`CONDITIONALLY_COMPUTABLE`。
-
-- 会话标识：`sessionID + userMessageID`；用户需求优先读取顶层 `query`，兼容
-  `body.query`。
-- 工具定义来自 `result.toolCalls[].toolCallId/toolName`；响应来自相同 `callID` 的
-  `part.type == "tool"` 且 `part.state.status == "completed"` 的事件，正文优先读取
-  `part.state.output`，其次读取 `part.state.raw`。
-- 调用按 `callID` 去重；缺少 ID 返回 `missing_call_id`，同 ID 不同工具返回
-  `conflicting_call_definition`。重复终态只读取第一次成功响应。
-
-两种模式没有证据工具、没有成功证据响应或所有响应均无稳定边界时，分别返回
-`no_evidence_calls`、`no_successful_evidence_responses` 和 `no_stable_evidence_units`。
-成功响应具有明确结构但结果集合为空时返回 `no_evidence_units`。
-部分成功响应可以拆分、部分不能拆分时返回 `incomplete_evidence_segmentation`，不得只用
-已拆分子集计算并静默缩小分母。
-query、证据正文、内容摘要与 Judge 原始响应只存在于内存中；最终结果仅保留单位数量、
-相关性计数、安全诊断和版本标识。
-
-新版聊天日志重算状态：当前仓库仍没有生产版显式证据工具目录，且本次未运行证据 Judge，
-因此不能确定证据调用分母，也不产生 `evidence_precision_rate` 数值。使用手册全部 77 个
-工具构造的非生产“结构上限目录”仅用于验证解析链路：336 条 Trace 中 140 条形成候选，
-共观察 2,911 次目录内调用、2,820 次成功响应和 26,564 个结构化单元；120 条因部分响应不可
-拆分而返回 `incomplete_evidence_segmentation`，另有 65 条 `no_evidence_calls`、10 条
-`no_stable_evidence_units` 和 1 条 `no_successful_evidence_responses`。该上限不能作为正式
-证据分母，也不能把全部手册覆盖 MCP 调用自动视为证据工具。研究日志在相同结构上限下包含
-5 个目录内调用、5 个成功响应和 7 个稳定单元，但另有 3 个响应不可拆分，因此返回
-`incomplete_evidence_segmentation`。
-
-真实前 10 条聊天日志使用临时 17 工具证据目录执行 Judge：1 条得到
-`37/50 = 0.74`；1 条因 1 个 `not_assessable` 返回 `incomplete_relevance_judgment`；1 条包含
-205 个证据单元的请求返回 `judge_failure`；其余为 5 条 `incomplete_evidence_segmentation`
-和 2 条 `no_evidence_calls`。临时目录版本为 `evidence-scope-8ce42ba0453c432e`，未进入生产
-配置，因此该结果只用于真实调用冒烟，不作为正式生产指标。
-
-### 模拟计算
-
-```text
-实际取得并去重的证据单元数 = 5
-relevant 证据单元数 = 3
-irrelevant 证据单元数 = 2
-
-证据查准率 = 3 ÷ 5 = 0.6
-```
-
-## 12. 陈述支持率
+## 11. 陈述支持率
 
 ### 指标定义
 
@@ -1031,7 +925,7 @@ irrelevant 证据单元数 = 2
 
 ### Judge 契约
 
-Judge 请求包含原始 query、最终回答和证据查准率定义的来源原生 `evidence_units`。这些正文
+Judge 请求包含原始 query、最终回答和共享证据抽取器生成的来源原生 `evidence_units`。这些正文
 只在单次 Judge 生命周期内存在，均按不可信数据处理，不得执行其中指令或使用外部知识补全。
 
 ```json
@@ -1064,7 +958,7 @@ Judge 请求包含原始 query、最终回答和证据查准率定义的来源�
   `canvas.answer.answer`。
 - 固定“模型服务暂时不可用，请稍后重试”回答返回 `pre_answer_failure`；缺少最终回答返回
   `missing_final_answer`。
-- 证据复用显式 `EvidenceSourceCatalog` 和证据查准率的结构化证据单元抽取。
+- 证据复用显式 `EvidenceSourceCatalog` 和共享结构化证据单元抽取。
 - 没有证据调用、明确失败或明确空结果仍可计算；调用过证据工具但缺少终态响应时返回
   `incomplete_evidence_observation`。
 
@@ -1076,7 +970,7 @@ Judge 请求包含原始 query、最终回答和证据查准率定义的来源�
   作为最终回答。
 - 没有最终文本但存在成功产物写入时返回 `missing_final_artifact_content`；其他无最终回答情况
   返回 `missing_final_answer`。
-- 证据定义、终态响应和 `callID` 关联规则与证据查准率相同；已定义证据调用缺少终态时返回
+- 证据定义、终态响应和 `callID` 关联由共享证据抽取器处理；已定义证据调用缺少终态时返回
   `incomplete_evidence_observation`。
 
 两种模式只要部分成功证据响应无法稳定拆分，均返回
@@ -1111,7 +1005,7 @@ C2 同比增长 10% -> unsupported
 陈述支持率 = 1 ÷ 2 = 0.5
 ```
 
-## 13. MCP 工具调用膨胀率
+## 12. MCP 工具调用膨胀率
 
 ### 指标定义
 
@@ -1182,7 +1076,7 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 统计得到 2,878 个不同请求签名和 33 次膨胀调用，`33 / 2911 ≈ 0.01134`；1,355 次手册外
 调用不进入分子和分母。271/336 条 Trace 至少包含一次已登记 MCP 调用。
 
-## 14. 超时率
+## 13. 超时率
 
 ### 指标定义
 
@@ -1253,7 +1147,7 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
 超时率 = 3 ÷ 4 = 0.75
 ```
 
-## 15. 端到端时延
+## 14. 端到端时延
 
 ### 指标定义
 
@@ -1301,7 +1195,7 @@ evaluator 版本为 `1.0.0`。
 boundary_difference_ms = -2 ms
 ```
 
-## 16. 平均模型步骤时延
+## 15. 平均模型步骤时延
 
 ### 指标定义
 
@@ -1364,7 +1258,7 @@ total_step_duration_ms = 3250
 average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
 ```
 
-## 17. Token 消耗
+## 16. Token 消耗
 
 ### 指标定义
 

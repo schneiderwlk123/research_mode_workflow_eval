@@ -67,8 +67,8 @@ class EvidenceUnit:
 
 
 @dataclass(frozen=True, slots=True)
-class EvidencePrecisionCandidate:
-    """证据查准率 Judge 候选；query 与正文不得进入持久化结果。"""
+class EvidenceCandidate:
+    """共享证据候选；query 与正文不得进入持久化结果。"""
 
     query: str
     evidence_units: tuple[EvidenceUnit, ...]
@@ -89,14 +89,14 @@ class EvidenceDiagnostics(TypedDict):
 
 
 class NormalizedEvidenceTrace(TypedDict):
-    """证据查准率的规范化输入。"""
+    """供证据依赖指标复用的规范化输入。"""
 
     trace_id: str | None
     mode: str
     schema_version: str
     evidence_scope_version: str
     evidence_unit_count: int
-    candidate: EvidencePrecisionCandidate | None
+    candidate: EvidenceCandidate | None
     diagnostics: EvidenceDiagnostics
     normalization_error: str | None
 
@@ -564,7 +564,7 @@ def _build_result(
     normalization_error: str | None,
 ) -> NormalizedEvidenceTrace:
     candidate = (
-        EvidencePrecisionCandidate(query, tuple(units))
+        EvidenceCandidate(query, tuple(units))
         if query is not None and normalization_error is None
         else None
     )
