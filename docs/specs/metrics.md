@@ -1269,12 +1269,13 @@ total_step_duration_ms = 3250
 average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
 ```
 
-## 16. Token 消耗
+## 16. 端到端总 Token 消耗
 
 ### 指标定义
 
-本指标衡量单条 Trace 中全部已确认模型步骤的 Token 消耗，稳定指标名为
-`total_token_consumption`，单位为 token。
+本指标衡量单条 Trace 从请求开始到最终回答结束期间，全部已确认 Agent 模型步骤的 Token
+消耗总和。展示名称为“端到端总 Token 消耗”，稳定指标名继续使用
+`total_token_consumption`，单位为 token，避免与现有实现和历史结果产生重复指标。
 
 ```text
 聊天模式 Token 消耗 =
@@ -1284,8 +1285,26 @@ average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
   Σ 唯一 step-finish 的 tokens.total
 ```
 
-本指标不是费用指标，不应用缓存折扣或模型价格系数。按确认口径不单独输出 cache Token，也不
-从 cache 字段派生辅助指标。
+“端到端”表示统计范围覆盖当前 Trace 内 orchestrator、worker 和其他可识别 Agent 的全部模型
+步骤，不表示把工具耗时、墙钟时间或工具响应正文换算为 Token。本指标不是费用指标，不应用
+缓存折扣、模型单价或供应商价格系数。
+
+当前主指标只汇总 Agent 模型步骤 Token，不包含工具内部再次调用模型产生的 Token。原因是两种
+现有日志都没有按工具调用 ID 提供工具自身 `usageTokens.total`。不得把发起工具调用的模型步骤
+Token 重复记为工具 Token。未来上游补齐逐工具 Token 后，如需将其纳入端到端总量，必须提升
+`evaluator_version` 并新增明确的 `tool_token_consumption` 分项，禁止静默改变历史口径。
+
+### 统计边界与去重
+
+- 统计单位是单条 Trace，不跨 Trace 累加后再作为单条结果。
+- 每个模型步骤只计一次；同一 Token 快照在 answer、message update 或协议投影中重复出现时
+  必须去重。
+- 聊天模式包含 orchestrator 和 worker 的模型步骤；仅含工具结果、Agent 返回或框架控制信息的
+  消息不进入模型步骤集合。
+- 研究模式以 `messageID` 标识唯一模型步骤；同一 loop 的多个协议投影不重复计数。
+- cache Token 不得在已经包含它的 input 或 total 之外再次累加。cache 构成由
+  `cache_token_ratio` 单独解释。
+- Judge、离线评测器或报告生成阶段自身消耗的 Token 不属于被评测 Trace，不进入本指标。
 
 ### 分模式可计算性与字段映射
 
@@ -1294,9 +1313,12 @@ average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
 - 模型步骤来源：`canvas.agents[].messages[]`。具有 `durationSeconds` 或 `usageTokens` 的消息
   视为模型步骤；仅含 `tool_result` 的消息是工具结果投影，不进入 Token 覆盖分母。
 - 单步骤值：`content.usageTokens.input_tokens + output_tokens`。
-- `cache_tokens` 不读取、不额外加入总量；其与 `input_tokens` 的包含关系不影响本指标。
+- `cache_tokens` 不额外加入总量；当前主值只使用 `input_tokens + output_tokens`，避免缓存 Token
+  被重复计算。
 - `canvas.answer.usageTokens` 是某条 Agent message 的重复快照，不进入计算。
 - orchestrator 和 worker 均代表独立模型步骤，其 Token 可以相加。
+- 同一条 Agent message 既包含 `usageTokens` 又包含一个或多个 `tool_call` 时，Token 仍只属于该
+  模型步骤，不按工具数量复制或分摊。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
 
@@ -1306,12 +1328,44 @@ average_model_step_latency_ms = 3250 ÷ 2 = 1625 ms
 - `message.updated.info.tokens` 与 step-finish 是重复快照，不参与计算。
 - 每个 loop 的两个 `llm.response.result.usage` 是重复协议投影，不参与计算。
 - `tokens.input/output/reasoning/cache` 不单独解析，直接使用上游 `total`。
+- 当分项完整时，可校验
+  `total = input + output + reasoning + cache.read + cache.write`；校验值只作为诊断，不重复加入
+  主指标。
 
 Token 消耗必须覆盖全部已识别模型步骤。全部步骤缺少 Token 时返回
 `NOT_COMPUTABLE / no_observable_token_usage`；部分步骤缺失时返回
 `NOT_COMPUTABLE / incomplete_token_coverage`，不得输出部分总量。非负整数校验失败、缺少研究
 步骤 ID 分别返回 `ERROR / invalid_token_count`、`ERROR / missing_step_id`。规范化结果只保留
 逐步骤总数、覆盖计数和重复计数，不保留消息、推理或工具正文。evaluator 版本为 `1.0.0`。
+
+### 输出字段
+
+```text
+metric_name = total_token_consumption
+value = 端到端总 Token 消耗
+status = computed | not_computable | error
+model_step_count
+token_observed_count
+token_missing_count
+duplicate_token_snapshot_count
+evaluator_version
+```
+
+`COMPUTED` 状态必须满足 `token_observed_count == model_step_count` 且
+`token_missing_count == 0`。非 `COMPUTED` 状态不得输出部分 `value`，避免不完整总量进入跨 Trace
+聚合。
+
+### 观测价值
+
+- 直接衡量单条 Agent 工作流的整体模型资源消耗，是 Token 优化的主指标。
+- 与 `tool_calls_count`、`per_tool_repeat_call_count` 联合观察，可以判断总 Token 增长是否来自工具
+  调用轮次和重复调用膨胀。
+- 与 `output_token_ratio` 联合观察，可以区分 Token 主要消耗在上下文输入还是模型输出。
+- 与 `cache_token_ratio` 联合观察，可以识别大量 Token 是否来自重复读取缓存上下文。
+- 与 `end_to_end_latency_ms` 联合观察，可以区分“高 Token 且慢”“高 Token 但不慢”和
+  “Token 不高但外部工具很慢”等不同瓶颈。
+- 该指标不能直接替代费用。跨模型、跨供应商或跨缓存策略比较时，必须同时保留模型版本、
+  Token 口径版本和缓存语义。
 
 ### 模拟计算
 
@@ -1408,6 +1462,89 @@ tool_calls_count = Σ per_tool_statistics[tool_name].call_count
 - `repeat_call_count` 定位同名工具在单条 Trace 内被反复调用的问题。
 - 与 `end_to_end_latency_ms` 联合观察，可区分“调用数量多导致慢”和“调用数量少但单次调用慢”。
 - 与 Trace 总 Token 联合观察，可判断 Token 增长是否伴随工具调用轮次膨胀。
+
+### per_tool_repeat_call_count
+
+#### 指标定义
+
+`per_tool_repeat_call_count` 表示单条 Trace 内每一种业务工具在首次调用之后发生的额外调用次数。
+只有同名工具调用总数大于 `1` 时才进入结果；调用一次不算重复。
+
+```text
+call_count[tool_name] =
+  当前 Trace 内该规范化工具名的唯一调用数
+
+repeat_call_count[tool_name] =
+  max(call_count[tool_name] - 1, 0)
+
+total_repeat_call_count =
+  Σ repeat_call_count[tool_name]
+```
+
+例如，同一 Trace 内工具 A 调用 4 次、工具 B 调用 2 次、工具 C 调用 1 次，则 A 重复 3 次、
+B 重复 1 次、C 不进入重复工具列表，`total_repeat_call_count = 4`。
+
+当多个工具发生重复调用时，使用 JSON 数组输出。数组按 `repeat_call_count` 降序、
+`call_count` 降序、`tool_name` 升序排列，保证相同输入产生稳定结果：
+
+```json
+{
+  "per_tool_repeat_call_count": [
+    {
+      "tool_name": "tool_a",
+      "call_count": 4,
+      "repeat_call_count": 3
+    },
+    {
+      "tool_name": "tool_b",
+      "call_count": 2,
+      "repeat_call_count": 1
+    }
+  ],
+  "repeated_tool_name_count": 2,
+  "total_repeat_call_count": 4
+}
+```
+
+没有重复工具时返回 `COMPUTED`，数组为空，两个汇总计数均为 `0`；不得返回不可计算或省略
+字段。
+
+跨 Trace 聚合时必须先在每条 Trace 内计算重复次数，再按工具名求和：
+
+```text
+report_repeat_call_count[tool_name] =
+  Σ_trace max(call_count[trace, tool_name] - 1, 0)
+```
+
+禁止把全量数据集中某工具的总调用数直接减 `1`，否则会把不同 Trace 各自一次的正常调用误判为
+重复调用。报告级结果可额外输出 `affected_trace_count`，表示发生该工具重复调用的 Trace 数。
+
+#### 字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 复用 `tool_calls_count` 的 `canvas.agents[].messages[].content.tool_call[]`、`toolId`、
+  `toolName` 和工具类别目录。
+- 按 `traceId + toolId` 唯一化后，以规范化 `tool_name` 分组计数。
+- `agent_delegation`、`agent_return` 和 `framework_control` 不进入分组；聊天日志中的 `respond`
+  必须归类为 `agent_return`。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 复用 `message.part.updated.part.type == tool`、`part.callID`、`part.tool` 和工具类别目录。
+- 同一 `callID` 的多个状态事件先合并为一次调用，再按规范化 `tool_name` 分组计数。
+
+工具类别目录缺失时返回 `NOT_COMPUTABLE / missing_tool_category_catalog`。缺少调用 ID、缺少工具
+名称或同一调用 ID 的工具定义冲突时，分别返回 `ERROR / missing_call_id`、
+`ERROR / missing_tool_name`、`ERROR / conflicting_call_definition`。
+
+#### 观测价值
+
+- 直接定位单条 Trace 内被反复调用的具体工具及额外调用次数。
+- 区分“工具种类多”与“少数同名工具反复调用”；两者的优化方式不同。
+- 与 `per_tool_call_latency` 联合观察，可以估算重复调用带来的额外时延压力。
+- 与 `per_tool_call_tokens` 联合观察，可以定位重复次数和单次 Token 同时较高的重点工具。
+- 报告级 `affected_trace_count` 可判断问题是集中在少量异常 Trace，还是普遍存在于多数请求。
 
 ### per_tool_call_latency
 
@@ -1634,6 +1771,11 @@ end_to_end_latency_ms
 per_tool_statistics[].tool_name
 per_tool_statistics[].call_count
 per_tool_statistics[].repeat_call_count
+per_tool_repeat_call_count[].tool_name
+per_tool_repeat_call_count[].call_count
+per_tool_repeat_call_count[].repeat_call_count
+repeated_tool_name_count
+total_repeat_call_count
 per_tool_statistics[].per_tool_call_tokens
 per_tool_statistics[].per_tool_call_latency
 ```
