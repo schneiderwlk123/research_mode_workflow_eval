@@ -1150,16 +1150,32 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
 超时率 = 3 ÷ 4 = 0.75
 ```
 
-## 14. 端到端时延
+## 14. 端到端总耗时
 
 ### 指标定义
 
-本指标衡量用户请求开始到最终回答完成之间的单次会话墙钟时延，稳定指标名为
-`end_to_end_latency_ms`，单位为毫秒。
+本指标衡量单条 Trace 从用户请求开始到最终回答完成之间经过的墙钟总耗时。展示名称为
+“端到端总耗时”，稳定指标名继续使用 `end_to_end_latency_ms`，单位为毫秒，避免与现有实现和
+历史结果产生重复指标。
 
 ```text
-端到端时延 = 最终回答完成时间 - 用户请求开始时间
+end_to_end_latency_ms =
+  最终回答完成时间 - 用户请求开始时间
 ```
+
+该时间范围自然包含模型推理、工具执行、Agent 调度、子任务等待、排队和框架开销，是用户实际
+等待时间的主指标。它不是各模型步骤耗时与各工具耗时的算术和：步骤和工具可能并行、嵌套，
+某个 Agent 消息耗时也可能覆盖其内部工具调用时间。
+
+### 统计边界与去重
+
+- 统计单位是单条 Trace 或单个研究回合，不跨 Trace 累加后作为单条结果。
+- 开始边界必须对应当前用户请求，结束边界必须对应该请求的最终回答完成。
+- orchestrator、worker、工具和框架内部事件只位于开始与结束边界之间，不单独加到主值中。
+- 中间 Agent 文本、工具终态和子 Agent 返回都不能作为最终结束边界。
+- 同一边界的重复协议快照去重；同一 Trace 出现不同开始或结束边界时返回错误，不选择最早或
+  最晚值猜测。
+- Judge、离线评测器、报告生成和落盘耗时不属于被评测 Trace，不进入本指标。
 
 ### 分模式可计算性与字段映射
 
@@ -1171,6 +1187,8 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
   `0 ms` 时只表示边界落在同一秒。
 - `canvas.answer.durationSeconds` 是终止 Agent 消息耗时的复制，不是完整 Trace 时延，禁止用作
   本指标。
+- `canvas.agents[].messages[].content.durationSeconds` 和
+  `tool_result.durationSeconds` 只用于步骤或工具诊断，不参与端到端总耗时求和。
 - 旧版顶层聊天结构不支持，返回 `ERROR / invalid_chat_trace_structure`。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
@@ -1180,6 +1198,8 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
   `时间戳差值 - durationMs` 记录为 `boundary_difference_ms`。
 - `durationMs` 缺失时回退到时间戳差值；相同重复边界去重并记录计数，不同重复边界返回
   `ERROR / conflicting_turn_boundary`。
+- `message.updated.info.time`、模型 step 边界和工具生命周期只能用于分阶段诊断，不替代
+  `turn.start/turn.end` 回合边界。
 
 两种模式缺少开始或结束边界时分别返回 `NOT_COMPUTABLE / missing_start_timestamp` 或
 `missing_end_timestamp`。非法时间戳、非法报告耗时和负时序分别返回
@@ -1187,11 +1207,33 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
 规范化结果只保留标识、时间边界、报告耗时、精度和安全诊断，不保留 query、回答或工具正文。
 evaluator 版本为 `1.0.0`。
 
+### 输出字段
+
+```text
+metric_name = end_to_end_latency_ms
+value = 端到端总耗时，单位毫秒
+status = computed | not_computable | error
+latency_source = timestamp_delta | turn_end_duration
+timestamp_precision = seconds | milliseconds
+boundary_difference_ms
+duplicate_boundary_event_count
+evaluator_version
+```
+
+- 聊天模式 `latency_source = timestamp_delta`，`boundary_difference_ms = null`。
+- 研究模式优先使用 `latency_source = turn_end_duration`；只有 `durationMs` 缺失时才回退到
+  `timestamp_delta`。
+- 非 `COMPUTED` 状态不得输出部分 `value`。
+- `boundary_difference_ms` 仅用于检查研究模式上游报告耗时与时间戳边界的一致性，不修改主值。
+
 ### 观测价值
 
 - 直接反映用户感知的整体响应速度，是所有工具调用效率指标的 Trace 级基准。
 - 与 `tool_calls_count` 联合观察，可以区分“调用次数膨胀”与“少量调用但整体仍慢”。
 - 与 `per_tool_call_latency` 联合观察，可以定位单个慢工具是否构成主要瓶颈。
+- 与 `per_tool_repeat_call_count` 联合观察，可以判断同名工具反复调用是否伴随总耗时上升。
+- 与 `total_token_consumption` 联合观察，可以区分高 Token 的模型循环问题与低 Token、长等待的
+  外部工具问题。
 - 工具可能并行、嵌套或被模型步骤包含，因此不得把各工具耗时简单求和后当作
   `end_to_end_latency_ms`，两者只用于相关性和瓶颈分析。
 
