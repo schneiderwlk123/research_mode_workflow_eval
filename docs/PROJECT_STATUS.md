@@ -4,7 +4,7 @@
 
 ## 当前里程碑
 
-评测框架基础骨架、调用事件完整率、完全重复调用率、MCP 工具调用膨胀率、必填参数完整率、
+评测框架基础骨架、完全重复调用率、MCP 工具调用膨胀率、必填参数完整率、
 Schema 合法率、
 参数值准确率核心、路由 Precision、路由 Recall、子任务冗余率和意图识别准确率已经实现。
 时间范围提取准确率和陈述支持率已验收。工具超时率已实现。
@@ -13,13 +13,10 @@ Schema 合法率、
 
 - Python 3.11+ 项目和 pytest、Ruff、mypy 工具链配置。
 - `BaseEvaluator`、`EvaluationResult`、`EvaluationStatus` 公共契约。
-- 公共契约及十六个指标行为测试，共 443 项；最近一次验证全部通过。
+- 公共契约及十五个指标行为测试，共 436 项；最近一次验证全部通过。
 - `collectors`、`evaluators`、`reporters`、`storage` 包入口。
-- 代码地图和 16 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
+- 代码地图和 15 项逐指标开发顺序；时延、执行效率及 Token 消耗类指标统一置于最后阶段。
 - MCP 工具手册已复制到项目，当前文件名为 `mcp_tool_manual.json`。
-- 新版 canvas 和研究工具调用事件的最小规范化切片，不保留工具参数或响应正文；新版聊天按
-  `traceId + toolId` 跨消息关联请求与结果，并隔离孤立 Agent 返回；旧版聊天解析已删除。
-- `tool_call_event_completeness_rate` 评测器，版本 `1.1.0`。
 - 新版 canvas 与研究调用的安全摘要比较规范化，不持久化参数、响应或摘要值；新版聊天按
   `traceId + toolId` 关联跨消息结果并排除孤立 Agent 返回，旧版聊天解析已删除。
 - `exact_duplicate_tool_call_rate` 评测器，版本 `1.1.0`。
@@ -115,7 +112,7 @@ Schema 合法率、
 
 ## 已知缺口
 
-- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；调用事件完整率、完全重复
+- 新版聊天 JSON 数组与研究模式事件流的结构已形成架构文档；完全重复
   调用率、MCP 工具调用膨胀率、必填参数完整率、Schema 合法率、参数值准确率、路由
   Precision/Recall、子任务冗余率、意图识别准确率、时间范围提取准确率和陈述
   支持率 collectors 已支持新版 canvas，其余指标 collectors 仍主要按旧版字段读取，完整统一
@@ -136,7 +133,6 @@ Schema 合法率、
 
 ```text
 新版聊天日志规格重算（336 条 Trace，仅结构与确定性指标；未运行真实 Judge）：
-调用事件完整率: 4251/4266 ≈ 0.99648；296 条 Trace 含普通工具请求，40 条 no_tool_calls
 完全重复调用率: 26/4266 ≈ 0.00609；3389 次响应可比较，877 次缺少可比较响应正文
 必填参数完整率: 3382/4015 ≈ 0.84234；2911/4266 次调用被手册覆盖
 Schema 合法率: 2880/2911 ≈ 0.98935；31 次非法，含 27 次类型违规和 4 次枚举违规
@@ -169,7 +165,7 @@ Token 消耗研究模式: 27/27 个 step-finish Token 完整，合计 18064255 t
   no_observable_tool_token_usage；尚未对未纳入仓库的真实日志执行新增字段重算
 
 以下为既有代码、旧版聊天日志与研究日志验证记录：
-pytest: 452 passed
+pytest: 436 passed
 ruff check: passed
 ruff format --check: passed
 mypy src tests: passed
@@ -260,9 +256,6 @@ Schema 合法率研究日志验算: 5/5 = 1.0
   完整耗时，显式 timeout/timed_out 为 0，另有 411 个孤立结果 ID 被排除。研究模式单条日志含
   380 个事件、30 次唯一工具调用，30 次均有完整 start/end，显式 timeout/timed_out 为 0，因未
   配置生产 SLA 返回 missing_tool_sla。未使用示例阈值估算或输出伪 0%
-调用事件完整率新版聊天实现验算: 4266 次唯一普通工具请求中 4251 次观察到匹配结果，
-  4251/4266 ≈ 0.99648；411 条孤立 Agent 返回被排除，296 条 Trace computed，
-  40 条 no_tool_calls，重复请求/结果和 malformed 均为 0
 完全重复调用率新版聊天实现验算: 4266 次唯一普通工具请求中 3389 次响应可比较，
   26/4266 ≈ 0.00609；877 次缺少可比较响应正文，411 条孤立 Agent 返回被排除，
   296 条 Trace computed，40 条 no_tool_calls，重复 ID、冲突和 malformed 均为 0

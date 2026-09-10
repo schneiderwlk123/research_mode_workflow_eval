@@ -4,15 +4,12 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：16 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
+- `docs/specs/metric-development-order.md`：15 项指标的唯一开发顺序；包含 MCP 工具调用膨胀率、
   工具超时率、双模式端到端时延、平均模型步骤时延和 Token 消耗。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
   `JUDGE_MODEL`，真实密钥只允许写入被忽略的 `.env`。
-- `src/collectors/tool_call_events.py`：按 `traceId + toolId` 合并新版聊天 `canvas` 中跨消息的
-  普通工具请求与结果，并规范化研究 `message.part.updated`；旧版聊天 `tool_call_queue` 不再
-  支持。孤立 Agent 返回只进入安全诊断，不反向生成调用，也不保留请求、参数或响应正文。
 - `src/collectors/exact_duplicate_calls.py`：按 `traceId + toolId` 关联新版聊天 canvas 请求与
   跨消息结果，在内存中规范化工具名、参数和响应并比较摘要；旧版聊天结构不再支持，孤立
   Agent 返回、重复观察和冲突定义只输出安全诊断，不保留原始正文或摘要。
@@ -68,11 +65,8 @@
 - `src/collectors/token_consumption.py`：聊天模式汇总模型消息 input/output Token 并排除工具结果
   消息及 answer 重复快照；研究模式按 message ID 去重 step-finish total，隔离缺失和冲突覆盖，
   不读取 cache 分项或正文。
-- `src/collectors/__init__.py`：导出工具调用事件规范化类型与入口。
+- `src/collectors/__init__.py`：导出各指标的规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态。
-- `src/evaluators/tool_call_event_completeness.py`：按唯一调用计算请求与终态同时存在的
-  调用事件完整率，并输出重复请求、重复结果和孤立结果计数；聊天调用定义冲突及研究模式
-  缺少 `callID` 时严格返回不可计算。
 - `src/evaluators/end_to_end_latency.py`：聊天模式计算请求到最终回答的时间戳差值；研究模式
   优先使用 `turn.end.durationMs` 并记录与边界差值的偏差，缺失、非法和负时序使用稳定状态与
   原因码隔离；evaluator 版本为 `1.0.0`。
@@ -142,8 +136,6 @@
 - `tests/evaluators/test_base_evaluator.py`：评测器公共契约的行为测试。
 - `tests/evaluators/test_openai_compatible_judge_runtime.py`：严格 Schema、400 兼容回退、请求
   上限、瞬态重试和输出截断的共享运行时测试。
-- `tests/collectors/test_tool_call_events.py`：新版 canvas 和研究工具事件规范化、跨消息关联、
-  重复观察、孤立结果、严格调用 ID、定义冲突和敏感正文隔离测试。
 - `tests/collectors/test_exact_duplicate_calls.py`：新版 canvas/研究完全重复识别、跨消息关联、
   请求和结果冲突、孤立结果、生命周期去重、缺失字段及敏感正文隔离测试。
 - `tests/collectors/test_mcp_tool_call_inflation.py`：新版 canvas 跨 Agent/message 扫描、子 Agent
@@ -176,8 +168,6 @@
 - `tests/collectors/test_tool_timeout_rate.py`：超时策略校验、新版 canvas 跨 Agent/message 关联、
   子 Agent 与孤立结果排除、调用去重、研究生命周期合并、显式超时、SLA 超限、缺失时间计
   超时、旧结构拒绝及错误隔离测试。
-- `tests/evaluators/test_tool_call_event_completeness.py`：完整率正常、边界、不可计算和
-  非法输入隔离测试。
 - `tests/evaluators/test_exact_duplicate_tool_calls.py`：完全重复率计算、零值、空调用、
   规范化错误和非法计数测试。
 - `tests/evaluators/test_mcp_tool_call_inflation.py`：膨胀率、零膨胀、零分母、规范化失败和非法

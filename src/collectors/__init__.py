@@ -104,13 +104,6 @@ from collectors.tool_argument_schema import (
     normalize_chat_tool_argument_schema,
     normalize_research_tool_argument_schema,
 )
-from collectors.tool_call_events import (
-    NormalizedToolCall,
-    NormalizedToolCallTrace,
-    ToolCallDiagnostics,
-    normalize_chat_tool_call_events,
-    normalize_research_tool_call_events,
-)
 from collectors.tool_resource_usage import (
     NormalizedToolResourceCall,
     NormalizedToolResourceTrace,
@@ -143,8 +136,6 @@ __all__ = [
     "CapabilityCatalog",
     "CapabilityDefinition",
     "CapabilityParameter",
-    "NormalizedToolCall",
-    "NormalizedToolCallTrace",
     "NormalizedToolResourceCall",
     "NormalizedToolResourceTrace",
     "NormalizedTimeoutCall",
@@ -178,7 +169,6 @@ __all__ = [
     "ParameterSchema",
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
-    "ToolCallDiagnostics",
     "ToolResourceUsageDiagnostics",
     "ToolTimeoutDiagnostics",
     "ToolTimeoutPolicyCatalog",
@@ -201,7 +191,6 @@ __all__ = [
     "normalize_chat_statement_support",
     "normalize_chat_time_range",
     "normalize_chat_token_consumption",
-    "normalize_chat_tool_call_events",
     "normalize_chat_tool_resource_usage",
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
@@ -218,7 +207,6 @@ __all__ = [
     "normalize_research_statement_support",
     "normalize_research_time_range",
     "normalize_research_token_consumption",
-    "normalize_research_tool_call_events",
     "normalize_research_tool_resource_usage",
     "normalize_research_tool_argument_schema",
     "normalize_research_tool_timeout_rate",

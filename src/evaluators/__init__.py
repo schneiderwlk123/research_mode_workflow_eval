@@ -58,7 +58,6 @@ from evaluators.time_range_accuracy import (
 )
 from evaluators.token_consumption import TotalTokenConsumptionEvaluator
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
-from evaluators.tool_call_event_completeness import ToolCallEventCompletenessEvaluator
 from evaluators.tool_resource_usage import (
     ToolCallDurationEvaluator,
     ToolTokenConsumptionEvaluator,
@@ -106,7 +105,6 @@ __all__ = [
     "TimeRangeJudge",
     "TimeRangeRequirementRequest",
     "TotalTokenConsumptionEvaluator",
-    "ToolCallEventCompletenessEvaluator",
     "ToolCallDurationEvaluator",
     "ToolTokenConsumptionEvaluator",
     "ToolTimeoutRateEvaluator",
