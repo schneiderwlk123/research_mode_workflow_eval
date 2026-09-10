@@ -56,6 +56,9 @@
   `traceId + toolId` 跨 Agent/message 关联新版 canvas 请求与结果并排除子 Agent、孤立结果，
   研究模式按 `callID` 合并生命周期，规范化显式超时、SLA 超限和缺失时间超时；旧版聊天
   `tool_call_queue` 不再支持，不保留参数或响应正文。
+- `src/collectors/tool_resource_usage.py`：按唯一调用提取聊天 `tool_result.durationSeconds` 或研究
+  工具生命周期起止时间，逐调用隔离缺失、非法和冲突耗时；明确标记两种模式均无工具执行
+  自身 Token，且不保留参数或响应正文。
 - `src/collectors/end_to_end_latency.py`：从聊天 canvas 的 meta/answer 创建时间提取秒级回合
   边界，或合并研究 `turn.start/turn.end` 并保留报告耗时与时间戳交叉校验输入；重复边界去重，
   冲突边界隔离，输出不含 query 或回答正文。
@@ -78,6 +81,9 @@
   evaluator 版本为 `1.0.0`。
 - `src/evaluators/token_consumption.py`：仅在全部已识别模型步骤 Token 覆盖完整时求和，部分或
   全部缺失返回不可计算，非法与冲突快照返回错误；evaluator 版本为 `1.0.0`。
+- `src/evaluators/tool_resource_usage.py`：逐调用输出 `tool_call_duration_ms`；缺失耗时不补零，
+  工具 Token 固定返回 `NOT_COMPUTABLE / no_observable_tool_token_usage`，禁止分摊模型步骤
+  Token；两个 evaluator 版本均为 `1.0.0`。
 - `src/evaluators/exact_duplicate_tool_calls.py`：使用安全聚合计数计算完全重复调用率，并输出
   不可比较调用、重复请求、重复结果及孤立结果诊断。
 - `src/evaluators/mcp_tool_call_inflation.py`：校验 MCP 调用与请求签名计数，计算同任务内相同
@@ -205,6 +211,9 @@
   文本事实、复杂语义保守判定、跨证据同比推导和空证据测试。
 - `tests/evaluators/test_tool_timeout_rate.py`：双模式超时率、超时分类计数、缺失 SLA、非法
   规范化输入和错误隔离测试。
+- `tests/collectors/test_tool_resource_usage.py` 与
+  `tests/evaluators/test_tool_resource_usage.py`：双模式逐调用耗时、重复观测、缺失和非法边界、
+  敏感正文隔离，以及工具 Token 明确不可计算测试。
 - `tests/evaluators/test_openai_compatible_statement_support_judge.py`：最终回答与证据请求结构、
   历史可注入 Judge 的请求结构、JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名

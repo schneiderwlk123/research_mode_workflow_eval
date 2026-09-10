@@ -1316,3 +1316,60 @@ Token 消耗必须覆盖全部已识别模型步骤。全部步骤缺少 Token �
 研究步骤 B：tokens.total=250
 单条 Trace Token 消耗 = 100 + 250 = 350
 ```
+
+## 补充字段：逐工具调用资源
+
+### 字段定义
+
+本组字段按唯一工具调用输出，不对并行或嵌套调用求和后解释为 Trace 墙钟耗时：
+
+```text
+tool_call_duration_ms = 工具终态时间 - 工具开始时间
+tool_token_consumption = 工具执行自身消耗的 Token
+```
+
+Trace 级字段继续复用 `end_to_end_latency_ms` 和 `total_token_consumption`，不得用工具耗时求和
+替代端到端时延，也不得把模型步骤 Token 重复计入工具 Token。
+
+### 分模式可计算性与字段映射
+
+聊天模式工具耗时：`DIRECTLY_COMPUTABLE`。
+
+- 按 `canvas.meta.traceId + toolId` 跨 Agent/message 关联普通 `tool_call` 与 `tool_result`。
+- 单次调用读取 `tool_result.durationSeconds × 1000`；子 Agent 调用和孤立结果不进入调用集合。
+- 相同耗时快照去重，不同耗时快照返回 `ERROR / conflicting_duration_observation`。
+
+研究模式工具耗时：`DIRECTLY_COMPUTABLE`。
+
+- 按 `message.part.updated.part.callID` 合并 `part.type == tool` 生命周期。
+- 使用最早的 `state.time.start` 与终态事件中最晚的 `state.time.end`，二者之差为调用耗时。
+- 重复状态只记录诊断，不重复生成调用。
+
+两种模式缺少完整工具耗时均返回
+`NOT_COMPUTABLE / missing_tool_duration`，非法值和负时序分别返回
+`ERROR / invalid_duration` 与 `ERROR / invalid_event_order`。单个调用失败与同 Trace 其他调用
+隔离。稳定指标名为 `tool_call_duration_ms`，evaluator 版本为 `1.0.0`。
+
+聊天模式工具 Token：`NOT_COMPUTABLE`。
+
+- `canvas.agents[].messages[].content.usageTokens` 属于模型步骤；一个模型步骤可能产生零个、一个
+  或多个工具调用，不能可靠分摊给单次工具。
+
+研究模式工具 Token：`NOT_COMPUTABLE`。
+
+- `step-finish.tokens.total` 属于模型步骤，工具生命周期没有工具自身 Token 字段，也没有可靠
+  的一对一映射。
+
+两种模式统一返回 `NOT_COMPUTABLE / no_observable_tool_token_usage`。稳定指标名为
+`tool_token_consumption`，evaluator 版本为 `1.0.0`。未来只有在上游每个工具终态按 `callID`
+提供非负整数 `usageTokens.total` 后才可升级为直接计算，禁止使用模型 Token 估算。
+
+### 模拟计算
+
+```text
+聊天 call-1：durationSeconds=1.25 -> tool_call_duration_ms=1250
+研究 call-2：start=1000 ms，end=2500 ms -> tool_call_duration_ms=1500
+任一模式 call：无工具自身 Token 字段
+  -> tool_token_consumption=null
+  -> NOT_COMPUTABLE / no_observable_tool_token_usage
+```

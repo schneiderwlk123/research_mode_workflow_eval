@@ -111,6 +111,13 @@ from collectors.tool_call_events import (
     normalize_chat_tool_call_events,
     normalize_research_tool_call_events,
 )
+from collectors.tool_resource_usage import (
+    NormalizedToolResourceCall,
+    NormalizedToolResourceTrace,
+    ToolResourceUsageDiagnostics,
+    normalize_chat_tool_resource_usage,
+    normalize_research_tool_resource_usage,
+)
 from collectors.tool_timeout_rate import (
     NormalizedTimeoutCall,
     NormalizedToolTimeoutTrace,
@@ -138,6 +145,8 @@ __all__ = [
     "CapabilityParameter",
     "NormalizedToolCall",
     "NormalizedToolCallTrace",
+    "NormalizedToolResourceCall",
+    "NormalizedToolResourceTrace",
     "NormalizedTimeoutCall",
     "NormalizedToolTimeoutTrace",
     "NormalizedToolArgumentSchemaTrace",
@@ -170,6 +179,7 @@ __all__ = [
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
     "ToolCallDiagnostics",
+    "ToolResourceUsageDiagnostics",
     "ToolTimeoutDiagnostics",
     "ToolTimeoutPolicyCatalog",
     "normalize_chat_exact_duplicates",
@@ -192,6 +202,7 @@ __all__ = [
     "normalize_chat_time_range",
     "normalize_chat_token_consumption",
     "normalize_chat_tool_call_events",
+    "normalize_chat_tool_resource_usage",
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
     "normalize_research_exact_duplicates",
@@ -208,6 +219,7 @@ __all__ = [
     "normalize_research_time_range",
     "normalize_research_token_consumption",
     "normalize_research_tool_call_events",
+    "normalize_research_tool_resource_usage",
     "normalize_research_tool_argument_schema",
     "normalize_research_tool_timeout_rate",
 ]
