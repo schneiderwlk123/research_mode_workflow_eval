@@ -1402,6 +1402,7 @@ per_tool_statistics[tool_name] = {
   per_tool_call_tokens,
   latency_observed_count,
   latency_missing_count,
+  tool_latency_total_ms,
   per_tool_call_latency
 }
 
@@ -1582,6 +1583,80 @@ per_tool_call_latency[tool_name] =
 - 结合 `end_to_end_latency_ms` 识别单工具长尾，但不得把并行或嵌套调用的耗时简单相加为
   Trace 总耗时。
 
+### max_tool_latency_share
+
+#### 指标定义
+
+`max_tool_latency_share` 表示单条 Trace 内，累计执行耗时最高的同名业务工具占全部业务工具
+累计执行耗时的比例。它衡量工具耗时是否集中在某一种工具上，不表示该工具占端到端墙钟耗时
+的比例。
+
+```text
+tool_latency_total_ms[tool_name] =
+  Σ 同名工具全部唯一调用的 duration_ms
+
+total_tool_latency_ms =
+  Σ 全部业务工具唯一调用的 duration_ms
+
+max_tool_latency_share =
+  max(tool_latency_total_ms[tool_name])
+  ÷ total_tool_latency_ms
+```
+
+结果范围为 `(0, 1]`。指标同时输出 `max_latency_tool_names`、
+`max_tool_latency_total_ms` 和 `total_tool_latency_ms`。多个工具的累计耗时并列最高时，
+`max_latency_tool_names` 使用按规范化工具名升序排列的 JSON 数组，不得任意选择其中一个。
+
+本指标要求当前 Trace 的全部业务工具调用均具有有效耗时。存在任一调用缺少耗时时返回
+`NOT_COMPUTABLE / incomplete_tool_duration_coverage`；无业务工具调用时返回
+`NOT_COMPUTABLE / no_tool_calls`；全部工具累计耗时为零时返回
+`NOT_COMPUTABLE / zero_tool_duration`。非法耗时、负时序和同一调用的耗时观察冲突继续沿用
+`per_tool_call_latency` 的错误原因，不得使用部分调用估算占比。
+
+#### 字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 复用 `per_tool_call_latency` 的 `traceId + toolId` 调用关联和业务工具分类。
+- 单次调用耗时读取 `tool_result.durationSeconds × 1000`。
+- 按规范化 `tool_name` 汇总 `tool_latency_total_ms`，再从所有业务工具累计耗时计算最大占比。
+- `tool_result.durationSeconds` 缺失的调用进入耗时缺失计数，并使本 Trace 的该指标不可计算。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 复用 `per_tool_call_latency` 的 `callID` 生命周期合并和业务工具分类。
+- 单次调用耗时为最晚终态 `part.state.time.end` 减最早
+  `part.state.time.start`。
+- 同一 `callID` 的重复状态先去重，再按规范化 `tool_name` 汇总累计耗时。
+- 任一业务工具调用缺少完整开始或结束时间时，本 Trace 的该指标不可计算。
+
+工具可能并行或嵌套，因此 `total_tool_latency_ms` 是逐调用耗时之和，可能大于
+`end_to_end_latency_ms`。本指标的分子和分母都使用同一累计工具耗时口径，所以不得将
+`max_tool_latency_share` 解读为端到端时间占比，也不得为了消除重叠而擅自截断调用耗时。
+
+#### 观测价值
+
+- 比例高表示工具执行成本集中在少数工具上，可优先排查头部工具的单次性能和调用策略。
+- 与 `per_tool_call_latency` 联合观察，可以区分“单次调用慢”和“单次不慢但累计调用次数多”。
+- 与 `repeat_call_count` 联合观察，可以识别最大耗时工具是否由重复调用累计形成。
+- 与 `end_to_end_latency_ms` 联合观察，可以判断工具累计耗时集中是否同时伴随用户等待时间增长；
+  但两者不能直接相减或相除解释并行贡献。
+- 报告级可按模式分别统计该工具成为最大耗时工具的 Trace 数及比例，定位稳定的系统瓶颈。
+
+#### 模拟计算
+
+```text
+search：3 次调用，耗时分别为 1000、1200、800 ms
+calculator：1 次调用，耗时为 500 ms
+
+tool_latency_total_ms[search] = 3000 ms
+tool_latency_total_ms[calculator] = 500 ms
+total_tool_latency_ms = 3500 ms
+max_latency_tool_names = ["search"]
+max_tool_latency_total_ms = 3000 ms
+max_tool_latency_share = 3000 ÷ 3500 ≈ 0.85714
+```
+
 ### per_tool_call_tokens
 
 #### 指标定义
@@ -1758,6 +1833,10 @@ tool_calls_count
 output_token_ratio
 cache_token_ratio
 max_tool_token_share
+max_tool_latency_share
+max_latency_tool_names[]
+max_tool_latency_total_ms
+total_tool_latency_ms
 end_to_end_latency_ms
 per_tool_statistics[].tool_name
 per_tool_statistics[].call_count
@@ -1768,6 +1847,7 @@ per_tool_repeat_call_count[].repeat_call_count
 repeated_tool_name_count
 total_repeat_call_count
 per_tool_statistics[].per_tool_call_tokens
+per_tool_statistics[].tool_latency_total_ms
 per_tool_statistics[].per_tool_call_latency
 ```
 
