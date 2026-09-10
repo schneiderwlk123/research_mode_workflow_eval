@@ -1187,6 +1187,14 @@ timeout 就输出 0%。无调用、缺少调用 ID、非法聊天结构或未知
 规范化结果只保留标识、时间边界、报告耗时、精度和安全诊断，不保留 query、回答或工具正文。
 evaluator 版本为 `1.0.0`。
 
+### 观测价值
+
+- 直接反映用户感知的整体响应速度，是所有工具调用效率指标的 Trace 级基准。
+- 与 `tool_calls_count` 联合观察，可以区分“调用次数膨胀”与“少量调用但整体仍慢”。
+- 与 `per_tool_call_latency` 联合观察，可以定位单个慢工具是否构成主要瓶颈。
+- 工具可能并行、嵌套或被模型步骤包含，因此不得把各工具耗时简单求和后当作
+  `end_to_end_latency_ms`，两者只用于相关性和瓶颈分析。
+
 ### 模拟计算
 
 ```text
@@ -1317,59 +1325,320 @@ Token 消耗必须覆盖全部已识别模型步骤。全部步骤缺少 Token �
 单条 Trace Token 消耗 = 100 + 250 = 350
 ```
 
-## 补充字段：逐工具调用资源
+## 补充字段：工具调用效率观测
 
-### 字段定义
+本节只定义工具调用次数、同名工具重复调用、工具耗时、工具自身 Token，以及用于解释工具调用
+成本的 Trace 级 Token 比例和端到端时延。所有字段均由日志和版本化目录确定，不使用人工主观
+判断。
 
-本组字段按唯一工具调用输出，不对并行或嵌套调用求和后解释为 Trace 墙钟耗时：
+### 统一工具范围与同名聚合
 
-```text
-tool_call_duration_ms = 工具终态时间 - 工具开始时间
-tool_token_consumption = 工具执行自身消耗的 Token
-```
+进入本节统计范围的调用必须属于 `business_tool`。以下事件不得进入工具调用次数、平均工具
+耗时或平均工具 Token：
 
-Trace 级字段继续复用 `end_to_end_latency_ms` 和 `total_token_consumption`，不得用工具耗时求和
-替代端到端时延，也不得把模型步骤 Token 重复计入工具 Token。
+- `agent_delegation`：父 Agent 创建子 Agent 的委派事件。
+- `agent_return`：子 Agent 向父 Agent 返回结果的控制事件，例如聊天日志中的 `respond`。
+- `framework_control`：框架内部调度、收尾或协议投影。
 
-### 分模式可计算性与字段映射
+工具名称先通过版本化 `tool_name_alias_catalog_version` 归一到稳定名称，再按稳定名称聚合。
+工具类别优先读取上游 `call_category`；当前日志缺少该字段时，允许使用版本化
+`tool_category_catalog_version` 做条件映射。目录缺失时返回
+`NOT_COMPUTABLE / missing_tool_category_catalog`，不得把所有带 `toolId/callID` 的事件默认视为
+业务工具。
 
-聊天模式工具耗时：`DIRECTLY_COMPUTABLE`。
-
-- 按 `canvas.meta.traceId + toolId` 跨 Agent/message 关联普通 `tool_call` 与 `tool_result`。
-- 单次调用读取 `tool_result.durationSeconds × 1000`；子 Agent 调用和孤立结果不进入调用集合。
-- 相同耗时快照去重，不同耗时快照返回 `ERROR / conflicting_duration_observation`。
-
-研究模式工具耗时：`DIRECTLY_COMPUTABLE`。
-
-- 按 `message.part.updated.part.callID` 合并 `part.type == tool` 生命周期。
-- 使用最早的 `state.time.start` 与终态事件中最晚的 `state.time.end`，二者之差为调用耗时。
-- 重复状态只记录诊断，不重复生成调用。
-
-两种模式缺少完整工具耗时均返回
-`NOT_COMPUTABLE / missing_tool_duration`，非法值和负时序分别返回
-`ERROR / invalid_duration` 与 `ERROR / invalid_event_order`。单个调用失败与同 Trace 其他调用
-隔离。稳定指标名为 `tool_call_duration_ms`，evaluator 版本为 `1.0.0`。
-
-聊天模式工具 Token：`NOT_COMPUTABLE`。
-
-- `canvas.agents[].messages[].content.usageTokens` 属于模型步骤；一个模型步骤可能产生零个、一个
-  或多个工具调用，不能可靠分摊给单次工具。
-
-研究模式工具 Token：`NOT_COMPUTABLE`。
-
-- `step-finish.tokens.total` 属于模型步骤，工具生命周期没有工具自身 Token 字段，也没有可靠
-  的一对一映射。
-
-两种模式统一返回 `NOT_COMPUTABLE / no_observable_tool_token_usage`。稳定指标名为
-`tool_token_consumption`，evaluator 版本为 `1.0.0`。未来只有在上游每个工具终态按 `callID`
-提供非负整数 `usageTokens.total` 后才可升级为直接计算，禁止使用模型 Token 估算。
-
-### 模拟计算
+每个 Trace 输出以下同名工具统计结构：
 
 ```text
-聊天 call-1：durationSeconds=1.25 -> tool_call_duration_ms=1250
-研究 call-2：start=1000 ms，end=2500 ms -> tool_call_duration_ms=1500
-任一模式 call：无工具自身 Token 字段
-  -> tool_token_consumption=null
-  -> NOT_COMPUTABLE / no_observable_tool_token_usage
+per_tool_statistics[tool_name] = {
+  call_count,
+  repeat_call_count,
+  token_observed_count,
+  token_missing_count,
+  per_tool_call_tokens,
+  latency_observed_count,
+  latency_missing_count,
+  per_tool_call_latency
+}
+
+repeat_call_count = max(call_count - 1, 0)
 ```
+
+调用按聊天模式的 `traceId + toolId` 或研究模式的 `sessionID + userMessageID + callID` 唯一化。
+相同生命周期快照去重；同一调用 ID 对应不同规范化工具名时返回
+`ERROR / conflicting_call_definition`。
+
+### tool_calls_count
+
+#### 指标定义
+
+`tool_calls_count` 表示单条 Trace 内唯一业务工具调用总数，不包含 Agent 委派、Agent 返回和
+框架控制事件。
+
+```text
+tool_calls_count = Σ per_tool_statistics[tool_name].call_count
+
+同名工具重复调用总数 =
+  Σ per_tool_statistics[tool_name].repeat_call_count
+```
+
+没有业务工具调用时本指标计算为 `0`，不是不可计算。
+
+#### 字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 调用定义：`canvas.agents[].messages[].content.tool_call[]`。
+- 调用 ID：`toolId`；工具名称：`toolName`。
+- `agentName` 子 Agent 委派，以及被分类为 `agent_return/framework_control` 的调用不进入统计。
+- 当前日志中的 `respond` 带 `taskId`，对应结果仅包含 `toolId`，应由工具类别目录归为
+  `agent_return`，不能作为缺耗时的业务工具。
+
+研究模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 调用事件：`message.part.updated.part.type == tool`。
+- 调用 ID：`part.callID`；工具名称：`part.tool`。
+- 同一 `callID` 的 pending、running 和终态事件合并为一次调用。
+- 仍需工具类别目录排除框架工具和控制事件。
+
+缺少调用 ID 返回 `ERROR / missing_call_id`；缺少工具名称返回 `ERROR / missing_tool_name`。
+
+#### 观测价值
+
+- 直接观察工作流扇出规模；调用数异常升高通常意味着搜索扩散、规划反复或循环未及时终止。
+- `repeat_call_count` 定位同名工具在单条 Trace 内被反复调用的问题。
+- 与 `end_to_end_latency_ms` 联合观察，可区分“调用数量多导致慢”和“调用数量少但单次调用慢”。
+- 与 Trace 总 Token 联合观察，可判断 Token 增长是否伴随工具调用轮次膨胀。
+
+### per_tool_call_latency
+
+#### 指标定义
+
+`per_tool_call_latency` 表示同一 Trace 内，同名业务工具所有可观测调用的平均执行耗时，单位为
+毫秒。
+
+```text
+单次工具耗时 = 工具终态时间 - 工具开始时间
+
+per_tool_call_latency[tool_name] =
+  Σ 同名工具有效调用耗时
+  ÷ latency_observed_count
+```
+
+部分调用缺少耗时时，仍可对有效调用计算平均值，但必须同时输出
+`latency_observed_count` 和 `latency_missing_count`。同名工具没有任何有效耗时时返回
+`NOT_COMPUTABLE / no_observable_tool_duration`，不得补零。
+
+#### 字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 按 `traceId + toolId` 关联 `tool_call` 与 `tool_result`。
+- 单次耗时：`tool_result.durationSeconds × 1000`。
+- 相同耗时快照去重；同一调用出现不同耗时返回
+  `ERROR / conflicting_duration_observation`。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 按 `callID` 合并工具生命周期。
+- 开始时间：所有状态事件中最早的 `part.state.time.start`。
+- 结束时间：终态事件中最晚的 `part.state.time.end`。
+- 单次耗时为结束时间减开始时间；重复状态只记录诊断。
+
+两种模式缺少完整边界时，该调用标记为 `NOT_COMPUTABLE / missing_tool_duration`；非法时间和
+负时序分别返回 `ERROR / invalid_duration`、`ERROR / invalid_event_order`。
+
+#### 观测价值
+
+- 按工具名比较平均耗时，定位长期偏慢的工具类型。
+- 结合 `repeat_call_count` 判断某工具的总影响来自“单次慢”还是“调用次数多”。
+- 结合 `end_to_end_latency_ms` 识别单工具长尾，但不得把并行或嵌套调用的耗时简单相加为
+  Trace 总耗时。
+
+### per_tool_call_tokens
+
+#### 指标定义
+
+`per_tool_call_tokens` 表示同一 Trace 内，同名业务工具执行自身 Token 的平均消耗。它不包含
+发起调用的模型步骤 Token，也不得把模型 input/output Token 平均分摊到一个或多个工具调用。
+
+```text
+per_tool_call_tokens[tool_name] =
+  Σ 同名工具调用的 usageTokens.total
+  ÷ token_observed_count
+```
+
+同名工具只要有任一次调用缺少工具自身 Token，该工具即返回
+`NOT_COMPUTABLE / incomplete_tool_token_coverage`，不得输出部分平均值。全部调用均无工具 Token
+时返回 `NOT_COMPUTABLE / no_observable_tool_token_usage`。
+
+#### 字段映射
+
+聊天模式：`NOT_COMPUTABLE`。
+
+- 当前 `message.content.usageTokens` 属于模型步骤，不属于工具执行。
+- `tool_result` 没有逐调用 `usageTokens`，无法安全归属工具自身 Token。
+
+研究模式：`NOT_COMPUTABLE`。
+
+- 当前 `step-finish.tokens` 属于模型步骤。
+- `part.type == tool` 的生命周期没有逐调用 Token 字段。
+
+未来两种模式均需在工具终态按调用 ID 补充：
+
+```text
+usageTokens.total
+usageTokens.input
+usageTokens.output
+usageTokens.cache_read
+usageTokens.cache_write
+provider
+model
+```
+
+其中只有非负整数 `usageTokens.total` 是本指标的必要字段；其他分项用于诊断和成本解释。
+
+#### 观测价值
+
+- 识别内部调用模型或检索生成服务的高 Token 工具。
+- 与 `per_tool_call_latency` 联合观察，可区分耗时型工具和 Token 型工具。
+- 按同名工具平均后，可以判断总 Token 较高是单次调用昂贵还是重复调用次数过多。
+
+### max_tool_token_share
+
+#### 指标定义
+
+`max_tool_token_share` 表示单条 Trace 内，工具自身 Token 消耗最高的工具名称占全部业务工具
+Token 的比例。
+
+```text
+tool_token_total[tool_name] =
+  Σ 同名工具调用的 usageTokens.total
+
+max_tool_token_share =
+  max(tool_token_total[tool_name])
+  ÷ Σ 全部业务工具调用的 usageTokens.total
+```
+
+本指标要求当前 Trace 的全部业务工具调用 Token 覆盖完整。存在任一缺失时返回
+`NOT_COMPUTABLE / incomplete_tool_token_coverage`；无业务工具调用时返回
+`NOT_COMPUTABLE / no_tool_calls`；工具 Token 总和为零时返回
+`NOT_COMPUTABLE / zero_tool_token_consumption`。
+
+#### 字段映射
+
+聊天模式：`NOT_COMPUTABLE`，缺少 `tool_result.usageTokens.total`。
+
+研究模式：`NOT_COMPUTABLE`，缺少工具终态 `part.state.usageTokens.total`。
+
+禁止使用模型步骤 Token 推导本指标。未来字段映射与 `per_tool_call_tokens` 相同，并按规范化
+工具名先求和后计算占比。
+
+#### 观测价值
+
+- 比例高表示工具 Token 集中在少数工具上，应优先优化头部工具。
+- 比例低但工具 Token 总量高，表示成本分散在多个工具或多个重复调用上。
+- 与同名工具 `repeat_call_count` 联合观察，可以区分“单一昂贵工具”和“重复调用累计成本”。
+
+### output_token_ratio
+
+#### 指标定义
+
+`output_token_ratio` 是 Trace 级模型输出 Token 占模型总 Token 的比例，用于解释工具工作流中
+Token 是消耗在上下文输入还是模型输出。
+
+```text
+output_token_ratio =
+  Σ 模型步骤 output_tokens
+  ÷ total_token_consumption
+```
+
+本指标不是工具自身 Token 比例，也不把输出 Token 归属到具体工具。模型 Token 覆盖不完整时
+返回 `NOT_COMPUTABLE / incomplete_token_coverage`；分母为零时返回
+`NOT_COMPUTABLE / zero_total_token_consumption`。
+
+#### 字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 分子：`canvas.agents[].messages[].content.usageTokens.output_tokens` 之和。
+- 分母：同一批唯一模型步骤的 `input_tokens + output_tokens` 之和。
+- `canvas.answer.usageTokens` 是最终 Agent 消息的重复快照，不参与计算。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 分子：唯一 `message.part.updated` 中 `part.type == step-finish` 的 `part.tokens.output` 之和。
+- 分母：同一批唯一步骤的 `part.tokens.total` 之和。
+- `message.updated.info.tokens` 和同 loop 的 `llm.response.result.usage` 是重复投影，不参与计算。
+
+#### 观测价值
+
+- 比例低且总 Token 高，说明成本主要来自上下文输入、缓存读取或多轮模型调用，而不是回答过长。
+- 比例高时，可进一步检查模型是否产生过长中间文本或最终回答。
+- 与 `tool_calls_count` 联合观察，可以判断工具调用轮次增加是否主要放大输入上下文。
+
+### cache_token_ratio
+
+#### 指标定义
+
+`cache_token_ratio` 是 Trace 级缓存 Token 占模型总 Token 的比例。
+
+```text
+cache_token_ratio =
+  cache_token_consumption
+  ÷ total_token_consumption
+```
+
+缓存 Token 是模型步骤资源，不属于工具自身 Token。必须先确认供应商的缓存计数包含关系，禁止
+在未知语义下把 cache Token 再次加入总 Token。
+
+#### 字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 候选分子：`canvas.agents[].messages[].content.usageTokens.cache_tokens` 之和。
+- 候选分母：相同模型步骤的 `input_tokens + output_tokens` 之和。
+- 只有配置确认 `cache_tokens` 已包含在 `input_tokens` 中时才按上述公式计算；否则返回
+  `NOT_COMPUTABLE / unknown_cache_token_semantics`。
+- `canvas.answer.usageTokens` 不参与计算。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 分子：唯一 `message.part.updated` 中 `part.type == step-finish` 的
+  `part.tokens.cache.read + part.tokens.cache.write` 之和。
+- 分母：同一批唯一步骤的 `part.tokens.total` 之和。
+- 每一步必须满足
+  `total = input + output + reasoning + cache.read + cache.write`；不满足时返回
+  `ERROR / inconsistent_token_breakdown`。
+
+缺少 cache 分项返回 `NOT_COMPUTABLE / no_observable_cache_usage`；部分步骤缺失返回
+`NOT_COMPUTABLE / incomplete_cache_token_coverage`；分母为零返回
+`NOT_COMPUTABLE / zero_total_token_consumption`。
+
+#### 观测价值
+
+- 比例高表示模型调用主要在重复读取缓存上下文，优化重点应放在减少模型步骤数、缩短上下文或
+  避免重复携带大型工具结果。
+- 比例低但 input Token 高，说明主要消耗来自未缓存的新输入或频繁变化的上下文。
+- 缓存命中不等于零成本或零时延，本指标只能解释 Token 构成，不能单独代表成本节省比例。
+
+### 输出字段约束
+
+单条 Trace 至少输出以下字段：
+
+```text
+tool_calls_count
+output_token_ratio
+cache_token_ratio
+max_tool_token_share
+end_to_end_latency_ms
+per_tool_statistics[].tool_name
+per_tool_statistics[].call_count
+per_tool_statistics[].repeat_call_count
+per_tool_statistics[].per_tool_call_tokens
+per_tool_statistics[].per_tool_call_latency
+```
+
+每个指标或同名工具字段必须携带独立的 `status`、稳定 `reason` 和 `evaluator_version`。一个字段
+不可计算不得阻止其他字段输出；不得用零值代替缺失 Token、缺失耗时或未知缓存语义。结果只
+保留规范化工具名、数值、计数、状态和安全原因码，不保留工具参数、工具响应、query 或回答
+正文。
