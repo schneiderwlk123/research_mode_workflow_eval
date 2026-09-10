@@ -1372,9 +1372,10 @@ evaluator_version
 
 ## 补充字段：工具调用效率观测
 
-本节只定义工具调用次数、同名工具重复调用、工具耗时、工具自身 Token，以及用于解释工具调用
-成本的 Trace 级 Token 比例和端到端时延。所有字段均由日志和版本化目录确定，不使用人工主观
-判断。
+本节只定义工具调用次数、同名工具重复调用、工具耗时、工具关联模型步骤 Token，以及用于解释
+工具调用成本的 Trace 级 Token 比例和端到端时延。工具关联模型步骤 Token 表示“产生该工具
+调用的模型步骤消耗”，不表示工具服务内部执行消耗。所有字段均由日志和版本化目录确定，不使用
+人工主观判断。
 
 ### 统一工具范围与同名聚合
 
@@ -1397,8 +1398,12 @@ evaluator_version
 per_tool_statistics[tool_name] = {
   call_count,
   repeat_call_count,
+  tool_step_count,
+  single_tool_step_count,
+  multi_tool_step_count,
   token_observed_count,
   token_missing_count,
+  tool_associated_token_total,
   per_tool_call_tokens,
   latency_observed_count,
   latency_missing_count,
@@ -1661,86 +1666,170 @@ max_tool_latency_share = 3000 ÷ 3500 ≈ 0.85714
 
 #### 指标定义
 
-`per_tool_call_tokens` 表示同一 Trace 内，同名业务工具执行自身 Token 的平均消耗。它不包含
-发起调用的模型步骤 Token，也不得把模型 input/output Token 平均分摊到一个或多个工具调用。
+`per_tool_call_tokens` 表示同一 Trace 内，产生某一规范化业务工具调用的模型步骤平均 Token
+消耗。字段名为兼容既定输出保留，但统计对象是“工具关联模型步骤”，不是工具服务内部执行。
+
+采用完整步骤关联规则：一个模型步骤调用多个不同工具时，该步骤完整 Token 分别关联给每个
+不同工具名，不进行平均拆分；同一步骤内同一规范化工具名出现多次时只关联一次，避免同一工具
+重复累计同一份步骤 Token。
 
 ```text
+tool_step_count[tool_name] =
+  包含该规范化工具名的唯一模型步骤数
+
+tool_associated_token_total[tool_name] =
+  Σ 包含该工具名的唯一模型步骤 Token
+
 per_tool_call_tokens[tool_name] =
-  Σ 同名工具调用的 usageTokens.total
-  ÷ token_observed_count
+  tool_associated_token_total[tool_name]
+  ÷ tool_step_count[tool_name]
 ```
 
-同名工具只要有任一次调用缺少工具自身 Token，该工具即返回
-`NOT_COMPUTABLE / incomplete_tool_token_coverage`，不得输出部分平均值。全部调用均无工具 Token
-时返回 `NOT_COMPUTABLE / no_observable_tool_token_usage`。
+`call_count` 仍表示唯一工具调用次数，`tool_step_count` 表示包含该工具的模型步骤数；一个步骤
+并行或批量发出多个同名调用时，两者可能不同，不得互相替代。`token_observed_count` 和
+`token_missing_count` 按关联模型步骤计数。
+
+```text
+single_tool_step_count[tool_name] =
+  只包含一个不同业务工具名、且该工具名为 tool_name 的模型步骤数
+
+multi_tool_step_count[tool_name] =
+  包含多个不同业务工具名、且其中包含 tool_name 的模型步骤数
+
+tool_step_count[tool_name] =
+  single_tool_step_count[tool_name] + multi_tool_step_count[tool_name]
+
+shared_token_step_count =
+  当前 Trace 内包含多个不同业务工具名的唯一模型步骤数
+```
+
+同名工具关联的任一模型步骤缺少 Token 时，该工具返回
+`NOT_COMPUTABLE / incomplete_token_coverage`，不得输出部分平均值。没有业务工具调用时返回
+`NOT_COMPUTABLE / no_tool_calls`；存在业务工具调用但没有可关联模型步骤时返回
+`NOT_COMPUTABLE / missing_tool_step_association`。
 
 #### 字段映射
 
-聊天模式：`NOT_COMPUTABLE`。
+聊天模式：`DIRECTLY_COMPUTABLE`。
 
-- 当前 `message.content.usageTokens` 属于模型步骤，不属于工具执行。
-- `tool_result` 没有逐调用 `usageTokens`，无法安全归属工具自身 Token。
+- 模型步骤按 `canvas.agents[].messages[]` 的稳定遍历位置识别；只读取同一消息
+  `content.tool_call[]` 和 `content.usageTokens`，不读取 `canvas.answer.usageTokens` 重复快照。
+- 步骤 Token 使用 `content.usageTokens.input_tokens + output_tokens`，与
+  `total_token_consumption` 的聊天模式口径一致；`cache_tokens` 不额外加入。
+- 调用按 `traceId + toolId` 唯一化，排除 `agent_delegation`、`agent_return` 和
+  `framework_control` 后，将步骤 Token 关联给该步骤内每个不同的规范化 `toolName`。
+- 一个步骤内同名工具出现多次时，`call_count` 按不同 `toolId` 计数，但
+  `tool_step_count`、`token_observed_count` 和 `tool_associated_token_total` 只累计一次。
 
-研究模式：`NOT_COMPUTABLE`。
+研究模式：`DIRECTLY_COMPUTABLE`。
 
-- 当前 `step-finish.tokens` 属于模型步骤。
-- `part.type == tool` 的生命周期没有逐调用 Token 字段。
+- 工具调用读取 `message.part.updated` 中 `part.type == tool` 的 `part.messageID`、
+  `part.callID` 和 `part.tool`；同一 `callID` 的 pending、running、completed 等生命周期快照先
+  合并为一次调用。
+- 模型步骤 Token 只读取同一 `messageID` 下 `part.type == step-finish` 的
+  `part.tokens.total`。`message.updated.info.tokens` 和 `llm.response.result.usage` 是重复投影，
+  不参与累计。
+- 按 `part.messageID` 将模型步骤 Token 关联给该步骤内每个不同的规范化工具名；同一步骤同名
+  工具只关联一次。
+- 缺少 `messageID`、同一 `messageID` 出现冲突 Token 快照，分别返回
+  `ERROR / missing_step_id`、`ERROR / conflicting_token_snapshot`。
 
-未来两种模式均需在工具终态按调用 ID 补充：
+多工具步骤允许跨工具重复关联同一份步骤 Token，因此：
 
 ```text
-usageTokens.total
-usageTokens.input
-usageTokens.output
-usageTokens.cache_read
-usageTokens.cache_write
-provider
-model
+Σ tool_associated_token_total[tool_name]
+可能大于 total_token_consumption
 ```
 
-其中只有非负整数 `usageTokens.total` 是本指标的必要字段；其他分项用于诊断和成本解释。
+这种重叠是已确认的归因规则，不是重复日志。结果必须输出
+`tool_token_attribution = full_step_association`、`single_tool_step_count`、
+`multi_tool_step_count` 和 `shared_token_step_count`，禁止把各工具关联 Token 相加解释为 Trace
+总 Token，也禁止把多工具步骤 Token 平均拆分。
 
 #### 观测价值
 
-- 识别内部调用模型或检索生成服务的高 Token 工具。
-- 与 `per_tool_call_latency` 联合观察，可区分耗时型工具和 Token 型工具。
-- 按同名工具平均后，可以判断总 Token 较高是单次调用昂贵还是重复调用次数过多。
+- 识别哪些工具通常由高 Token 模型步骤产生，定位工具选择和参数生成阶段的上下文成本。
+- 与 `per_tool_call_latency` 联合观察，可区分“模型规划成本高”和“工具执行本身慢”。
+- 与 `repeat_call_count` 联合观察，可以判断同名工具反复调用是否持续触发高 Token 模型步骤。
+- 本指标不能用于计算工具供应商费用；工具内部 Token 仍需工具终态提供独立 usage 字段。
+
+#### 研究日志验算
+
+指定研究日志共有 27 个唯一 `step-finish`，Trace 总 Token 为 `18,064,255`；其中 26 个步骤
+包含业务工具，22 个为单工具步骤，4 个为双工具步骤，共对应 30 次唯一工具调用。按完整步骤
+关联规则，工具步骤 Token 按步骤去重后的合计为 `17,353,963`，但各工具关联 Token 相加为
+`19,803,424`，其中 `2,449,461` 是双工具步骤带来的合法重叠。
+
+`excel` 出现在 22 个单工具步骤中：
+
+```text
+tool_associated_token_total[excel] = 14,904,502
+tool_step_count[excel] = 22
+per_tool_call_tokens[excel] = 14,904,502 ÷ 22 ≈ 677,477.36
+```
 
 ### max_tool_token_share
 
 #### 指标定义
 
-`max_tool_token_share` 表示单条 Trace 内，工具自身 Token 消耗最高的工具名称占全部业务工具
-Token 的比例。
+`max_tool_token_share` 表示单条 Trace 内，关联模型步骤 Token 最多的规范化业务工具占端到端
+模型总 Token 的比例。它衡量某一种工具与高 Token 模型步骤的关联集中度，不表示该工具服务
+内部消耗，也不要求所有工具的占比加总为 `1`。
 
 ```text
-tool_token_total[tool_name] =
-  Σ 同名工具调用的 usageTokens.total
+tool_associated_token_total[tool_name] =
+  Σ 包含该工具名的唯一模型步骤 Token
 
 max_tool_token_share =
-  max(tool_token_total[tool_name])
-  ÷ Σ 全部业务工具调用的 usageTokens.total
+  max(tool_associated_token_total[tool_name])
+  ÷ total_token_consumption
 ```
 
-本指标要求当前 Trace 的全部业务工具调用 Token 覆盖完整。存在任一缺失时返回
-`NOT_COMPUTABLE / incomplete_tool_token_coverage`；无业务工具调用时返回
-`NOT_COMPUTABLE / no_tool_calls`；工具 Token 总和为零时返回
-`NOT_COMPUTABLE / zero_tool_token_consumption`。
+结果范围为 `(0, 1]`。同一模型步骤包含多个不同工具时，完整步骤 Token 分别进入各工具的
+`tool_associated_token_total`，但分母始终使用不重复的 Trace 级 `total_token_consumption`。
+因此各工具的 share 允许重叠，其总和可能大于 `1`。
+
+指标同时输出 `max_token_tool_names` 和 `max_tool_associated_tokens`。多个工具并列最高时，
+`max_token_tool_names` 使用按规范化工具名升序排列的 JSON 数组。
+
+本指标要求 Trace 总 Token 以及全部工具关联步骤 Token 覆盖完整。存在缺失时返回
+`NOT_COMPUTABLE / incomplete_token_coverage`；无业务工具调用时返回
+`NOT_COMPUTABLE / no_tool_calls`；Trace 总 Token 为零时返回
+`NOT_COMPUTABLE / zero_total_token_consumption`；工具调用无法关联模型步骤时返回
+`NOT_COMPUTABLE / missing_tool_step_association`。
 
 #### 字段映射
 
-聊天模式：`NOT_COMPUTABLE`，缺少 `tool_result.usageTokens.total`。
+聊天模式：`DIRECTLY_COMPUTABLE`。
 
-研究模式：`NOT_COMPUTABLE`，缺少工具终态 `part.state.usageTokens.total`。
+- 分母复用 `total_token_consumption`：汇总所有唯一模型消息的
+  `content.usageTokens.input_tokens + output_tokens`。
+- 分子复用 `per_tool_call_tokens` 的同消息 `toolName + usageTokens` 完整步骤关联结果。
 
-禁止使用模型步骤 Token 推导本指标。未来字段映射与 `per_tool_call_tokens` 相同，并按规范化
-工具名先求和后计算占比。
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 分母复用 `total_token_consumption`：按 `messageID` 去重并汇总全部 `step-finish.tokens.total`。
+- 分子复用 `per_tool_call_tokens` 的同 `messageID` 工具与 `step-finish` 关联结果。
+- 不读取 `message.updated.info.tokens` 或 `llm.response.result.usage`，避免重复计算。
 
 #### 观测价值
 
-- 比例高表示工具 Token 集中在少数工具上，应优先优化头部工具。
-- 比例低但工具 Token 总量高，表示成本分散在多个工具或多个重复调用上。
-- 与同名工具 `repeat_call_count` 联合观察，可以区分“单一昂贵工具”和“重复调用累计成本”。
+- 比例高表示大部分模型 Token 出现在包含同一种工具的步骤中，应优先检查该工具对应的上下文、
+  参数生成和重复调用链路。
+- 与 `repeat_call_count` 联合观察，可以区分“少量高 Token 步骤”和“重复调用累计模型成本”。
+- 与 `output_token_ratio`、`cache_token_ratio` 联合观察，可以进一步判断关联成本主要来自模型输出、
+  新输入还是缓存上下文。
+- 多工具步骤会让多个工具共享同一份 Token，因此该指标用于定位关联热点，不能用于工具间费用
+  分摊。
+
+#### 研究日志验算
+
+```text
+total_token_consumption = 18,064,255
+max_token_tool_names = ["excel"]
+max_tool_associated_tokens = 14,904,502
+max_tool_token_share = 14,904,502 ÷ 18,064,255 ≈ 0.82508
+```
 
 ### output_token_ratio
 
@@ -1833,6 +1922,9 @@ tool_calls_count
 output_token_ratio
 cache_token_ratio
 max_tool_token_share
+max_token_tool_names[]
+max_tool_associated_tokens
+tool_token_attribution
 max_tool_latency_share
 max_latency_tool_names[]
 max_tool_latency_total_ms
@@ -1841,6 +1933,11 @@ end_to_end_latency_ms
 per_tool_statistics[].tool_name
 per_tool_statistics[].call_count
 per_tool_statistics[].repeat_call_count
+per_tool_statistics[].tool_step_count
+per_tool_statistics[].single_tool_step_count
+per_tool_statistics[].multi_tool_step_count
+shared_token_step_count
+per_tool_statistics[].tool_associated_token_total
 per_tool_repeat_call_count[].tool_name
 per_tool_repeat_call_count[].call_count
 per_tool_repeat_call_count[].repeat_call_count
