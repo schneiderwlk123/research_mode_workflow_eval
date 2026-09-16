@@ -1,9 +1,10 @@
 """批量从 OSS 导出研究模式 trace 的 jsonl 日志。
 
-输入:Excel 清单(uid / session_id / msg_id 三列,其余列忽略)。
-OSS 存储约定:<根前缀>/<uid>/<session_id>/<msg_id 前缀>*.jsonl,每个 msg_id 前缀唯一对应一个文件。
+输入:Excel 清单(uid / session_id / msg_id 三列,其余列忽略;重复行自动去重)。
+OSS 存储约定:<根前缀>/<uid>/<session_id>/<msg_id 前缀>*.jsonl;同一 msg_id 前缀可能存在
+多个文件(如 noquery 版与带 query 版),全部下载,后续计算时再选用。
 输出:jsonl 文件下载到本地目录(默认 data/oss_jsonl/<uid>/<session_id>/<原文件名>),
-并在同目录写 manifest.json 记录每条任务的状态(ok / missing / ambiguous / error / skipped),
+并在同目录写 manifest.json 记录每条任务的状态(ok / missing / error),
 失败或缺失不中断整批,支持直接重跑续传(已成功文件不重复下载)。
 
 连接配置全部来自 CLI 参数或环境变量,严禁把 AK/SK 写入代码库:
@@ -96,37 +97,45 @@ def export_one(
     root_prefix: str,
     dest_root: Path,
 ) -> dict[str, Any]:
-    """导出单条任务的 jsonl,返回 manifest 记录。任何异常都被隔离为 error 状态,不向上抛出。"""
+    """导出单条任务前缀下的全部 jsonl,返回 manifest 记录。任何异常都被隔离为 error,不向上抛出。
+
+    同一 msg_id 前缀可能存在多个文件(如 noquery 版与带 query 版),约定全部下载、
+    后续计算时再选用;Excel 重复行由 run_export 去重,这里只处理唯一前缀。
+    """
     uid, session_id, msg_id = row
     prefix = build_prefix(root_prefix, uid, session_id, msg_id)
     record: dict[str, Any] = {"uid": uid, "session_id": session_id, "msg_id": msg_id}
     try:
-        keys = [o.key for o in bucket.list_objects(prefix).object_list]
+        keys = sorted(o.key for o in bucket.list_objects(prefix).object_list)
     except Exception as exc:  # noqa: BLE001 - list 失败同样隔离,保证整批继续
         record.update(status="error", error=f"list 失败: {exc}")
         return record
 
     if not keys:
-        record.update(status="missing", error=f"OSS 无匹配对象, prefix={prefix}")
-        return record
-    if len(keys) > 1:
-        # 约定每个 msg_id 前缀只有一个文件;多个匹配说明数据或约定异常,不猜测下载哪个
-        record.update(status="ambiguous", candidates=keys)
+        record.update(status="missing", keys=[], local_paths=[],
+                      error=f"OSS 无匹配对象, prefix={prefix}")
         return record
 
-    key = keys[0]
-    local_path = dest_root / uid / session_id / Path(key).name
-    if local_path.exists() and local_path.stat().st_size > 0:
-        # 断点续跑:已存在的文件视为成功,不重复下载
-        record.update(status="ok", key=key, local_path=str(local_path), resumed=True)
-        return record
-    try:
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        bucket.get_object_to_file(key, str(local_path))
-    except Exception as exc:  # noqa: BLE001 - 下载失败隔离为 error
-        record.update(status="error", key=key, error=f"下载失败: {exc}")
-        return record
-    record.update(status="ok", key=key, local_path=str(local_path))
+    record["keys"] = keys
+    local_paths: list[str] = []
+    errors: list[str] = []
+    for key in keys:
+        local_path = dest_root / uid / session_id / Path(key).name
+        if local_path.exists() and local_path.stat().st_size > 0:
+            # 断点续跑:已存在的文件视为成功,不重复下载
+            local_paths.append(str(local_path))
+            continue
+        try:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            bucket.get_object_to_file(key, str(local_path))
+            local_paths.append(str(local_path))
+        except Exception as exc:  # noqa: BLE001 - 单文件下载失败隔离,其余文件继续
+            errors.append(f"{key}: {exc}")
+    record["local_paths"] = local_paths
+    if errors:
+        record.update(status="error", error="; ".join(errors))
+    else:
+        record.update(status="ok")
     return record
 
 
@@ -137,8 +146,9 @@ def run_export(
     dest_root: Path,
     workers: int = 8,
 ) -> dict[str, Any]:
-    """并发导出全部任务并写 manifest.json,返回 manifest 字典。"""
+    """并发导出全部任务并写 manifest.json,返回 manifest 字典。重复行只导出一次。"""
     dest_root.mkdir(parents=True, exist_ok=True)
+    rows = list(dict.fromkeys(rows))  # Excel 存在重复行,保序去重
     records: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {

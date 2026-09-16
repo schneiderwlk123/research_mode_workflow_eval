@@ -122,8 +122,8 @@ class TestExportOne:
         bucket = FakeBucket(["logs/u1/s1/m1_a.jsonl", "logs/u1/s1/other.jsonl"])
         rec = export_one(bucket, ("u1", "s1", "m1"), "logs", tmp_path)
         assert rec["status"] == "ok"
-        assert rec["key"] == "logs/u1/s1/m1_a.jsonl"
-        assert Path(rec["local_path"]).exists()
+        assert rec["keys"] == ["logs/u1/s1/m1_a.jsonl"]
+        assert Path(rec["local_paths"][0]).exists()
 
     def test_no_match_marks_missing(self, tmp_path: Path) -> None:
         bucket = FakeBucket(["logs/u9/s9/m9.jsonl"])
@@ -131,12 +131,25 @@ class TestExportOne:
         assert rec["status"] == "missing"
         assert bucket.downloaded == []
 
-    def test_multiple_matches_marks_ambiguous(self, tmp_path: Path) -> None:
-        # 用户约定每个 msg_id 前缀只有一个文件;出现多个说明数据异常,不猜测
-        bucket = FakeBucket(["logs/u1/s1/m1_a.jsonl", "logs/u1/s1/m1_b.jsonl"])
+    def test_multiple_matches_downloads_all(self, tmp_path: Path) -> None:
+        # 同一 msg_id 前缀可能同时存在 noquery 版与带 query 版,约定全部下载不猜测取舍
+        bucket = FakeBucket(["logs/u1/s1/m1_noquery_x.jsonl", "logs/u1/s1/m1_query_y.jsonl"])
         rec = export_one(bucket, ("u1", "s1", "m1"), "logs", tmp_path)
-        assert rec["status"] == "ambiguous"
-        assert rec["candidates"] == ["logs/u1/s1/m1_a.jsonl", "logs/u1/s1/m1_b.jsonl"]
+        assert rec["status"] == "ok"
+        assert rec["keys"] == ["logs/u1/s1/m1_noquery_x.jsonl", "logs/u1/s1/m1_query_y.jsonl"]
+        assert len(rec["local_paths"]) == 2
+        assert all(Path(p).exists() for p in rec["local_paths"])
+
+    def test_partial_download_failure_marks_error(self, tmp_path: Path) -> None:
+        # 部分失败:多文件中一个下载失败记为 error,但成功文件保留,重跑只补失败项
+        bucket = FakeBucket(
+            ["logs/u1/s1/m1_a.jsonl", "logs/u1/s1/m1_b.jsonl"],
+            fail_keys={"logs/u1/s1/m1_b.jsonl"},
+        )
+        rec = export_one(bucket, ("u1", "s1", "m1"), "logs", tmp_path)
+        assert rec["status"] == "error"
+        assert "模拟下载失败" in rec["error"]
+        assert len(rec["local_paths"]) == 1  # 成功的文件仍已落盘
 
     def test_download_error_isolated(self, tmp_path: Path) -> None:
         # 部分失败:单条下载异常不应中断整批,记录为 error
@@ -148,7 +161,7 @@ class TestExportOne:
     def test_local_layout_preserves_uid_session(self, tmp_path: Path) -> None:
         bucket = FakeBucket(["logs/u1/s1/m1_x.jsonl"])
         rec = export_one(bucket, ("u1", "s1", "m1"), "logs", tmp_path)
-        rel = Path(rec["local_path"]).relative_to(tmp_path)
+        rel = Path(rec["local_paths"][0]).relative_to(tmp_path)
         assert rel.parts[0] == "u1" and rel.parts[1] == "s1"
 
 
@@ -164,6 +177,14 @@ class TestRunExport:
         assert summary["ok"] == 2
         assert summary["missing"] == 1
         assert len(manifest["records"]) == 3
+
+    def test_duplicate_rows_deduped(self, tmp_path: Path) -> None:
+        # Excel 存在重复行,同一 (uid, session_id, msg_id) 只应产生一条任务
+        bucket = FakeBucket(["logs/u1/s1/m1.jsonl"])
+        rows = [("u1", "s1", "m1"), ("u1", "s1", "m1")]
+        manifest = run_export(bucket, rows, "logs", tmp_path, workers=1)
+        assert manifest["summary"]["total"] == 1
+        assert len(bucket.downloaded) == 1
 
     def test_manifest_written_to_disk(self, tmp_path: Path) -> None:
         bucket = FakeBucket(["logs/u1/s1/m1.jsonl"])
