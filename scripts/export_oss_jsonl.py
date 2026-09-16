@@ -37,6 +37,25 @@ class BucketLike(Protocol):
     def get_object_to_file(self, key: str, dest: str) -> None: ...
 
 
+def load_env_file(path: Path) -> None:
+    """把 .env 文件中的 KEY=VALUE 载入环境变量;进程已有的变量优先,文件不补充覆盖。
+
+    文件不存在时静默跳过(配置可全部走进程环境变量);格式非法的行跳过而不是报错,
+    避免注释或空行阻断导出。
+    """
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, raw_value = line.split("=", 1)
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ.setdefault(name.strip(), value)
+
+
 def _cell_to_str(value: Any) -> str:
     """把 Excel 单元格值规范化为字符串;数字型 uid 去掉小数点(3694996.0 -> '3694996')。"""
     if value is None:
@@ -164,6 +183,9 @@ def make_oss_bucket(endpoint: str, bucket_name: str) -> Any:
 
 
 def main() -> None:
+    # 先加载项目根目录 .env(相对脚本位置定位,与运行时 cwd 无关),再解析 CLI;
+    # CLI 参数默认值读取环境变量,因此 .env 中的 OSS_* 配置自动生效。
+    load_env_file(Path(__file__).resolve().parent.parent / ".env")
     parser = argparse.ArgumentParser(description="按 Excel 清单批量导出 OSS jsonl 日志")
     parser.add_argument("--excel", required=True, help="包含 uid/session_id/msg_id 的 xlsx 路径")
     parser.add_argument(

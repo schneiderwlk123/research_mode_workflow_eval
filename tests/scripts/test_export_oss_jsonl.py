@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,43 @@ from openpyxl import Workbook
 from scripts.export_oss_jsonl import (
     build_prefix,
     export_one,
+    load_env_file,
     read_rows,
     run_export,
 )
+
+
+class TestLoadEnvFile:
+    def test_sets_missing_keys(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OSS_BUCKET", raising=False)
+        env = tmp_path / ".env"
+        env.write_text("OSS_BUCKET=my-bucket\n# 注释行\n\nOSS_ENDPOINT=oss-cn.aliyuncs.com\n",
+                       encoding="utf-8")
+        load_env_file(env)
+        assert os.environ["OSS_BUCKET"] == "my-bucket"
+        assert os.environ["OSS_ENDPOINT"] == "oss-cn.aliyuncs.com"
+        monkeypatch.delenv("OSS_BUCKET")
+        monkeypatch.delenv("OSS_ENDPOINT")
+
+    def test_process_env_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # 进程环境变量优先于文件值,保证临时覆盖不需要改 .env
+        monkeypatch.setenv("OSS_BUCKET", "from-process")
+        env = tmp_path / ".env"
+        env.write_text("OSS_BUCKET=from-file\n", encoding="utf-8")
+        load_env_file(env)
+        assert os.environ["OSS_BUCKET"] == "from-process"
+
+    def test_missing_file_is_noop(self, tmp_path: Path) -> None:
+        # .env 不存在不应报错,配置仍可全部走进程环境变量
+        load_env_file(tmp_path / "absent.env")
+
+    def test_strips_quotes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OSS_ROOT_PREFIX", raising=False)
+        env = tmp_path / ".env"
+        env.write_text('OSS_ROOT_PREFIX="agent logs"\n', encoding="utf-8")
+        load_env_file(env)
+        assert os.environ["OSS_ROOT_PREFIX"] == "agent logs"
+        monkeypatch.delenv("OSS_ROOT_PREFIX")
 
 
 class FakeBucket:
