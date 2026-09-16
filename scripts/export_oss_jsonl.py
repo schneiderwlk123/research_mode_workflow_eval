@@ -72,6 +72,9 @@ def read_rows(xlsx_path: Path) -> list[tuple[str, str, str]]:
 
     wb = load_workbook(xlsx_path, read_only=True)
     ws = wb.worksheets[0]
+    # 平台导出的 xlsx 维度元数据可能损坏(如实际 11 万行却声明 A1:A1),
+    # 重置维度后 iter_rows 按实际单元格数据迭代,避免只读到表头
+    ws.reset_dimensions()
     rows: list[tuple[str, str, str]] = []
     first = True
     for raw in ws.iter_rows(values_only=True):
