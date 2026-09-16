@@ -1,0 +1,34 @@
+.venv/
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.env
+artifacts/
+reports/
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+*.log
+
+# 原始 trace 可能包含用户数据，不默认纳入版本控制。
+*.jsonl
+!tests/fixtures/*.jsonl
+
+# 全量导出清单/样本日志/一次性分析产物：含真实 uid/session/msg_id，禁止入库。
+data/tmp_export/
+data/oss_jsonl/
+*.zip
+
+# pytest 因系统临时目录权限问题改用仓库内 basetemp，属临时产物。
+.pytest_tmp/
+
