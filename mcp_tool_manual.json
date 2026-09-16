@@ -1,0 +1,4278 @@
+{
+  "manual_version": "0.2.0",
+  "server": "comein-mcp-all",
+  "generated_at": "2026-09-16",
+  "status": "synced-from-live",
+  "tool_count": 89,
+  "tools": [
+    {
+      "name": "searchCompanyOperatingData",
+      "description": "搜索上市公司经营数据，用于查询公司或行业的产量、销量、库存、开工率、售价等月度经营指标。适用于“某公司最新产销”“某行业月度销量变化”等结构化经营数据检索场景；不适合替代研报观点、公告全文或会议纪要类问题。",
+      "parameters": [
+        {
+          "name": "industry",
+          "type": "string",
+          "required": false,
+          "description": "可选申万一级行业名称，按 industry_name 精确匹配，如：\"汽车\"、\"电子\"。仅在未传 stocks 时生效；匹配不到行业时返回“未找到匹配行业”。stocks 与 industry 都不传时，按 query 全量召回。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，使用完整的中文自然语言描述希望查询的经营数据要点，**请具体指明指标、公司或行业背景**。示例： - \"新能源汽车产量\" - \"赛力斯7月销量同比变化\" - \"光伏组件出货量与库存\" 请避免使用“看看经营数据”“有没有月报”等模糊表达。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stock",
+          "type": "string",
+          "required": false,
+          "description": "可选股票过滤条件，仅支持单个公司。可传公司名称、股票代码或完整代码，如：\"赛力斯\"、\"002594\"、\"sz002594\"、\"hk03690\"。传入后优先按股票过滤，并覆盖 industry；未识别到有效标的时返回空结果。不传则不按股票过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 200 之间。不传时默认 50。",
+          "default": 50,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_stock_details",
+      "description": "根据股票名称或者股票代码，批量查询公司基本信息，按模块返回标准化标的信息、市值、行业概念、高管、公司简介等。支持 include 控制返回模块，不传 include 时默认返回 standardized_info / market_value / industry_concepts / business_profile 四个模块。",
+      "parameters": [
+        {
+          "name": "include",
+          "type": "array",
+          "required": false,
+          "description": "指定返回的模块,可选值:\n  - standardized_info: 标准化标的信息(标准名称、标准代码、市场、币种等)\n  - market_value: 总市值、流通市值、总股本、流通股本\n  - industry_concepts: 所属行业及相关概念\n  - management: 高管信息\n  - business_profile: 公司简介、地址、官网等\n不传时默认返回 [\"standardized_info\",\"market_value\",\"industry_concepts\",\"business_profile\"]。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": true,
+          "description": "股票名称或者股票代码列表，示例：[\"sz300033\", \"贵州茅台\"], 最多查询10个标的",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_fund_snapshot",
+      "description": "用于查询单只基金的主体层最新或指定观察日快照，回答“这只基金现在是什么情况”。支持通过基金名称、基金简称、份额名称或交易代码定位基金； 当输入命中份额代码或份额名称时，先通过内置实体解析拿到所属 fund_id，再查询基金主体快照。返回基金基础信息、分类、管理人、在任基金经理、 默认展示份额、ETF 联接关系、最新净值、净资产、最近披露份额、摘要收益风险指标、数据日期和数据质量说明。适用于基金信息卡片、基金基础问答、 ETF 联接关系解释和选基结果解释；不用于查询份额级完整收益风险明细、历史行情、持仓明细或基金经理完整画像。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "观察日，格式 yyyy-MM-dd，不传取最新快照；该日无快照时自动回退至最新。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_company_name",
+          "type": "string",
+          "required": false,
+          "description": "基金公司名称收窄，对命中基金主体快照的管理人名称做包含匹配。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_manager_name",
+          "type": "string",
+          "required": false,
+          "description": "基金经理姓名收窄，对命中基金主体快照的在任经理名称做包含匹配。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_type_level1",
+          "type": "array",
+          "required": false,
+          "description": "一级分类收窄，按命中基金主体快照的一级分类做 IN 过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_type_level2",
+          "type": "array",
+          "required": false,
+          "description": "二级分类收窄，按命中基金主体快照的二级分类做 IN 过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": true,
+          "description": "基金名称、简称、份额名称或交易代码，如\"华夏上证50ETF\"或\"510050\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sections",
+          "type": "array",
+          "required": false,
+          "description": "输出分组裁剪，数组；为空或含 all 返回全部。可选值： basic(基础与分类)/manager(管理人与在任经理)/relationship(ETF联接)/ latest_status(最新净值净资产份额)/perf_risk(完整多期收益风险矩阵)/quality(数据日期与质量)。 传入值全部非法时返回参数错误。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_industry_indicator_data",
+      "description": "查询行业经济指标的具体数据，覆盖能源、工业、汽车、家电、化工、农业、电子、有色金属等各行业主要产品的产销量、库存、进出口、产能等经济数据的时间序列或最新值。通过 query 用自然语言描述查询需求，要素越清晰完整、取数越精准，建议尽量包含：\n- 具体指标名称，如\"光伏电池产量\"\"新能源汽车产量\"（若不确定精确名称，可先用 search_industry_indicators 搜索候选指标）\n- 时间范围，如\"2023年1月至2026年6月\"\"近一年\"\"最新一期\"\n- 数据频率，如\"月度\"\"季度\"\"年度\"\n- 统计类型，如\"当月值\"\"累计值\"\"同比\"\"环比\"\n\n示例问句：光伏电池产量当月值（202301-202506）、新能源汽车月度产量近一年走势、家电出口金额同比增速、锂电池行业最新库存水平、钢铁行业产能利用率近三年数据、PTA周产量最新值。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "查询要求描述，尽量包含专业指标名称、时间范围、数据频率、统计类型（同比/环比/累计值/当月值）等要素，如\"光伏电池产量当月值（202301-202506）\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_access",
+      "description": "接收文件 ID，先判断当前用户是否有权限,按石墨正文、纪要原文、查看链接的优先级返回内容。",
+      "parameters": [
+        {
+          "name": "documentId",
+          "type": "string",
+          "required": true,
+          "description": "文件 ID",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_tag_list",
+      "description": "查询当前用户可访问范围内的所有标签，支持按标签类型过滤和按标签名称模糊搜索，返回每个标签的名称、类型和关联文档数量，按文档数降序排列。",
+      "parameters": [
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "description": "标签名模糊搜索。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "tagType",
+          "type": "string",
+          "required": false,
+          "description": "按标签类型筛选。custom:自定义, stock:个股, industry:行业。不传返回所有类型。",
+          "default": null,
+          "enum": [
+            "custom",
+            "stock",
+            "industry"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "get_financial_snapshot",
+      "description": "批量查询多个公司高频常用的财务快照信息，支持 A 股、港股、美股，可快速了解一家公司的基本面情况；返回最新财报的核心财务数据、经营效率指标、增长指标、估值指标。入参支持股票名称或股票代码混合传入，单次可批量查询多个标的。",
+      "parameters": [
+        {
+          "name": "period_type",
+          "type": "array",
+          "required": false,
+          "description": "报告期统计口径，可多选；YTD=年初至今累计口径，Q=单季度口径。不传默认 [\"YTD\"]。同时传 [\"YTD\",\"Q\"] 时，单季度指标会带「（单季度）」后缀以区分。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": true,
+          "description": "股票名称或股票代码列表，支持 A股/港股/美股，可名称与代码混传。示例：[\"sz300033\", \"贵州茅台\", \"00700\", \"腾讯控股\", \"AAPL\", \"阿里巴巴\"]",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchIndexQuotation",
+      "description": "指数数据统一查询工具，用于查询全球主要股票指数（A股、港股、美股，如沪深300、中证500、上证50、恒生指数、标普500、纳斯达克指数等）的行情与估值数据。通过 mode 参数支持四种查询模式：snapshot（最新截面快照：基础信息+最新行情+多区间涨跌幅表现+PE/PB估值及历史分位，支持多指数横向对比）、timeseries（日度历史时序：收盘价、涨跌幅、估值等按日展开，适合分析指数一段时间的走势与估值变化）、kline（K线数据：日/周/月/季/年周期的开高低收、成交量额、振幅）、realtime（盘中实时行情快照，queries 缺省时返回常用指数看板）。指数查询词支持指数名称或代码，由服务端自动标准化为指数标的后再查询；单个查询词命中多个指数时自动取最优并在 warnings 中列出其余候选。返回统一结构 {data, metadata, lineage, warnings}。适用于大盘行情播报、指数走势分析、估值水位判断、跨市场指数对比等场景。",
+      "parameters": [
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "结束日，格式 YYYY-MM-DD，缺省为今日。查询某一天的历史数据时与 start_date 传同一天即可。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "include_fields",
+          "type": "array",
+          "required": false,
+          "description": "返回字段或维度组白名单，用于裁剪返回内容，不传则返回默认维度。snapshot 模式可传维度组：basic（精简标识，恒包含）、basic_full（编制信息：加权方式/基期基点/发布机构/成份数量等）、quote（最新行情）、performance（区间表现：近1周/1月/3月/6月/1年/今年以来等涨跌幅）、valuation（估值：PE/PB/股息率/总市值及1年/3年/5年/10年历史分位）；timeseries 模式可传维度名（quote / valuation / performance）或具体字段名。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "index_type_name",
+          "type": "string",
+          "required": false,
+          "description": "指数类别过滤条件（如规模指数、行业指数等），主要用于 realtime 模式缺省常用指数看板的类别过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回行数上限，主要用于 timeseries 长区间截断；未传时超过 2000 行自动截断并在 warnings 中告警。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "market_name",
+          "type": "string",
+          "required": false,
+          "description": "市场过滤条件（A股/港股/美股），主要用于 realtime 模式缺省常用指数看板或显式 queries 结果的市场过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "查询模式，在[snapshot, timeseries, kline, realtime]中选择，缺省为 snapshot。snapshot:最新截面快照（基础信息+最新行情+区间表现+估值分位，支持多指数）；timeseries:日度历史时序（仅支持单指数）；kline:K线数据（仅支持单指数，周期由 period_type 指定）；realtime:盘中实时行情（queries 可缺省，返回常用指数看板）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "period_type",
+          "type": "string",
+          "required": false,
+          "description": "K线周期类型，仅 kline 模式使用，在[D, W, M, Q, Y]中选择，分别代表日/周/月/季/年K线，缺省为 D。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": false,
+          "description": "指数查询词列表，每项可填指数名称或指数代码（如：沪深300、000300、上证50、恒生指数、标普500）。服务端会自动标准化为指数标的；无法识别的查询词会被跳过并在 warnings 中提示，不影响其它指数。snapshot 模式必填且支持多指数；timeseries / kline 模式必填且只允许一个元素（多指数请拆分为多次调用）；realtime 模式可不传，缺省返回常用指数看板。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "起始日，格式 YYYY-MM-DD，用于 timeseries 和 kline 模式，缺省按对应模式给默认范围（timeseries 近30天，kline 按周期给默认根数）。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "tencent_vod_query_image_task",
+      "description": "查询腾讯 VOD AIGC 图片生成任务的当前状态（单次非阻塞）。status 为 PROCESSING 时需继续轮询，SUCCESS 时 imageUrl 有值，FAILED 时 errorMessage 有值。",
+      "parameters": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true,
+          "description": "由 tencent_vod_create_image_task 返回的任务 ID",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_fund_share_perf_risk",
+      "description": "用于查询基金份额级净值、收益、风险、业绩比较基准收益和超额收益指标。支持通过基金名称、份额名称或份额代码定位份额； 基金级输入默认返回默认展示份额，也可根据工具参数返回其它份额。可按指标观察日查询最新或指定日期的单位净值、复权净值、 收益率、最大回撤、波动率、夏普比率、基准收益、超额收益、净值观察日、收益观察日、风险观察日和基准观察日。 适用于回答“某份额近一年收益和最大回撤是多少”“是否跑赢基准”“份额最新净值是多少”等份额级绩效风险问题； 不用于基金主体画像、历史日行情、持仓披露或经理详情查询。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "指标观察日，格式 yyyy-MM-dd；默认份额/指定份额模式下不传取最新，指定日期无数据时回退最新；全部份额模式会忽略该参数并取各份额最新。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "default_share_only",
+          "type": "boolean",
+          "required": false,
+          "description": "是否仅返回默认展示份额，默认 true。false 时按第一个命中的 fund_id 返回该基金全部份额，并忽略 as_of_date。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "metric_groups",
+          "type": "array",
+          "required": false,
+          "description": "指标分组裁剪，数组；为空或含 all 返回全部。可选分组： nav(净值)、return(各期收益)、risk(回撤/波动率/夏普)、benchmark(业绩基准与基准收益)、 excess_return(超额收益)。观察日始终返回；传入值全部非法时返回参数错误。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": true,
+          "description": "基金名称、份额名称或份额代码，如\"华夏上证50ETF\"或\"510050\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "windows",
+          "type": "array",
+          "required": false,
+          "description": "窗口裁剪，数组；为空返回全部窗口。常用窗口： 1d/1w/1m/3m/6m/ytd/1y/2y/3y/5y/since_inception。未匹配任何渲染窗口时仅输出非窗口化字段。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_bond_financial_data",
+      "description": "查询债券发行人的财务报表及财务分析指标。支持资产负债表、利润表、现金流量表指标，以及资产负债率、流动比率、速动比率、净资产收益率 ROE、总资产净利率 ROA、同比增长率等衍生指标。query 应包含债券实体、所需财务指标和报告期。返回数据为发债主体维度，不是债券自身财务数据。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "查询需求描述，包含债券实体、查询指标和报告期，如\"24辽港01、24皮城01在2025-12-31的资产负债率和ROE\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchMyKnowledge",
+      "description": "我的云文档内容检索工具,用于在云文档内容中统一搜索,主要为我的共享知识库。",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "提供完整的中文自然语言问题，检索我的个人知识库。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "wechat_opinion_list",
+      "description": "查询用户可查看的微信群消息列表。支持按关键词（标题、描述）、股票代码（公司）、时间范围、类型等条件筛选。返回标题、类型、开始时间、结束时间、群名称、机构、股票、行业、主讲人等信息。",
+      "parameters": [
+        {
+          "name": "city",
+          "type": "array",
+          "required": false,
+          "description": "市列表，与系统内存储的城市名称一致，可多选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "结束时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "firstType",
+          "type": "string",
+          "required": false,
+          "description": "一级分类（中文），可与枚举 desc 或展示名一致，如「会议」「路演会议」「总量报告」。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "description": "关键词搜索，匹配标题和描述内容。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "province",
+          "type": "array",
+          "required": false,
+          "description": "省列表，与系统内存储的省份名称一致，可多选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "releaseEndTime",
+          "type": "string",
+          "required": false,
+          "description": "消息结束时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "releaseStartTime",
+          "type": "string",
+          "required": false,
+          "description": "消息发送开始时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "开始时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockCodes",
+          "type": "string",
+          "required": false,
+          "description": "股票代码（公司），多个用逗号分隔，如 \"sh600000,sh000001\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "subCategory",
+          "type": "string",
+          "required": false,
+          "description": "二级分类（中文），如「宏观研究」「业绩点评」。仅填此项时会自动带上对应一级分类。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "type",
+          "type": "array",
+          "required": false,
+          "description": "类型列表。1=活动，2=纪要，3=报告。如 [1] 表示只查活动。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchForeignReports",
+      "description": "搜索进门平台的外资研究机构的研究报告，包括外资投行、第三方研究机构等机构发布的公司、行业、宏观领域分析报告，多为英文内容。",
+      "parameters": [
+        {
+          "name": "filterImage",
+          "type": "boolean",
+          "required": true,
+          "description": "是否过滤图片类型数据（docType=IMAGE）。MCP 调用默认传 true，表示过滤图片类型数据；只有用户明确需要返回研报图片、图表等图片类数据时，才传 false。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，使用英文自然语言描述检索意图，**明确行业、公司、经济事件等内容**。 推荐使用英文，如： - \"Impact of US Fed interest rate hikes on emerging markets in Q1 2025\" - \"Analysis of Nvidia's AI chip business in the global market\" 请不要仅输入“外资怎么看XXX”或“有没有研究”等模糊语句。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "1. 用户绝对指定时间优先 (Absolute Time Anchor)：**- 如果用户在问题中明确提到**“今天”、“本周”、“本月”、“本季度”**，模型必须将这些时间锚定到精确的 `YYYY-MM-DD` 日期。- *示例*：如果今天是 2025-12-04，用户要求“今天”的研报，`start_time` 设为 **2025-12-04**。**2. 动态时间窗口推算 (Dynamic Rule-Based)：**(A) **估值/买入/最新观点** (关键词：还能买吗/目标价/性价比)：**当前日期 - 3个月** (严禁使用YTD)。(B) **突发事件/短期点评** (关键词：大跌/异动/点评/为何)：**当前日期 - 1个月**。(C) **财务/排名/数据查询** (关键词：年报/业绩/占比/Top)：**当前日期 - 1年**。(D) **深度复盘/行业演变** (关键词：壁垒/十年复盘/技术路线)：**当前日期 - 3年**。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时使用服务端默认 topK 配置。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "tencent_vod_create_image_task",
+      "description": "提交腾讯 VOD AIGC 图片生成任务，立即返回 taskId。生成为异步过程，需通过 tencent_vod_query_image_task 轮询结果。参考图可通过 tencent_vod_upload_ref_image 上传后，以 vodfile:<FileId> 格式传入 refs。",
+      "parameters": [
+        {
+          "name": "aspectRatio",
+          "type": "string",
+          "required": false,
+          "description": "宽高比，可选值：1:1（默认）/ 3:2 / 2:3 / 3:4 / 4:3 / 16:9 / 9:16 / 21:9 / 9:21",
+          "default": null,
+          "enum": [
+            "1:1",
+            "3:2",
+            "2:3",
+            "3:4",
+            "4:3",
+            "16:9",
+            "9:16",
+            "21:9",
+            "9:21"
+          ]
+        },
+        {
+          "name": "imageSize",
+          "type": "string",
+          "required": false,
+          "description": "图片分辨率，可选值：1K / 2K（默认）/ 4K",
+          "default": null,
+          "enum": [
+            "1K",
+            "2K",
+            "4K"
+          ]
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "required": false,
+          "description": "模型版本，可选值：image2_low / image2_medium（默认）/ image2_high",
+          "default": null,
+          "enum": [
+            "image2_low",
+            "image2_medium",
+            "image2_high"
+          ]
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": false,
+          "description": "图片文本描述，与 refs 至少提供一项",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "refs",
+          "type": "array",
+          "required": false,
+          "description": "参考图列表（最多 3 张），支持 vodfile:<FileId> 或 http(s):// 格式",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_tag_update",
+      "description": "修改文档的自定义标签：添加或移除，一次只执行一个动作。传 addTagNames 执行添加（标签不存在会自动创建，不能为空数组）；传 removeTagNames 执行移除。两组参数只能传其中一组，都传或都不传会报参数错误。系统预设的行业/个股标签不通过此工具操作；标签名与行业/个股标签同名时会被拒绝。",
+      "parameters": [
+        {
+          "name": "addTagNames",
+          "type": "array",
+          "required": false,
+          "description": "添加动作：要添加的自定义标签名称列表。传了该字段即执行添加，不能与 removeTagNames 同时传。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "documentId",
+          "type": "string",
+          "required": true,
+          "description": "目标文档 ID。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "removeTagNames",
+          "type": "array",
+          "required": false,
+          "description": "移除动作：要移除的自定义标签名称列表。传了该字段即执行移除，不能与 addTagNames 同时传。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "company_finance_search",
+      "description": "用于查询一家或多家上市公司（港股、A股、美股）在指定报告期内的财务报表数据与关键业绩指标。覆盖利润表、资产负债表、现金流量表、财务指标四类数据源，支持营业收入、净利润、归母净利润、毛利率、净资产收益率(ROE)、同比增速等常用财务科目。可灵活指定报告期（年报、季报、半年度）与统计口径（单季度或年度累计），适用于财务分析、行业研究、投资决策等场景。已升级支持 A股（如 sh600519、sz000001）、港股（如 hk00700）、美股（如 AAPL、usAAPL）三大市场。公司查询词支持公司名称或股票代码，由服务端自动标准化为标的代码后再查询。",
+      "parameters": [
+        {
+          "name": "querys",
+          "type": "array",
+          "required": true,
+          "description": "公司查询词列表，支持同时查询多家公司。每项可填公司名称或股票代码（如：贵州茅台、sh600519、hk00700、AAPL）。服务端会自动标准化为标的代码；无法识别的查询词会被跳过，不影响其它公司。单次最多 20 个，超出部分仅取前 20 个。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "reportDates",
+          "type": "array",
+          "required": true,
+          "description": "财报的报告期设置，支持多个时间点的批量查询。包括财年、报告类型与统计口径。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "searchData",
+          "type": "array",
+          "required": true,
+          "description": "查询的数据指标，会计准则的科目名，如:营业总收入, 净利润, 归母净利润, 毛利率, 净资产收益率(ROE), 资产负债率, 营业收入同比 等。支持基于科目中文名/别名的模糊匹配。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "statementType",
+          "type": "array",
+          "required": false,
+          "description": "数据源筛选条件，可多选；不传则默认查询全部表。IS=利润表，BS=资产负债表，CF=现金流量表，indicators=财务指标。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "backtest_auto_event_submit",
+      "description": "提交事件回测任务（自然语言 prompt）。LLM 把策略描述拆为 event_rules 后回测。\n适合用户用自然语言描述买入/卖出规则的场景。",
+      "parameters": [
+        {
+          "name": "benchmark",
+          "type": "string",
+          "required": false,
+          "description": "基准指数，可选。",
+          "default": null,
+          "enum": [
+            "hs300",
+            "zz500",
+            "sz50"
+          ]
+        },
+        {
+          "name": "enable_llm_interpretation",
+          "type": "boolean",
+          "required": false,
+          "description": "是否生成 AI 因子研报，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "回测区间结束日，格式 YYYY-MM-DD，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "自然语言策略描述（如「突破20日均线买入跌破10日均线卖出最多持10天」），必填。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "回测区间起始日，格式 YYYY-MM-DD，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "strategy_name",
+          "type": "string",
+          "required": false,
+          "description": "策略名，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "universe",
+          "type": "string",
+          "required": false,
+          "description": "股票池标识，可选。",
+          "default": null,
+          "enum": [
+            "small_scale",
+            "hs300",
+            "csi500"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "indicatorDataRetrieve",
+      "description": "用于查询单个宏观指标的数值时序数据或最新一期数据。优先通过 indicatorNameRetrieve 返回的 indicator_id 精确取数，也支持使用指标关键词配合国家/地区、九分类等条件进行实体解析；当匹配存在歧义时会返回候选指标供消歧。返回结果自动携带指标名称、国家、频度、统计口径、单位、来源、最新期等完整口径信息，适用于 CPI、PMI、GDP、就业、通胀等宏观指标走势分析、最新值查询和跨国对比取数；当前为单指标工具，不适合一次批量查询多个指标，也不用于查询发布日程。",
+      "parameters": [
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "九分类过滤（中文枚举值），传 query 时必填：货币政策/财政政策/景气与情绪/通胀与物价/就业与劳动力/贸易与外部/金融市场/房地产与住房/经济增长",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "country",
+          "type": "string",
+          "required": false,
+          "description": "国家/地区过滤（中文枚举值），传 query 时必填，如 中国/美国/日本/欧元区",
+          "default": null,
+          "enum": [
+            "中国",
+            "美国",
+            "日本",
+            "欧元区"
+          ]
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "结束日 YYYY-MM-DD，缺省今日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "frequency",
+          "type": "string",
+          "required": false,
+          "description": "频度过滤（中文枚举值）：季/年/月/不定期/日/周/旬/两周/",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "indicator_id",
+          "type": "integer",
+          "required": false,
+          "description": "指标 ID（首选，精确主键），与 query 二选一；通常来自 indicatorNameRetrieve 返回结果",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "latest_only",
+          "type": "boolean",
+          "required": false,
+          "description": "仅返回最新一期，默认 false",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "description": "关键词/指标名（内部实体解析；精确匹配优先，LIKE 兜底；多命中返回消歧）。传 query 时 category 和 country 必填",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 100",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "起始日 YYYY-MM-DD，缺省近 3 年",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "tencent_vod_upload_ref_image",
+      "description": "将可访问的图片 URL 上传至腾讯 VOD，返回 FileId。返回的 FileId 可在 tencent_vod_create_image_task 的 refs 中以 vodfile:<FileId> 格式引用。",
+      "parameters": [
+        {
+          "name": "ossUrl",
+          "type": "string",
+          "required": true,
+          "description": "可访问的图片 URL",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "meeting_recording_delete",
+      "description": "删除当前用户的一条代录信息。传入 meetingRecordingId 即可，仅允许删除属于当前用户的代录记录。",
+      "parameters": [
+        {
+          "name": "meetingRecordingId",
+          "type": "integer",
+          "required": true,
+          "description": "代录信息 ID（必填），可通过 meeting_recording_list 查询获取。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchIndexConstituents",
+      "description": "指数成份股查询工具，用于查询股票指数（A股、港股，如沪深300、中证500、上证50、恒生指数等）的成份股构成与权重信息。支持四种查询形态：当前成份（默认，返回最新一期成份股列表及权重，按权重降序，可用于回答\"沪深300前十大权重股是哪些\"）、历史时点成份（传 as_of_date，返回该日期在册的成份股及当期权重，可用于回溯历史某天的指数构成）、成份进出历史（member_scope=history，返回成份股的纳入/剔除记录，可用于分析指数历次调整）、调仓变化（rebalance=latest，返回最近一次调仓的新增与剔除名单，配合 as_of_date 可查历史上任意时点之前的最近一次调仓）。指数查询词支持指数名称或代码，由服务端自动标准化；返回条数少于成份总数时会附带前N大权重合计（concentration），便于分析指数集中度。返回统一结构 {data, metadata, lineage, warnings}。注意：美股指数（如标普500）暂无权重数据，仅可查成份进出历史。适用于指数构成分析、权重股查询、指数调仓跟踪、集中度分析等场景。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "时间点查询，格式 YYYY-MM-DD。传入后返回该日期在册的成份股及权重（按不晚于该日的最近一期权重报告期口径）；与 rebalance=latest 组合时表示查询该日期之前的最近一次调仓。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回条数上限，缺省 50，最大 2000。小于成份总数时 metadata 会返回 concentration（返回的前N行权重合计%），可用于集中度分析。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "member_scope",
+          "type": "string",
+          "required": false,
+          "description": "成份范围，在[current, history]中选择，缺省为 current。current:当前成份+最新一期权重（按权重降序）；history:成份股纳入/剔除历史记录（按剔除日降序，已剔除在前、在册在后，不含权重）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": true,
+          "description": "指数查询词列表，每项可填指数名称或指数代码（如：沪深300、000300、恒生指数）。服务端会自动标准化为指数标的；无法识别的查询词会被跳过并在 warnings 中提示，不影响其它指数。支持多指数同时查询。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "rebalance",
+          "type": "string",
+          "required": false,
+          "description": "调仓查询，在[latest, all]中选择。latest:返回最近一次调仓的新增与剔除名单（data 为对象 {rebalance_date, added, removed, added_count, removed_count}，新增成份关联最新权重）；all:等价于 member_scope=history，返回全部进出历史。优先级高于 as_of_date 与 member_scope。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "with_weight",
+          "type": "boolean",
+          "required": false,
+          "description": "是否按权重降序返回，缺省 true。传 false 时按股票代码升序排列（权重字段仍会返回）。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchDocChunks",
+      "description": "搜索指定场景的文档信息，包含研报、纪要、路演附件；无需任务任何参数，工具可以理解当前的场景",
+      "parameters": []
+    },
+    {
+      "name": "futures_kline",
+      "description": "查询期货K线历史行情数据，支持内盘（国内）和外盘（国际）期货。\n通过 market 参数选择内盘（internal）或外盘（external）。\n可指定K线周期（分钟级/日级）和返回条数。",
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回K线条数，默认 100，最大建议不超过 500",
+          "default": 100,
+          "enum": []
+        },
+        {
+          "name": "market",
+          "type": "string",
+          "required": true,
+          "description": "市场类型：internal=内盘（国内期货）；external=外盘（国际期货）",
+          "default": null,
+          "enum": [
+            "internal",
+            "external"
+          ]
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "required": true,
+          "description": "合约代码。内盘与外盘格式不同：\n- 内盘（internal）：主力合约末尾加\"0\"，如 RB0（螺纹钢主力）、SC0（原油主力）、CU0（铜主力）\n- 外盘（external）：传数据源自定义品种代码，不加\"0\"或月份后缀。已知可用示例：CL（WTI原油）、OIL（布伦特原油）",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "description": "k线类型，0=日k，1=1分钟，5=五分钟；30=30分钟，60=60分钟，120=120分钟，240=240分钟",
+          "default": 0,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "getStockProfitForecast",
+      "description": "查询股票机构盈利预测明细及按预测年度汇总的一致预期。支持股票名称或代码、预测年度和发布日期范围。未传日期时返回最新可用预测；from/to 筛选预测记录发布日期，forecastYears 筛选预测所属年度。单次最多查询 20 个标的。",
+      "parameters": [
+        {
+          "name": "forecastYears",
+          "type": "array",
+          "required": false,
+          "description": "预测年度筛选列表，不传或空数组表示不限制预测年度",
+          "default": [],
+          "enum": []
+        },
+        {
+          "name": "from",
+          "type": "string",
+          "required": false,
+          "description": "开始日期，格式 YYYY-MM-DD；仅传 to 时默认为 to 前 3 个月",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码",
+          "default": 1,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": true,
+          "description": "股票名称或代码；1-20 个",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数",
+          "default": 20,
+          "enum": []
+        },
+        {
+          "name": "to",
+          "type": "string",
+          "required": false,
+          "description": "结束日期，格式 YYYY-MM-DD；仅传 from 时默认为当前日期",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "rename_portfolio_group",
+      "description": "重命名当前用户的自选股分组。根据原分组名称查找后改名；原名称与新名称均不能为空。成功后返回 Markdown 表格，包含分组 ID 与新名称。",
+      "parameters": [
+        {
+          "name": "newName",
+          "type": "string",
+          "required": true,
+          "description": "新分组名称（必填）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "oldName",
+          "type": "string",
+          "required": true,
+          "description": "原分组名称（必填）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "parentGroupId",
+          "type": "integer",
+          "required": false,
+          "description": "创建二级分组是必填所属一级分组 ID；创建一级分组不传。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_exchange_fund_quote_history",
+      "description": "用于查询 ETF、LOF 等场内基金份额在指定日期区间内的历史日行情和场内溢价率。支持通过基金名称、份额名称或交易代码定位场内份额； 基金级输入默认返回默认展示份额，也可通过 return_all_shares 返回该基金下全部场内份额。返回交易日、开盘价、最高价、最低价、收盘价、 成交量、溢价率、份额标识和默认展示份额标记。适用于查看场内基金走势、指定时间段收盘价、成交量、ETF/LOF 溢价率等场景； 不用于查询场外基金净值、收益风险指标、持仓或基金经理信息。",
+      "parameters": [
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": true,
+          "description": "结束交易日，格式 yyyy-MM-dd，必填。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fields",
+          "type": "array",
+          "required": false,
+          "description": "出参列裁剪，可空；为空/含 all 返回全列。可选列键： open/high/low/close/volume/premium_rate（交易日为行锚点始终返回）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回条数上限，每个查询结果按 mapper 返回顺序截取前 N 条；默认 500，最大 3000。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": true,
+          "description": "基金名称、份额名称或交易代码，如\"华夏上证50ETF\"或\"510050\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "return_all_shares",
+          "type": "boolean",
+          "required": false,
+          "description": "是否返回该基金全部场内份额；true 时按第一个命中的 fund_id 查询全部场内份额，默认 false（按命中份额或基金默认展示份额查询）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": true,
+          "description": "起始交易日，格式 yyyy-MM-dd，必填。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchChart",
+      "description": "直接检索进门平台研报中的图表、表格和趋势图等视觉信息。适用于查找与公司、行业、指标或主题相关的图表；如果只需要研报正文观点、结论或文字内容，请优先使用 searchComeinResource、searchDomesticReports 或 searchForeignReports。请优先使用 image_url 查看原图，并使用 report_url 访问研报详情页（不是 PDF 链接）。",
+      "parameters": [
+        {
+          "name": "imageType",
+          "type": "string",
+          "required": false,
+          "description": "可选图表类型过滤。常用值包括 chart（通用图表）、table（表格）、bar（柱状图）、line（折线图）、pie（饼图）；多个值使用英文逗号加空格分隔，例如 chart, table；不传时不按图表类型过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "使用完整自然语言描述希望查找的图表内容，尽量包含公司或行业、指标和关注主题，例如“宁德时代固态电池产能规划”或“光伏组件过去三年的价格趋势”。查询外资研报时可使用英文；不要只输入公司名或零散关键词。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "source",
+          "type": "string",
+          "required": false,
+          "description": "可选研报来源过滤。支持 domestic（内资研报）和 foreign（外资研报），多个值使用英文逗号分隔，例如 domestic,foreign；不传时查询全部可用研报图表。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "可选返回结果数量，支持 1-30；默认返回 10 条，超过 30 时按 30 条处理。",
+          "default": 10,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "pricePerformance",
+      "description": "批量查询 A 股、港股、美股个股的实时行情、盘口、多周期涨跌幅、估值、市值、价格边界、区间统计、两融、互联互通和龙虎榜数据。通过 include 裁剪返回模块；不传 include 时默认返回 standardized_info、regular_market、period_change。queries 最多 10 个，支持名称或股票代码。",
+      "parameters": [
+        {
+          "name": "include",
+          "type": "array",
+          "required": false,
+          "description": "指定返回的模块。仅返回 include 中声明的模块；未知值会被忽略，全部未知时按默认模块处理。\n  - standardized_info: 标准化标的信息(币种、交易阶段、行情源时间)\n  - pre_market: 盘前行情；美股取 prev_* 字段。A 股/港股请求时返回 {\"describe\":\"港A股无此类数据\"}\n  - regular_market: 盘中/正盘行情\n  - post_market: 盘后行情；美股取 post_* 字段。A 股/港股请求时返回 {\"describe\":\"港A股无此类数据\"}\n  - period_change: 当日涨跌额/幅、振幅、近 1 周/1月/3月/6月/1年/今年以来涨跌幅；美股仅表示正盘口径\n  - valuation: PE/PB/PS/PCF/PEG、股息率、EPS、每股净资产\n  - market_value: 总市值、流通市值、总股本、流通股本\n  - price_boundary: 历史高低价、52 周高低价、涨跌停价，以及近 1 周/1 月/3 月/6 月/1 年/今年以来区间高低价\n  - period_stats: 区间日均成交额/量、区间换手率、最大回撤、最大单日涨跌幅、最长连涨/连跌天数\n  - margin: 两融模块(T+1 资金面)\n  - connect: A 股沪/深股通、港股港股通(沪深)持股和变动；美股不适用\n  - rank_list: A 股龙虎榜异动及买卖席位；港股/美股不适用\n不传时默认返回 [\"standardized_info\",\"regular_market\",\"period_change\"]。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": true,
+          "description": "股票代码或名称列表，支持全市场 A 股、港股、美股上市公司；最多 10 个，超限时整体返回参数校验错误且不截断。除非用户准确提到代码，否则应当尽量传入名称。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchDomesticReports",
+      "description": "搜索进门平台的内资研究机构的研究报告，包括来自中国本土券商、投行、第三方研究机构发布的公司、行业、宏观领域分析报告。",
+      "parameters": [
+        {
+          "name": "filterImage",
+          "type": "boolean",
+          "required": true,
+          "description": "是否过滤图片类型数据（docType=IMAGE）。MCP 调用默认传 true，表示过滤图片类型数据；只有用户明确需要返回研报图片、图表等图片类数据时，才传 false。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，使用完整的中文自然语言问题，**请具体指明公司名称、行业主题、事件背景**。 示例： - \"光伏行业组件价格下行趋势\" - \"宁德时代与福特合作对其海外业务影响\" 请避免使用“xxx研报”“看看XXX怎么样”等模糊表达。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "1. 用户绝对指定时间优先 (Absolute Time Anchor)：**- 如果用户在问题中明确提到**“今天”、“本周”、“本月”、“本季度”**，模型必须将这些时间锚定到精确的 `YYYY-MM-DD` 日期。- *示例*：如果今天是 2025-12-04，用户要求“今天”的研报，`start_time` 设为 **2025-12-04**。**2. 动态时间窗口推算 (Dynamic Rule-Based)：**(A) **估值/买入/最新观点** (关键词：还能买吗/目标价/性价比)：**当前日期 - 3个月** (严禁使用YTD)。(B) **突发事件/短期点评** (关键词：大跌/异动/点评/为何)：**当前日期 - 1个月**。(C) **财务/排名/数据查询** (关键词：年报/业绩/占比/Top)：**当前日期 - 1年**。(D) **深度复盘/行业演变** (关键词：壁垒/十年复盘/技术路线)：**当前日期 - 3年**。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时使用服务端默认 topK 配置。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "futures_contracts",
+      "description": "查询期货合约基本信息，支持内盘（国内交易所：上期所/大商所/郑商所/中金所/广期所）和外盘（国际：CME/ICE/LME/SGX/港交所等）。\n通过 market 参数选择内盘（internal）或外盘（external）。\nsymbol 传品种代码，末尾\"0\"表示主力合约，如 SC0=原油主力、RB0=螺纹钢主力、I0=铁矿石主力、IF0=沪深300股指期货主力；\n也可传具体月份合约代码，如 SC2407、RB2501。",
+      "parameters": [
+        {
+          "name": "market",
+          "type": "string",
+          "required": true,
+          "description": "市场类型：internal=内盘（国内期货，上期所/大商所/郑商所/中金所/广期所）；external=外盘（国际期货，CME/ICE/LME/SGX/港交所等）",
+          "default": null,
+          "enum": [
+            "internal",
+            "external"
+          ]
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "required": true,
+          "description": "品种代码或合约代码。主力合约末尾加\"0\"，如 SC0（原油主力）、RB0（螺纹钢主力）、I0（铁矿石主力）、CU0（铜主力）、IF0（沪深300股指主力）；具体月份合约如 SC2407、RB2501",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_manager_tenure_perf",
+      "description": "用于查询基金经理在某只基金及其份额上的任职区间、在任状态、代表产品标记、任期收益、任期年化收益、任期年化波动率、 任期 Sharpe、任期最大回撤、任期 Beta、任期 Alpha、工作日数和本基金任期天数。支持通过经理姓名定位基金经理， 并可通过基金名称、份额名称或交易代码限定具体基金/份额；若只限定基金主体，默认返回默认展示份额。 本工具定位为最新截面表：现任经理取最新观察日滚动任期业绩，卸任经理取最终任期业绩，任期业绩截止日以 tenure_end_date 为准 （现任约等于 as_of_date，卸任约等于 dimission_date）；仅支持最新截面，不支持按历史 as_of_date 回溯。 适用于回答“某基金经理管理某基金期间收益多少”“某经理代表产品任期年化收益是多少”“某经理任期最大回撤是多少” “某经理当前在任产品任期表现如何”等问题；不用于查询经理基础画像、产品最新收益摘要、基金持仓或份额通用收益风险窗口。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "最新截面记录的计算/观察日，格式 yyyy-MM-dd；本工具默认查询最新可用截面，不支持按历史 as_of_date 回溯任期业绩。 若入参早于当前最新截面日期，将返回不支持历史回溯提示。对卸任经理，任期业绩截止以 tenure_end_date 为准。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "current_company_name",
+          "type": "string",
+          "required": false,
+          "description": "当前任职公司名称，可选；用于缩小重名经理候选范围，如\"易方达基金\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "default_share_only",
+          "type": "boolean",
+          "required": false,
+          "description": "当 query_fund 命中基金主体时，是否只返回默认展示份额，默认 true；false 时返回该基金全部份额的任期记录。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "is_incumbent",
+          "type": "boolean",
+          "required": false,
+          "description": "是否只返回现任(true)或卸任(false)记录，可选；不传则现任和卸任均返回。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回条数上限，可选，默认 20，最大 100。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_fund",
+          "type": "string",
+          "required": false,
+          "description": "基金名称、份额名称或份额代码，可选；传入时内部解析为 fund_id / product_id 限定查询范围，如\"易方达中小盘混合\"或\"110011\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_pm",
+          "type": "string",
+          "required": true,
+          "description": "基金经理姓名，如\"张坤\"；内部解析为 manager_id。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sections",
+          "type": "array",
+          "required": false,
+          "description": "出参分组裁剪，数组；为空或含 all 返回全部中文展示分组。可选分组： tenure(任职区间与在任状态:任职开始日/离任日/任期业绩截止日/是否现任/是否代表作/工作日数/本基金任期天数/计算截止日)、 performance(任期业绩:任期收益/年化收益/年化波动率/Sharpe/最大回撤/Beta/Alpha/指标版本)、 share(份额身份:基金主体/份额名称/份额代码/份额主键/是否默认展示份额)、 raw(原始字段:按 dws_manager_tenure_perf 英文库表列名输出原始值,不做中文化/百分号处理)。 注意 raw 为按需分组,仅在 sections 显式包含 raw 时输出,不随 all/默认返回; 需中文+原始并存传 [\"all\",\"raw\"] 或 [\"tenure\",\"performance\",\"share\",\"raw\"]。 经理与份额身份抬头始终返回；传入值全部非法时返回参数错误。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_by",
+          "type": "string",
+          "required": false,
+          "description": "排序字段，可选：tenure_return、tenure_annualized_return、accession_date、tenure_end_date；不传默认按 accession_date。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_order",
+          "type": "string",
+          "required": false,
+          "description": "排序方向，可选：asc 或 desc，默认 desc。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_etf_fund_flow_aggregate",
+      "description": "ETF资金流聚合查询工具。用于按跟踪指数、市场分类、申万一级行业、行业板块或主题，对ETF市值、有效规模和区间有效净流入进行汇总，并为每个分组生成下钻令牌。市值和有效规模取实际观察日截面值，有效净流入按开始日期至结束日期闭区间汇总。ETF名称和交易代码统一通过etfs传入并进行FUND_SHARE标的标准化；tracked_index_names不做标的标准化，直接按指数名称模糊匹配。结果中的drilldown_token可传给get_etf_fund_flow_detail查询该分组下的ETF明细。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "观察日，格式为yyyy-MM-dd。为空时使用最新可用数据日；指定日期无数据时，自动回退到不晚于该日期的最近数据日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "资金流统计结束日期，格式为yyyy-MM-dd，闭区间。为空时默认为实际观察日；日期区间最多包含366个自然日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "etfs",
+          "type": "array",
+          "required": false,
+          "description": "ETF名称、基金份额名称、简称或交易代码数组。每个值均通过FUND_SHARE标的标准化解析，多个值之间为OR关系，标准化结果按交易代码和交易所去重",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exchange_codes",
+          "type": "array",
+          "required": false,
+          "description": "ETF交易所代码数组。XSHG=上海证券交易所，XSHE=深圳证券交易所；多个值之间为OR关系",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "group_by",
+          "type": "string",
+          "required": true,
+          "description": "聚合分组维度。tracked_index=跟踪指数，market_category=市场分类，sw_industry_l1=申万一级行业，industry_board=行业板块，theme=主题",
+          "default": null,
+          "enum": [
+            "tracked_index",
+            "market_category",
+            "sw_industry_l1",
+            "industry_board",
+            "theme"
+          ]
+        },
+        {
+          "name": "industry_boards",
+          "type": "array",
+          "required": false,
+          "description": "行业板块数组，多个值之间为OR关系；可选会自动归一化为可选消费",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "market_categories",
+          "type": "array",
+          "required": false,
+          "description": "ETF市场分类数组，多个值之间为OR关系",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_by",
+          "type": "string",
+          "required": false,
+          "description": "聚合结果排序字段。默认effective_net_flow",
+          "default": "effective_net_flow",
+          "enum": [
+            "market_value",
+            "effective_scale",
+            "effective_net_flow",
+            "etf_count"
+          ]
+        },
+        {
+          "name": "sort_order",
+          "type": "string",
+          "required": false,
+          "description": "排序方向。asc=升序，desc=降序，默认desc",
+          "default": "desc",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "资金流统计开始日期，格式为yyyy-MM-dd，闭区间。为空时默认为实际观察日前6个自然日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sw_industry_l1_names",
+          "type": "array",
+          "required": false,
+          "description": "申万一级行业名称数组，多个值之间为OR关系",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "theme_names",
+          "type": "array",
+          "required": false,
+          "description": "ETF主题名称数组，多个值之间为OR关系",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "tracked_index_names",
+          "type": "array",
+          "required": false,
+          "description": "跟踪指数名称关键词数组，不进行标的标准化，直接对ETF跟踪指数名称进行包含式模糊匹配；多个关键词之间为OR关系。关键词越短，匹配范围越大",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_etf_fund_flow_detail",
+      "description": "ETF资金流明细查询工具。支持下钻令牌模式和ETF直接查询模式，两种模式严格互斥。下钻模式使用get_etf_fund_flow_aggregate返回的drilldown_token，查询对应聚合分组中的ETF明细；此时禁止传入ETF、日期、交易所或排序参数。直接查询模式必须通过etfs传入ETF名称或交易代码，并进行FUND_SHARE标的标准化。返回ETF代码、简称、交易所、币种、分类、行业、主题、跟踪指数、市值、有效规模和区间有效净流入。接口不分页，最多返回2000条，超出时按稳定排序截断并返回warning。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "直接查询模式的观察日，格式为yyyy-MM-dd。为空时使用最新可用数据日；指定日期无数据时，自动回退到不晚于该日期的最近数据日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "drilldown_token",
+          "type": "string",
+          "required": false,
+          "description": "聚合结果生成的下钻令牌。使用令牌模式时只能传此字段，禁止同时传入etfs、exchange_codes、日期或排序字段",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "直接查询模式的资金流结束日期，格式为yyyy-MM-dd，闭区间。为空时默认为实际观察日；日期区间最多包含366个自然日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "etfs",
+          "type": "array",
+          "required": false,
+          "description": "ETF名称、基金份额名称、简称或交易代码数组。直接查询模式必填且至少包含一个非空值；每个值均通过FUND_SHARE标的标准化解析，多个值之间为OR关系",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exchange_codes",
+          "type": "array",
+          "required": false,
+          "description": "直接查询模式下的交易所过滤条件。XSHG=上海证券交易所，XSHE=深圳证券交易所",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_by",
+          "type": "string",
+          "required": false,
+          "description": "明细排序字段。默认按有效净流入绝对值排序",
+          "default": "absolute_effective_net_flow",
+          "enum": [
+            "market_value",
+            "effective_scale",
+            "effective_net_flow",
+            "absolute_effective_net_flow",
+            "ticker_symbol"
+          ]
+        },
+        {
+          "name": "sort_order",
+          "type": "string",
+          "required": false,
+          "description": "排序方向。asc=升序，desc=降序，默认desc",
+          "default": "desc",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "直接查询模式的资金流开始日期，格式为yyyy-MM-dd，闭区间。为空时默认为实际观察日前6个自然日",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "meeting_recording_submit",
+      "description": "提交代录信息。只需传入一条会议信息 meetingInfo（文本）",
+      "parameters": [
+        {
+          "name": "meetingInfo",
+          "type": "string",
+          "required": true,
+          "description": "会议信息（必填）当前会话中的文本",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "watchlist_stock_list",
+      "description": "查询进门平台当前用户的自选股列表，返回股票名称、代码、市场、最新价、涨跌幅等信息。",
+      "parameters": [
+        {
+          "name": "groupId",
+          "type": "integer",
+          "required": false,
+          "description": "当前用户自选分组 ID。值为 -1 表示查询用户关注的所有股票。默认值为 -1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "groupLevel",
+          "type": "integer",
+          "required": false,
+          "description": "分组层级，可选值为 1 或 2。1 表示一级分组或全部分组，2 表示二级分组；传 2 时 groupId 必须是二级分组 ID。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 50。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchComeinResource",
+      "description": "【角色：Primary Insight Source / 核心情报源】这是系统的**首选入口工具**。它用于获取宏观视角、分析逻辑、观点汇总和非结构化信息的全貌。当你需要理解事情的“来龙去脉”、“原因分析”或“市场情绪”时，必须最先调用此工具。支持在进门平台中统一检索内资研究机构的研究内容，包括：券商分析师的点评与快评，用于追踪上市公司动态、行业变化、市场突发事件；内资券商、投行及第三方研究机构发布的公司、行业和宏观研究报告；具备投资洞察价值的路演、电话会会议纪要，包含更实时、不公开的深度信息，有助于理解行业与公司的基本面、投资逻辑和边际变化。（港股公司、A股公司都支持）",
+      "parameters": [
+        {
+          "name": "contentTypes",
+          "type": "array",
+          "required": false,
+          "description": "内容类型，只支持 comment、domestic_report、foreign_report、minutes、article，用户没有指定时，默认为空；其中，comment：券商分析师点评/快评，article：微信公众号，domestic_report：内资券商/投行/第三方研究报告，foreign_report：外资投行/海外机构研究报告（多英文），minutes：路演、电话会会议纪要。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "filterImage",
+          "type": "boolean",
+          "required": true,
+          "description": "是否过滤图片类型数据（docType=IMAGE）。MCP 调用默认传 true，表示过滤图片类型数据；只有用户明确需要返回研报图片、图表等图片类数据时，才传 false。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，使用完整的中文自然语言问题，**明确描述公司、事件**，用于检索投研内容 示例： - \"小米汽车工厂投产对公司股价的影响\" - \"光伏行业组件价格下行趋势\" ，禁止使用关键字罗列。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "1. 用户绝对指定时间优先 (Absolute Time Anchor)：**- 如果用户在问题中明确提到**“今天”、“本周”、“本月”、“本季度”**，模型必须将这些时间锚定到精确的 `YYYY-MM-DD` 日期。- *示例*：如果今天是 2025-12-04，用户要求“今天”的研报，`start_time` 设为 **2025-12-04**。**2. 动态时间窗口推算 (Dynamic Rule-Based)：**(A) **估值/买入/最新观点** (关键词：还能买吗/目标价/性价比)：**当前日期 - 3个月** (严禁使用YTD)。(B) **突发事件/短期点评** (关键词：大跌/异动/点评/为何)：**当前日期 - 1个月**。(C) **财务/排名/数据查询** (关键词：年报/业绩/占比/Top)：**当前日期 - 1年**。(D) **深度复盘/行业演变** (关键词：壁垒/十年复盘/技术路线)：**当前日期 - 3年**。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时默认 20。",
+          "default": 20,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchAnalystComments",
+      "description": "搜索进门平台的券商分析师点评，包括券商研究员对上市公司、行业、市场动态的短评、跟踪、快评等内容。适用于突发事件、财报发布、产业动态等场景",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，使用完整的中文自然语言问题，**明确描述公司、事件**，用于检索分析师点评。 示例： - \"小米汽车工厂投产对公司股价的影响\" - \"华为发布鸿蒙5.0后通信设备行业的分析师点评\" 。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "1. 用户绝对指定时间优先 (Absolute Time Anchor)：**- 如果用户在问题中明确提到**“今天”、“本周”、“本月”、“本季度”**，模型必须将这些时间锚定到精确的 `YYYY-MM-DD` 日期。- *示例*：如果今天是 2025-12-04，用户要求“今天”的研报，`start_time` 设为 **2025-12-04**。**2. 动态时间窗口推算 (Dynamic Rule-Based)：**(A) **估值/买入/最新观点** (关键词：还能买吗/目标价/性价比)：**当前日期 - 3个月** (严禁使用YTD)。(B) **突发事件/短期点评** (关键词：大跌/异动/点评/为何)：**当前日期 - 1个月**。(C) **财务/排名/数据查询** (关键词：年报/业绩/占比/Top)：**当前日期 - 1年**。(D) **深度复盘/行业演变** (关键词：壁垒/十年复盘/技术路线)：**当前日期 - 3年**。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时使用服务端默认 topK 配置。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchMySummary",
+      "description": "我的云文档内容检索工具,用于在云文档内容中统一搜索,主要为我的纪要。",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "提供完整的中文自然语言问题，检索我的个人知识库。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_manager_detail",
+      "description": "用于查询基金经理当前画像及其产品列表，回答“某位基金经理是谁、当前管理哪些产品、历史卸任过哪些产品”。支持按经理姓名和当前任职公司进行实体解析和重名消歧。 返回经理主键、姓名、当前任职公司、学历、毕业院校、从业年限、简介、获奖信息、在管/卸任产品数量，以及在管产品和卸任产品列表； 产品列表中可包含基金名称、默认交易代码、最新净值、规模、近一年收益和风险摘要等信息。适用于经理画像卡片、经理产品列表查询和经理重名消歧； 不用于计算经理任期收益明细或查询基金持仓。",
+      "parameters": [
+        {
+          "name": "current_company_name",
+          "type": "string",
+          "required": false,
+          "description": "当前任职公司名称，可选；用于经理解析时按 current_institution_name 做包含过滤，如\"易方达基金\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "product_metric_windows",
+          "type": "array",
+          "required": false,
+          "description": "产品列表窗口化指标裁剪，数组；仅当产品列表 JSON 中存在匹配窗口 token 的指标键时追加展示，否则忽略。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": true,
+          "description": "基金经理姓名，如\"张坤\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sections",
+          "type": "array",
+          "required": false,
+          "description": "出参分组裁剪，数组；为空或含 all 返回全部。可选分组： profile(画像:公司/学历/院校/年限/在管卸任数/简介/获奖/命中原因)、 incumbent_products(在管产品列表)、former_products(卸任产品列表)。 传入值全部非法时返回参数错误。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "research_query",
+      "description": "查询投研数据。支持个股、行业、自选、内参等维度。 【指令】：优先识别 type，若用户未提时间或分页，由后端默认处理。",
+      "parameters": [
+        {
+          "name": "divergenceLevel",
+          "type": "string",
+          "required": false,
+          "description": "关键词发散等级，可选值：low / medium / high，默认 low（不发散，关键词原样查询）。medium：同级扩展后再检索；high：同级及上/下游联动。仅当本次查询关心同/上下游产业链联动、希望召回更多相关研报/纪要时再调高等级；精确检索时保持 low。",
+          "default": null,
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "查询范围的结束时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-03-01 23:59:59）或 yyyy-MM-dd（如：2026-03-01，自动补充为 23:59:59）。不传时默认为当前时间。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "groupIds",
+          "type": "string",
+          "required": false,
+          "description": "自选个股分组ID。'-1'为全部分组。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "industryName",
+          "type": "string",
+          "required": false,
+          "description": "申万一级行业名称。不要带“行业”后缀。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keywords",
+          "type": "string",
+          "required": false,
+          "description": "使用关键词模糊匹配进行查询内资研报、外资研报、纪要、点评、公告、事件信号、进门内参数据。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "market",
+          "type": "string",
+          "required": false,
+          "description": "市场标识，与 stockCode 配合使用，指定股票所在交易所。sz=深交所(A股，如300750/002475), sh=上交所(A股，如600519/601318), bj=北交所(如920185/430047), hk=港股(如00700/09988), us=美股(如AAPL/TSLA/NVDA)。配合 market 时 stockCode 填纯代码/ticker，无需带前缀。不传时后端按 stockCode 原有规则自动识别（兼容 sh600519、sz300750、bj920185、hk00700、usAAPL 等带前缀格式）。传非法值将返回参数错误并提示合法枚举值。",
+          "default": null,
+          "enum": [
+            "sz",
+            "sh",
+            "bj",
+            "hk",
+            "us"
+          ]
+        },
+        {
+          "name": "minutesFilters",
+          "type": "object",
+          "required": false,
+          "description": "纪要筛选条件，仅当 type=minutes 生效。同一字段内多个值按“或”匹配，不同字段同时传入按“且”匹配； 字段未传或数组为空表示不限制对应维度。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "当前页 默认 1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "每页数 默认20 最大100",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "region",
+          "type": "string",
+          "required": false,
+          "description": "研报内容所研究标的所属地区过滤，仅当 type=oversea（外资研报）时生效，其他 type 会被忽略且不报错。注意：此处指研报所研究的市场/经济体所在地区（涵盖宏观、策略、行业、指数、个股、大宗等各类标的），而非发布机构所在地（例如高盛发布的关于A股的研报，region=cn_mainland，而非 north_america）。可选值：cn_mainland(中国大陆，如A股市场/中国宏观经济/沪深行业及个股), cn_hongkong(中国香港，如港股市场/恒生指数), cn_taiwan(中国台湾，如台股市场/台湾半导体产业), europe(欧洲，如泛欧市场/欧元区宏观/欧洲行业), southeast_asia(东南亚，如新加坡/马来西亚/印尼等市场), north_america(北美，如美股市场/美国宏观/纳斯达克指数), latin_america(拉美), japan(日本，如日本市场/日经指数/日本宏观), korea(韩国，如韩股市场/KOSPI指数), india(印度，如印度市场/NIFTY指数), australia(澳洲，如澳洲市场/澳交所), other(其他地区)。传非法值将返回参数错误并提示合法枚举值。",
+          "default": null,
+          "enum": [
+            "cn_mainland",
+            "cn_hongkong",
+            "cn_taiwan",
+            "europe",
+            "southeast_asia",
+            "north_america",
+            "latin_america",
+            "japan",
+            "korea",
+            "india",
+            "australia",
+            "other"
+          ]
+        },
+        {
+          "name": "reportDayTime",
+          "type": "integer",
+          "required": false,
+          "description": "内参时段。0:早参, 1:午评, 2:夜读。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "reportFilters",
+          "type": "object",
+          "required": false,
+          "description": "内资或外资研报筛选条件，仅当 type=domestic 或 type=oversea 生效。同一字段内多个值按“或”匹配， 不同字段同时传入按“且”匹配；字段未传或数组为空表示不限制对应维度。ratings 仅内资研报生效，languages 仅外资研报生效。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "roadshowIds",
+          "type": "array",
+          "required": false,
+          "description": "路演 Id列表,可根据路演查询对应的纪要。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "查询范围的开始时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-01-01 00:00:00）或 yyyy-MM-dd（如：2026-01-01，自动补充为 00:00:00）。不传时默认为最近30天。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockCode",
+          "type": "string",
+          "required": false,
+          "description": "股票代码/ticker。不配合 market 时支持简写格式（如：300750、600519）或完整格式（如：sz300750、sh600519、hk00700、usAAPL）；配合 market 使用时填纯代码/ticker，无需带前缀（A股填 600519，港股填 00700，美股填 AAPL）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "description": "数据类型。",
+          "default": null,
+          "enum": [
+            "domestic",
+            "oversea",
+            "minutes",
+            "comment",
+            "announcement",
+            "eventSignal",
+            "dailyReport"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "indicatorCalendarRetrieve",
+      "description": "用于查询宏观经济数据的发布日历，回答\"哪些数据将在或曾在何时发布\"。支持按国家/地区、事件关键词、未来天数或指定日期区间筛选，返回事件名称、事件码、数据所属期、北京时间发布日和发布时间、当地发布时间等信息。适用于查看本周或未来一段时间的重要经济数据排期、跟踪美国非农/CPI/PMI 等事件发布时间、交易前检查潜在市场冲击事件等场景。日历仅覆盖中国、美国、日本、欧元区，且 event_code 与宏观指标 indicator_id 属于不同标识体系；不用于查询指标数值。",
+      "parameters": [
+        {
+          "name": "country",
+          "type": "string",
+          "required": false,
+          "description": "国家/地区过滤，仅限中国/美国/日本/欧元区",
+          "default": null,
+          "enum": [
+            "中国",
+            "美国",
+            "日本",
+            "欧元区"
+          ]
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "结束日 YYYY-MM-DD",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": false,
+          "description": "事件名模糊匹配（可传多个，OR 任一命中），如 [\"非农\"] / [\"非农\",\"CPI\"]",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 50",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "起始日 YYYY-MM-DD",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "upcoming_days",
+          "type": "integer",
+          "required": false,
+          "description": "未来 N 天（从今天起），与 start_date/end_date 互斥，优先",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "stock_analyze_result",
+      "description": "用 stock_analyze_submit 返回的任务ID查询结果。处理中只回状态；完成后返回整篇 report_markdown 成稿与溯源下载链接；失败回错误。行为铁律（即使未读 SKILL.md 也必须遵守）：①成稿须逐字完整原样转达——所有小节、表格每一行、溯源链接块全部时段与链接、末尾溯源下载行，禁止摘要/删行/「其余N只略」/改写/把表折成段落；末尾裸URL可包成可点击链接（URL不改）；图表/mermaid 代码块须整块原样保留。②单次对话最多调用本工具 6 次，第6次仍处理中则立即停止、绝不调第7次，请用户约1分钟后再问（第7次易触发平台重复调用拦截致整轮失败）。③出成稿前禁止抢答。④报告数字是唯一定量来源，不得自补 PE/目标价/批价等。",
+      "parameters": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true,
+          "description": "stock_analyze_submit 返回的任务ID，必填（驼峰 taskId）。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_north_south_capital",
+      "description": "股票资金面数据查询工具。用于查询沪深港通南北向资金数据，支持十大成交活跃股、日频成交统计和行业资金流向。通过 info_type 选择查询类型；不传日期时自动使用对应数据的最新交易日。北向币种为 HKD，南向币种为 CNY。",
+      "parameters": [
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "交易日结束日，格式 YYYY-MM-DD；当天无数据时自动回退到最近交易日。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "flow_direction",
+          "type": "string",
+          "required": false,
+          "description": "资金方向；北向对应沪股通、深股通和申万行业，币种为 HKD；南向对应港股通和恒生行业，币种为 CNY。不传表示查询两个方向。",
+          "default": null,
+          "enum": [
+            "北向",
+            "南向"
+          ]
+        },
+        {
+          "name": "info_type",
+          "type": "string",
+          "required": true,
+          "description": "查询类型：top_active_stocks=十大成交活跃股，daily_stats=日频成交统计，sector_flow=行业资金流向。",
+          "default": null,
+          "enum": [
+            "top_active_stocks",
+            "daily_stats",
+            "sector_flow"
+          ]
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "最大返回条数，默认 40；服务端限制为 1 至 200。",
+          "default": 40,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": false,
+          "description": "查询词列表，含义由 info_type 字段关联决定：\n  - top_active_stocks: 填股票简称、缩写或市场代码，最多 10 个,默认不传\n  - daily_stats: 仅允许填沪股通、深股通、港股通(沪)、港股通(深)\n  - sector_flow: 填申万或恒生一级行业中文名称，如电子、银行、资讯科技业、金融业",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "交易日起始日，格式 YYYY-MM-DD。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_path",
+      "description": "获取文档或文件夹从根目录到当前位置的完整路径（breadcrumb），返回从根到目标依次排列的路径节点，每个节点包含 ID、名称和类型。需对目标文档有可查看权限。",
+      "parameters": [
+        {
+          "name": "documentId",
+          "type": "string",
+          "required": true,
+          "description": "文档或文件夹 ID。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "indicatorInfoRetrieve",
+      "description": "查找EDB宏观数据指标在的相关信息。 通过indicatorId查看指标数据获取的开始时间、截止时间、单位、采集频率等信息。 当你通过indicatorNameRetrieve获取了标准指标的indicatorId时，你需要进一步了解指标数据的收集情况。从而帮助你后续去获取具体的数据值提供参考。 将之前获取的indicatorId准确的作为参数indicatorId的值即可调用工具获取到准确的指标信息.",
+      "parameters": [
+        {
+          "name": "indicatorId",
+          "type": "string",
+          "required": true,
+          "description": "指标id用于数据库中精确匹配搜索指标的信息必须保证准确否则可能无法获取准确的信息。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_fund_holdings",
+      "description": "基金持仓与暴露查询工具，用于查询单只基金最近或指定披露期的前十大重仓、资产配置、行业暴露、前十大集中度等信息。 适用如\"华夏上证50ETF 前十大重仓是什么？\"\"这只基金股票仓位和行业暴露如何？\"\"某基金2025年四季报持仓是什么？\"等问题。",
+      "parameters": [
+        {
+          "name": "publish_date",
+          "type": "string",
+          "required": false,
+          "description": "披露日，格式 yyyy-MM-dd，同一报告期存在多版本时使用。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": true,
+          "description": "基金名称、份额名称或交易代码，如\"华夏上证50ETF\"或\"510050\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "report_date",
+          "type": "string",
+          "required": false,
+          "description": "报告期，格式 yyyy-MM-dd，不传取最近一期。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sections",
+          "type": "array",
+          "required": false,
+          "description": "需要返回的板块，枚举 top_holdings、asset_allocation、industry_exposure、concentration、all；不传默认只返回 top_holdings。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "required": false,
+          "description": "返回前 N 大重仓，范围 1-10，默认 10。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "search_industry_indicators",
+      "description": "模糊搜索行业经济指标，覆盖能源、工业、汽车、家电、化工、农业、电子、有色金属等各行业主要产品的产销量、库存、进出口、产能等经济数据。适用于不确定具体指标名称、需要先了解某行业/产业链/具体产品有哪些可查数据的场景，搜索需求可以从多个角度描述：\n- 行业或产业链名称，如\"光伏产业链\"\"新能源汽车行业\"\"光模块产业链\"\n- 具体产品名称，如\"光伏电池\"\"动力电池\"\"PTA\"\n- 国家地区范围，如\"中国\"\"全球\"\n- 关注的经济维度，如\"产量\"\"库存\"\"进出口\"\"产能\"\"销量\"\"价格\"\n\n返回结果为候选指标清单，每条附带所属行业分类、数据频度、单位、数据来源、可查询的时间区间等信息，可据此挑选合适指标，再调用 get_industry_indicator_data 输入指标名称与时间范围精确取数。\n\n示例问句：光伏电池产量相关指标、新能源汽车行业销量数据、光模块产业链相关指标、家电行业出口相关指标、锂电池行业库存数据、钢铁行业产能利用率相关指标。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "搜索需求描述，可包含行业/产业领域/具体产品名称、国家地区范围、研究方向或指标维度，如\"光伏电池产量相关指标\"\"新能源汽车行业销量数据\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_bond_market_data",
+      "description": "查询债券收盘后日频行情、估值及风险收益指标。支持收盘价、涨跌幅、成交量、成交额、到期收益率、中债估价净价/全价、久期、凸性、行权 YTM，以及主体、行业、省级和相对国债/国开债利差等数据。query 应包含债券实体、所需指标和时间；查询时间序列时须写明绝对起止日期。本工具不用于日内实时行情。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "查询需求描述，包含债券实体、查询指标和时间；时间序列须写明绝对起止日期，如\"26国债01在2026-08-18至2026-08-24的收盘价、涨跌幅与截至2026-08-24的最新久期、凸性\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "research_hot_data_query",
+      "description": "查询投研热门数据，按浏览量排序。支持查询纪要(minutes)、内资研报(domestic)、外资研报(oversea)、点评(comment)四类内容的浏览量排行。返回内容唯一标识、内容类型、标题、浏览量。",
+      "parameters": [
+        {
+          "name": "contentType",
+          "type": "string",
+          "required": true,
+          "description": "内容类型（必填）。minutes:纪要, domestic:内资研报, oversea:外资研报, comment:点评",
+          "default": null,
+          "enum": [
+            "minutes",
+            "domestic",
+            "oversea",
+            "comment"
+          ]
+        },
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": true,
+          "description": "查询范围的结束时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-03-01 00:00:00），startTime和endTime时间间隔不能超过90天",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "分页参数，页数：起始值为1, page * pageSize的值不能超过10000",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "分页参数，每页大小：默认值为10, 最大不能超过50",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": true,
+          "description": "查询范围的开始时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-01-01 00:00:00），startTime和endTime时间间隔不能超过90天",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_upload",
+      "description": "上传文件或文件夹到进门云文档。可传父级文件夹 ID（不传则上传到「我的文档」根目录）。支持单文件、多文件或带子文件夹的文件夹结构。",
+      "parameters": [
+        {
+          "name": "documentId",
+          "type": "integer",
+          "required": false,
+          "description": "父级文件夹ID。不传或为空时上传到当前用户的「我的文档」根目录。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fileList",
+          "type": "array",
+          "required": false,
+          "description": "顶层待上传文件列表。与 folderList 至少传一项。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "folderList",
+          "type": "array",
+          "required": false,
+          "description": "待上传文件夹树。与 fileList 至少传一项。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sourceType",
+          "type": "integer",
+          "required": false,
+          "description": "来源类型列表。1, 本地上传, 2, 用户创建, 3, AI参会, 4, AI进宝, 5, 会议纪要, 6, 代录, 7, 翻译, 8, 笔记, 9, 转写, 10, 微信助手, 99, 其它。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "research_activity_list",
+      "description": "查询调研活动列表，支持分页。返回活动ID、调研主题、活动时间、活动地址、公司、相关机构。",
+      "parameters": [
+        {
+          "name": "companyKeyword",
+          "type": "string",
+          "required": false,
+          "description": "调研活动公司关键词，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "调研活动结束时间，格式 yyyy-MM-dd HH:mm:ss，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fullCode",
+          "type": "string",
+          "required": false,
+          "description": "股票代码，使用完整的股票代码（如：sz300750、sh600519）进行标识。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "调研活动开始时间，格式 yyyy-MM-dd HH:mm:ss，可选。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "company_report_date_search",
+      "description": "查询上市公司最新的业绩报告期，当前仅支持 A股上市公司（如 sz000001、sh600519），不支持港股、美股等。",
+      "parameters": [
+        {
+          "name": "companyInfos",
+          "type": "array",
+          "required": true,
+          "description": "股票信息, 可支持多只股票",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "stock_group_list",
+      "description": "查询当前用户的自选分组列表，返回分组名称、分组 ID、分组层级、分组下股票数量等信息。",
+      "parameters": []
+    },
+    {
+      "name": "indicatorNameRetrieve",
+      "description": "用于检索、列举和确认宏观指标的基础口径信息，适合在不知道 indicator_id 时按关键词、国家/地区、九分类、频度等条件筛选指标清单。返回结果包含 indicator_id、指标名称、国家、频度、统计口径、单位、最新期和值等信息，可作为后续调用 indicatorDataRetrieve 精确取数的入口。支持多关键词和多国家组合查询，默认按头条度和最新数据期排序，适用于指标发现、口径确认、跨国对比前的指标定位等场景；不用于查询具体时序数值或财经日历。",
+      "parameters": [
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "九分类过滤（中文枚举值）：货币政策/财政政策/景气与情绪/通胀与物价/就业与劳动力/贸易与外部/金融市场/房地产与住房/经济增长",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "country",
+          "type": "string",
+          "required": false,
+          "description": "国家/地区过滤，支持单个或多个，如 中国/美国/日本/欧元区",
+          "default": null,
+          "enum": [
+            "中国",
+            "美国",
+            "日本",
+            "欧元区"
+          ]
+        },
+        {
+          "name": "frequency",
+          "type": "string",
+          "required": false,
+          "description": "频度过滤（中文枚举值）：季/年/月/不定期/日/周/旬/两周/",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "include_fields",
+          "type": "array",
+          "required": false,
+          "description": "指定返回字段（白名单内），不传则返回默认核心字段，如 [\"indicator_id\",\"name\",\"country\",\"stat_type\",\"unit\",\"latest_period\",\"latest_value\",\"latest_publish_date\"]",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "queries",
+          "type": "array",
+          "required": false,
+          "description": "关键词模糊匹配指标中文名（可传多个，OR 任一命中），如 [\"CPI\"] / [\"PMI\",\"社会融资\"]",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_by",
+          "type": "string",
+          "required": false,
+          "description": "排序字段，受控白名单：headline_rank（默认）/ latest_period / name / category",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "wechat_article_query",
+      "description": "查询微信公众号文章数据。",
+      "parameters": [
+        {
+          "name": "accountName",
+          "type": "string",
+          "required": false,
+          "description": "公众号名称，支持模糊匹配。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "查询范围的结束时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-03-01 23:59:59），默认今日",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fullCode",
+          "type": "string",
+          "required": false,
+          "description": "股票代码，使用完整的股票代码（如：sz300750、sh600519）进行标识。多个使用英文逗号分开",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "industryName",
+          "type": "string",
+          "required": false,
+          "description": "公众号关联的行业名称，申万一级行业名称(如：银行、电力设备等)，传值示例：industryName=银行、industryName=电力设备",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keywords",
+          "type": "string",
+          "required": false,
+          "description": "微信公众号文章数据的文章标题、正文、公众号名称、关联行业、关联个股关键字，使用es分词匹配进行查询。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "分页参数，页数：起始值为1, page * pageSize的值不能超过10000",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "分页参数，每页大小：默认值为10, 最大不能超过100",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "查询范围的开始时间，格式为 yyyy-MM-dd HH:mm:ss（如：2026-01-01 00:00:00），默认最近7天",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockNames",
+          "type": "string",
+          "required": false,
+          "description": "股票名称，使用完整的股票名称（如：贵州茅台、AMD）进行标识。多个使用英文逗号分开",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "wechatArticleScope",
+          "type": "string",
+          "required": true,
+          "description": "微信公众号文章范围。all:全部, subscribed:我的订阅, featured:精选",
+          "default": null,
+          "enum": [
+            "all",
+            "subscribed",
+            "featured"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "official_account_subscription",
+      "description": "批量订阅或取消订阅微信公众号。支持通过公众号名称（accountNames）或文章链接（wechatUrls）两种方式混合传入，文章链接仅支持订阅，取消订阅请使用公众号名称，单次最多 10 项。",
+      "parameters": [
+        {
+          "name": "accountNames",
+          "type": "array",
+          "required": false,
+          "description": "公众号名称列表，与 wechatUrls 至少传一个，合计不超过 10 项。名称模糊匹配，建议使用精确名称以避免误匹配，如 [\"36氪\", \"华泰证券研究\"]。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "subscribe",
+          "type": "integer",
+          "required": false,
+          "description": "操作类型：1=订阅（默认）；0=取消订阅，仅适用于 accountNames。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "wechatUrls",
+          "type": "array",
+          "required": false,
+          "description": "公众号文章链接列表，与 accountNames 至少传一个，合计不超过 10 项。每项须为微信公众号文章链接（包含 mp.weixin.qq.com），仅支持订阅。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "search_popular_roadshow",
+      "description": "查询热门路演/会议活动，按热度分值排序返回。指定热度统计的时间窗口（该窗口内播放/热度高的路演会被排在前面）。支持按行业名称筛选； 控制最多返回的热门条数（最大 25）。 返回：路演标题、嘉宾、开始时间、结束时间、股票、行业、链接。\n",
+      "parameters": [
+        {
+          "name": "industryName",
+          "type": "string",
+          "required": false,
+          "description": "行业名称",
+          "default": null,
+          "enum": [
+            "食品饮料",
+            "传媒",
+            "机械设备",
+            "通信",
+            "轻工制造",
+            "计算机",
+            "海外研究",
+            "钢铁",
+            "电子",
+            "电力设备",
+            "有色金属",
+            "交通运输",
+            "汽车",
+            "医药生物",
+            "建筑材料",
+            "房地产",
+            "建筑装饰",
+            "农林牧渔",
+            "纺织服饰",
+            "国防军工",
+            "社会服务",
+            "基础化工",
+            "公用事业",
+            "煤炭",
+            "家用电器",
+            "商贸零售",
+            "综合",
+            "北交所",
+            "中小市值",
+            "银行",
+            "非银金融",
+            "宏观",
+            "石油石化",
+            "美容护理",
+            "环保",
+            "固收",
+            "策略",
+            "金融工程"
+          ]
+        },
+        {
+          "name": "popularEndTime",
+          "type": "string",
+          "required": true,
+          "description": "热度统计窗口结束时间，格式 yyyy-MM-dd HH:mm:ss。必传。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "popularStartTime",
+          "type": "string",
+          "required": true,
+          "description": "热度统计窗口开始时间，格式 yyyy-MM-dd HH:mm:ss。必传。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "popularTopN",
+          "type": "integer",
+          "required": false,
+          "description": "最多返回的热门路演数量，最大 25。不传则由系统根据总量自动计算。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "meeting_activity_list",
+      "description": "根据时间范围分页查询进门路演列表。开始时间不能早于三天前，结束时间不能晚于三天后。返回路演标题、状态、开始时间、活动类型、主讲人、机构、关联股票、嘉宾等信息，以及总数和分页信息。",
+      "parameters": [
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "结束时间，格式 yyyy-MM-dd HH:mm:ss。不能晚于当前时间三天后。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "开始时间，格式 yyyy-MM-dd HH:mm:ss。不能早于当前时间三天前。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockCodes",
+          "type": "string",
+          "required": false,
+          "description": "股票代码，多个股票代码用英文逗号,拼接 如sz300750,sh600519",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "backtest_tasks_status",
+      "description": "根据 task_id 查询回测任务状态与结果",
+      "parameters": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true,
+          "description": "提交回测时返回的任务 ID（必填）。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "backtest_event_submit",
+      "description": "提交事件回测（结构化 event_rules）。适合已写好买入/卖出条件表达式的场景。\n原生支持价格止损/止盈（risk.stop_loss / take_profit，0~1 小数）。\n不支持 filter、做空、score_weight/fixed_count 加权、long_short 多空。顶层 holding_period 引擎不读，持有天数用 risk.max_holding_days。\n股票池/基准/仓位/成交/风控/剔板/次新/头尾初筛必须写成入参，只写进 prompt 会静默走默认值。\nprompt 是可选的用户原话，给锚定窗口 / 未来触发 / 「N 天」对账读；不代替 event_rules / risk.*。\n新闻打标（业绩预告/回购/增减持等）写进 condition_expression 的 event()，仅 A 股个股池，详见该参数说明。",
+      "parameters": [
+        {
+          "name": "baseline_task_id",
+          "type": "string",
+          "required": false,
+          "description": "上一轮事件任务 id，用于迭代对比。从改进建议卡片重跑必须带。全新策略不要传。不能拿因子任务当基线。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "benchmark",
+          "type": "string",
+          "required": false,
+          "description": "默认 hs300。个股前复权、策略含分红，优先全收益同口径。\n  全收益：hs300 | zz500=csi500 | sz50 | csi800 | csi1000 | cyb（399606）| ixic（XCMP）\n  仅价格指数（超额约偏高1~3pp，须声明）：csia500 | csi2000（国证2000/399303，不叫中证2000）| kcb50 | hsi | hscei | hstech | dji\n  未指定时：港股池→hsi；美股池→ixic；sz50/cyb/kcb50 成分池→自身同名指数。etf_bond/etf_commodity 不会自动切，勿对股票指数算超额。\n  仅能作基准：csi2000 / hscei / hstech / ixic / dji。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "enable_llm_interpretation",
+          "type": "boolean",
+          "required": false,
+          "description": "是否生成 AI 解读，默认 false。开启约增加 5–15 秒。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "YYYY-MM-DD。省略=今天。写死过期日会悄悄截短窗口且不报错。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "event_rules",
+          "type": "array",
+          "required": true,
+          "description": "事件规则数组，至少 1 条 entry。entry=开仓，exit=平仓。filter 传了会被忽略。\n示例：[{\"event_name\":\"entry-ma20\",\"event_type\":\"entry\",\"condition_expression\":\"close > ts_mean(close, 20)\",\"direction\":\"long\",\"priority\":0,\"cooldown_days\":3}]\n新闻打标示例：[{\"event_name\":\"entry-earn\",\"event_type\":\"entry\",\"condition_expression\":\"event(\\\"盈利表现与业绩预期\\\") and pe < ts_mean(pe, 60)\",\"direction\":\"long\",\"priority\":0,\"cooldown_days\":20}]",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_bse",
+          "type": "boolean",
+          "required": false,
+          "description": "剔北交所（bj.*），默认 false。用户点名必须传 true。指数池开了通常空操作。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_st",
+          "type": "boolean",
+          "required": false,
+          "description": "按当日行情简称前缀剔 ST/*ST/S*ST，默认 false。用户点名必须传 true。\n残缺按日状态，不是完整 PIT：摘帽后再改名会漏。港美/ETF 不套。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_star",
+          "type": "boolean",
+          "required": false,
+          "description": "剔科创板（688/689），默认 false。点名科创50用 universe=kcb50，不要开本开关。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "execution",
+          "type": "object",
+          "required": false,
+          "description": "成交执行。不填则零成本、T+1、开盘价。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_bot_by",
+          "type": "string",
+          "required": false,
+          "description": "可交易初筛，取截面最小 N 只，须与 keep_bot_n 成对。建议 market_cap。信号里的「金叉且市值最小50」仍写表达式 bot()。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_bot_n",
+          "type": "integer",
+          "required": false,
+          "description": "与 keep_bot_by 成对的只数。与 keep_top_* 同时设是串联（先 top 再 bot，M 应 ≤ N）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_top_by",
+          "type": "string",
+          "required": false,
+          "description": "可交易初筛键，须与 keep_top_n 成对。如 amount、ts_mean(amount,20)。先剔 ST/价格/天数再取榜，事件条件只看见这 N 只。只写条件里的 top() 改不了池子。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_top_n",
+          "type": "integer",
+          "required": false,
+          "description": "与 keep_top_by 成对的只数。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "min_history_days",
+          "type": "integer",
+          "required": false,
+          "description": "本次行情表里该票已出现的最少交易日数（不是上市日）。未传=20。次新/上市不满一年必须传 250。0=关闭。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pit_universe",
+          "type": "boolean",
+          "required": false,
+          "description": "时点股票池，默认 true。一般不填。仅「复现旧结果/起始月固定成分/关掉PIT」时传 false。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "portfolio_construction",
+          "type": "object",
+          "required": false,
+          "description": "组合构建。equal_weight / market_cap / price 均生效。score_weight / fixed_count / long_short 引擎不读。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": false,
+          "description": "用户原话，可选。给锚定窗口 / 未来触发 / 「N 天」对账读。\n有 Phase 1 确认过的原话就带上；不填则闸只看 strategy_name 与字段，不会因此失败。\n不代替 event_rules / risk.max_holding_days / stop_loss / take_profit——规则和风控仍要写成入参。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "risk",
+          "type": "object",
+          "required": false,
+          "description": "风控。stop_loss / take_profit 已原生支持。不填则无价格止损止盈、无持有到期强平。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "YYYY-MM-DD。省略=今天往前1年。勿写死过期日期。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "strategy_name",
+          "type": "string",
+          "required": false,
+          "description": "策略名（用于报告标题），可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "universe",
+          "type": "string",
+          "required": false,
+          "description": "股票池，默认 hs300。禁止 enum 收成三值，后端早就不只这三个。\n  成分池：hs300 沪深300 | csi500/zz500 中证500（同池）| csi800 中证800 | csi1000 中证1000（「小盘/小市值」用这个，禁止 small_scale）| csia500 中证A500 | sz50 上证50成分 | cyb 创业板指成分（399006）| kcb50 科创50成分（000688；点名科创50用这个，不要开 exclude_star）| hsi 恒生成分\n  small_scale：5只超大盘蓝筹，仅调试。不是小盘池\n  全市场：all_a 全A（沪深北，已剔B股；默认含北交、科创、ST）| all_hk 全港 | all_us 全美（无纳指/道指成分池）\n  行业：sw:名（A股申万）| sw_hk:名（港股也是申万，非GICS）| trbc:Sector（美股，如 trbc:Technology）\n  ETF：etf / etf_bond / etf_commodity 轮动（不含货币型）；etf:510300 或 etf:510300,510050 择时\n  自选：codes:贵州茅台,五粮液 或 codes:600519,000858（正式简称可直接传；同名多码先问A/H；禁止 custom:；场内基金用 etf:）\n  微盘且要剔科创/北交/ST：all_a + 对应开关，不要映射成 csi1000\n  不能作股票池：csi2000 / hscei / hstech / ixic / dji\n  ETF 无估值与财务列，条件表达式用到会报错\n  条件里写了 event() 时：仅 A 股个股池可用（hs300 / csi500 / csi1000 / all_a / sw: 等）；all_hk / all_us / etf* 会被后端直接拒，不要提交等全 0\n",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "create_portfolio_group",
+      "description": "为当前用户创建一个新的自选股分组。分组名称不能为空，且需在该用户下唯一。成功后返回 Markdown 表格，包含新建分组的 ID 与名称。",
+      "parameters": [
+        {
+          "name": "groupName",
+          "type": "string",
+          "required": true,
+          "description": "要创建的分组名称（必填，例如“我的科技股”）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "parentGroupId",
+          "type": "integer",
+          "required": false,
+          "description": "创建二级分组时填写父一级分组 ID。parentGroupId和parentGroupName二选一",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "parentGroupName",
+          "type": "string",
+          "required": false,
+          "description": "创建二级分组时可填写父一级分组名称。parentGroupId和parentGroupName二选一",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_update",
+      "description": "修改文档或文件夹：重命名或移动，一次只执行一个动作。传 newName（配合 documentId）执行重命名；传 targetFolderId（配合 documentIds）执行移动。两类参数只能传其中一组，都传或都不传会报参数错误。重命名需可编辑及以上权限且同级不重名；移动仅限创建者操作，目标文件夹需可编辑及以上权限，不支持移动到自身或其子文件夹。",
+      "parameters": [
+        {
+          "name": "documentId",
+          "type": "string",
+          "required": false,
+          "description": "重命名时必填：要重命名的文档或文件夹 ID。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "documentIds",
+          "type": "array",
+          "required": false,
+          "description": "移动动作：要移动的文档/文件夹 ID 列表。移动时必填。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "newName",
+          "type": "string",
+          "required": false,
+          "description": "重命名动作：新名称。传了该字段即执行重命名，不能与 targetFolderId/documentIds 同时传。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "targetFolderId",
+          "type": "string",
+          "required": false,
+          "description": "移动动作：目标文件夹 ID。传了该字段即执行移动，不能与 newName 同时传。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_stock_industry_fund_holders",
+      "description": "查询个股或申万行业的公募基金持仓，支持 A 股（cn）、港股（hk）、美股（us）三个市场， 按基金产品 / 基金经理 / 管理机构维度分页返回，可按调仓行为及报告期筛选。 约束：market 必填；stock_keyword 与 shenwan_industry 必须二选一； shenwan_industry 仅适用于 A 股（market=cn）；传 report_period 时忽略 start_time/end_time。",
+      "parameters": [
+        {
+          "name": "end_time",
+          "type": "string",
+          "required": false,
+          "description": "结束时间 yyyy-MM-dd HH:mm:ss，与 start_time 配合取时间段内最近一期报告。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_codes",
+          "type": "array",
+          "required": false,
+          "description": "基金代码列表，如 [\"110020\", \"005827\"]，对全部 query_dimension 生效；多个代码取并集。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_manager",
+          "type": "string",
+          "required": false,
+          "description": "基金经理模糊筛选，仅 query_dimension=fund_manager 生效，如\"张坤\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_name",
+          "type": "string",
+          "required": false,
+          "description": "基金名称模糊筛选，仅 query_dimension=fund_product 生效，如\"易方达\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "management_agency",
+          "type": "string",
+          "required": false,
+          "description": "管理机构模糊筛选，仅 query_dimension=management_agency 生效，如\"易方达\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "market",
+          "type": "string",
+          "required": true,
+          "description": "股票所属市场（必填）：cn=A股，hk=港股，us=美股。 A 股填 cn，不区分沪深北交易所。",
+          "default": null,
+          "enum": [
+            "cn",
+            "hk",
+            "us"
+          ]
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page_size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 15。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "position_change",
+          "type": "string",
+          "required": false,
+          "description": "调仓行为筛选，枚举：首次建仓、季度加仓、季度减仓、季度清仓。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_dimension",
+          "type": "string",
+          "required": true,
+          "description": "聚合维度。fund_product=按基金产品；fund_manager=按基金经理；management_agency=按管理机构。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "report_period",
+          "type": "string",
+          "required": false,
+          "description": "报告期，格式 YYYYQx（如 2026Q1）；传值后 start_time/end_time 被忽略。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "shenwan_industry",
+          "type": "string",
+          "required": false,
+          "description": "申万一/二/三级行业名（与 stock_keyword 二选一，仅 market=cn 时有效），如\"白酒\"，自动汇总该行业成分股持仓。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "起始时间 yyyy-MM-dd HH:mm:ss，与 end_time 配合取时间段内最近一期报告。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stock_keyword",
+          "type": "string",
+          "required": false,
+          "description": "个股名称或代码（与 shenwan_industry 二选一）。 A 股：600519 或 贵州茅台；港股：00700 或 腾讯控股；美股：AAPL 或 苹果。 名称模糊匹配，代码精确匹配，匹配范围限定在 market 指定的市场内。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_stock_kline",
+      "description": "查询单只股票(A股/港股/美股)的 K 线行情序列，支持分钟线(1m/5m/15m/30m/60m)与 日/周/月/年线(1d/1w/1mo/1y)。返回不复权 OHLCV 与前复权 OHLC、成交量额、涨跌额幅。 用于 K 线图绘制、分时走势、日周月年行情查询。注意:1m 表示 1 分钟，1mo 表示 1 月线。 不承接实时盘口、估值市值、财务指标、复权因子明细。",
+      "parameters": [
+        {
+          "name": "endDateTime",
+          "type": "string",
+          "required": false,
+          "description": "结束时间，格式 yyyy-MM-dd HH:mm:ss;日/周/月/年可只传日期，服务端补齐为当天结束。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fields",
+          "type": "array",
+          "required": false,
+          "description": "指定返回字段;不传返回默认字段。仅接受 K 线字段，分钟周期不可含 period_end_date， 日及以上不可含 bar_end_time。可选字段:stock_full_code,stock_code,stock_name,market_type, currency,freq,bar_end_time,latest_trading_time,period_end_date,open_price,high_price, low_price,close_price,pre_close_price,front_adjust_open_price,front_adjust_high_price, front_adjust_low_price,front_adjust_close_price,volume,amount,deal_count,average_price, price_change,pct_change,latest_price_change,latest_pct_change,amplitude。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "freq",
+          "type": "string",
+          "required": true,
+          "description": "K 线周期。合法值:1m,5m,15m,30m,60m(分钟);1d,1w,1mo,1y(日/周/月/年)。 1m=1分钟，1mo=1月线。未知值报参数错误。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "最多返回 K 线条数，默认 300，最大 2000(超限截断)。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "order",
+          "type": "string",
+          "required": false,
+          "description": "返回顺序，asc 升序 / desc 降序，默认 asc。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "单个股票代码、带市场股票代码或股票名称;除非用户准确提到代码，否则优先传名称。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startDateTime",
+          "type": "string",
+          "required": false,
+          "description": "开始时间，格式 yyyy-MM-dd HH:mm:ss;日/周/月/年可只传日期，服务端补齐为当天开始。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_tree",
+      "description": "一次性获取文件夹目录树结构，替代逐层遍历。支持指定起始文件夹和最大展开深度（默认 3 层），仅返回当前用户有权限查看的节点。",
+      "parameters": [
+        {
+          "name": "maxDepth",
+          "type": "integer",
+          "required": false,
+          "description": "最大展开深度，默认 3 层。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startFolderId",
+          "type": "string",
+          "required": false,
+          "description": "起始文件夹 ID。不传时从根目录开始。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "self_meeting_list",
+      "description": "查询当前用户的自助会议列表，支持按关键字、会议号、标题、发起人、开始/结束时间、会议状态、类型等分页筛选。返回会议主题、会议号、状态、开始/结束时间、时长、创建人、组织等信息。",
+      "parameters": [
+        {
+          "name": "etime",
+          "type": "string",
+          "required": false,
+          "description": "结束时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "required": false,
+          "description": "关键字，用于模糊搜索。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "meetingCode",
+          "type": "string",
+          "required": false,
+          "description": "腾讯会议号",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sponsor",
+          "type": "string",
+          "required": false,
+          "description": "发起人。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "status",
+          "type": "integer",
+          "required": false,
+          "description": "会议状态。1 待开始，2 进行中，3 已结束，4 已取消，5 其他。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stime",
+          "type": "string",
+          "required": false,
+          "description": "开始时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "subject",
+          "type": "string",
+          "required": false,
+          "description": "会议标题。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "typeForUser",
+          "type": "string",
+          "required": false,
+          "description": "会议类型。generic 常规，webinar 研讨会。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "self_meeting_create",
+      "description": "创建预约会议（自助会议）。必填参数为会议主题 subject、开始时间 stime、结束时间 etime（格式均为 yyyy-MM-dd HH:mm:ss）",
+      "parameters": [
+        {
+          "name": "commitment",
+          "type": "integer",
+          "required": false,
+          "description": "是否需要承诺书。0 否，1 是。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "conferenceTypeDesc",
+          "type": "string",
+          "required": false,
+          "description": "沟通类型",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "enableHostKey",
+          "type": "integer",
+          "required": false,
+          "description": "是否开启主持人密钥。0 关闭，1 开启。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "etime",
+          "type": "string",
+          "required": true,
+          "description": "预计结束时间，格式 yyyy-MM-dd HH:mm:ss（必填）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "hostKey",
+          "type": "string",
+          "required": false,
+          "description": "主持人密钥，仅支持6位数字。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "needPassword",
+          "type": "integer",
+          "required": false,
+          "description": "是否需要密码参会。0 否，1 是。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "needRegister",
+          "type": "integer",
+          "required": false,
+          "description": "是否需要报名。0 否，1 是。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "参会密码。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "receptionists",
+          "type": "array",
+          "required": false,
+          "description": "接待人姓名列表",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stime",
+          "type": "string",
+          "required": true,
+          "description": "预计开始时间，格式 yyyy-MM-dd HH:mm:ss（必填）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "subject",
+          "type": "string",
+          "required": true,
+          "description": "会议主题（必填）。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchAnnouncementReport",
+      "description": "搜索进门平台收录的上市公司公告，这些公告是上市公司发布的专门用于披露其定期经营、财务数据、公司重大事件等的官方报告，是最权威、最真实的第一手公司数据来源。",
+      "parameters": [
+        {
+          "name": "fullCode",
+          "type": "string",
+          "required": false,
+          "description": "股票代码，如：hk01093, sz300750等，支持多个，中间使用英文逗号隔开",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "labelList",
+          "type": "string",
+          "required": false,
+          "description": "指定公告业绩期间， 财报的报告期设置，支持多个时间点的批量查询。包括财年、报告类型（如一季报：Q1、半年报：S1、三季报：Q3、年报：A），使用,分隔。示例：- \"2024A,2025Q1\" - \"2023S1,2024Q3,2025A\" 该参数非必填，如果不填查询所有的相关公告。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，请描述希望查询的公告要点，支持输入多个子问题，**使用空格分隔，每条语义需独立完整**。每条建议控制在15~20字以内，避免仅用关键词堆砌。推荐写法：- \"成药业务的收入结构 抗肿瘤药物的销售变化 神经系统产品的营收情况\" - \"心血管产品的市场占比 抗感染业务的增长趋势\" 公司名称通过股票代码fullCode指定，禁止使用关键字罗列。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时使用服务端默认 topK 配置。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "shareholder_details",
+      "description": "查询上市公司的股东明细信息。\n支持按股票名称或完整代码查询、十大股东 / 十大流通股东两种类型；\n可选按报告期过滤（兼容 2026Q1 与 2026-03-31 两种格式，缺省返回最新报告期）；\n可选按股东名称模糊搜索。\n返回 Markdown 表格，包含排名、股东名称、持股状态、持股数量、持股比例、变动数量。",
+      "parameters": [
+        {
+          "name": "holdChangeType",
+          "type": "string",
+          "required": false,
+          "description": "持有变动类型， 有[不变, 增持, 减持， 新进]选项",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "holderName",
+          "type": "string",
+          "required": false,
+          "description": "股东名称模糊关键字，可选。例如\"香港中央结算\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "holderType",
+          "type": "string",
+          "required": true,
+          "description": "股东类型，必填。可选值：top_ten（十大股东）、top_ten_circulating（十大流通股东）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，从 1 开始，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "reportPeriod",
+          "type": "string",
+          "required": false,
+          "description": "报告期，可选。支持两种格式：2026Q1（季度）或 2026-03-31（具体日期）；缺省返回最新报告期。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockKeywords",
+          "type": "array",
+          "required": true,
+          "description": "个股名称或代码列表（必填），如 [\"贵州茅台\", \"600519\", \"000001.SZ\"]；多只股票结果合并后再分页。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "stock_analyze_submit",
+      "description": "提交 A股/港股/美股/场内ETF 技术面解读异步任务（诊股/筛股/行业/市场广度/信号历史胜率）。适合：①个股或场内ETF代码（如 sh.510300）当前技术状态（强弱/超买超卖/涨多了跌过头/支撑压力/多周期/相对强弱/形态）；②池内按条件筛或信号灵不灵（沪深300/中证系列/全A，及股票型·债券·商品ETF三池，不含货币型；ETF无申万行业/估值列）；③行业/板块成分筛与行业历史统计（申万/TRBC；不适用ETF池）；④市场广度是否普跌；⑤某段为何大涨大跌（可联网追因）。只做技术面研究、不构成投资建议；要仓位/止损止盈/完整策略净值→量化回测。行为铁律：提交≠完成，必须用返回任务ID调 stock_analyze_result 取成稿（常需十几秒到几分钟）；提交到成稿前禁止抢答/自行联网顶答案，只回「正在后台分析，请稍候」；prompt 原样传用户中文问题，勿预译成 RSI/均线；点名诊股多码（如A+H）先问用户、确认前勿猜码提交。",
+      "parameters": [
+        {
+          "name": "max_rounds",
+          "type": "integer",
+          "required": false,
+          "description": "内部取数轮数，可选；默认由上游控制，复杂（渐进归因+联网）问题可传 8。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "用户自然语言问题原话（中文）。保留股票/ETF名称或代码、日期/区间、范围（如沪深300/股票型ETF池/白酒板块）；不要预先翻译成 RSI/均线表达式。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "document_search",
+      "description": "查询进门平台当前用户可访问的云文档，支持按标题关键字、更新时间范围、条目类型、文件类型、来源类型分页筛选，返回文档标题、类型、来源、更新时间、权限和访问链接。",
+      "parameters": [
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "筛选结束时间（基于文档修改时间），格式 yyyy-MM-dd HH:mm:ss",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fileType",
+          "type": "integer",
+          "required": false,
+          "description": "文件类型。1, PDF, 2, WORD, 3, PPT, 4, TXT, 5, 图片, 10, XLSX, 11, CSV, 12, Markdown, 13, HTML。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "description": "文档标题关键字，支持模糊搜索。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "parentId",
+          "type": "integer",
+          "required": false,
+          "description": "父级文件夹 ID。传入后返回该文件夹下一级的文件和文件夹列表。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sourceList",
+          "type": "array",
+          "required": false,
+          "description": "来源类型列表。1, 本地上传, 2, 用户创建, 3, AI参会, 4, AI进宝, 5, 会议纪要, 6, 代录, 7, 翻译, 8, 笔记, 9, 转写, 10, 微信助手, 99, 其它。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "筛选起始时间（基于文档修改时间），格式 yyyy-MM-dd HH:mm:ss",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "tagList",
+          "type": "array",
+          "required": false,
+          "description": "标签名称列表（取并集筛选）。传入后只返回包含其中任意一个标签的文档；与 keyword 同时使用时取交集。标签名含自定义标签、行业标签、个股标签。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "type",
+          "type": "integer",
+          "required": false,
+          "description": "条目类型。1, 文件夹, 2, 文件。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "backtest_task_list",
+      "description": "分页查询当前用户的回测任务提交记录",
+      "parameters": [
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "searchRoadshowSummary",
+      "description": "搜索进门平台收录的具备独特投资价值引导的路演会议纪要，这些路演会议是由上市公司、行业协会、券商、专家等资深公司和行业研究人士组织的电话会议所形成的纪要，里面包含了很多关于行业深度研究、股票深度研究的内容，比研报和券商点评具备更多实时、不公开的信息，可以帮助投资者更加细节地了解行业和公司的基本面、投资逻辑、边际变化。",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "后端为向量数据库，请使用完整中文自然语言描述希望查找的**路演纪要内容**，发言人（如管理层或参与分析师）、关心的问题点等。 示例： - \"隆基绿能董事长李振国对新型电池技术提了哪些判断？\" - \"天风证券分析师对小米汽车布局提出了哪些评论？\" 请避免使用“有没有某公司的纪要”“最近开会了吗”等模糊描述。如果用户输入的是股票代码，需尽量补充公司简称一并进行搜索，因为实际内容中可能仅出现公司简称而没有代码，这有助于提升检索的覆盖率和准确性。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_time",
+          "type": "string",
+          "required": false,
+          "description": "1. 用户绝对指定时间优先 (Absolute Time Anchor)：**- 如果用户在问题中明确提到**“今天”、“本周”、“本月”、“本季度”**，模型必须将这些时间锚定到精确的 `YYYY-MM-DD` 日期。- *示例*：如果今天是 2025-12-04，用户要求“今天”的研报，`start_time` 设为 **2025-12-04**。**2. 动态时间窗口推算 (Dynamic Rule-Based)：**(A) **估值/买入/最新观点** (关键词：还能买吗/目标价/性价比)：**当前日期 - 3个月** (严禁使用YTD)。(B) **突发事件/短期点评** (关键词：大跌/异动/点评/为何)：**当前日期 - 1个月**。(C) **财务/排名/数据查询** (关键词：年报/业绩/占比/Top)：**当前日期 - 1年**。(D) **深度复盘/行业演变** (关键词：壁垒/十年复盘/技术路线)：**当前日期 - 3年**。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "topK",
+          "type": "integer",
+          "required": false,
+          "description": "返回数量上限，支持外部传入；服务端会限制在 1 到 50 之间。不传时使用服务端默认 topK 配置。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "official_account_subscription_list",
+      "description": "查询当前用户已订阅的微信公众号列表（公众号名称、ID、头像、简介等），支持分页；用户身份由 MCP Key 解析，无需传 uid。",
+      "parameters": [
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "分页页码，从 1 开始；不传默认为 1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数；不传默认为 10",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "add_stocks_to_portfolio_group",
+      "description": "将一组股票添加到指定自选股分组。 分组通过 groupId 或 groupName 指定，至少提供一个。 股票按照名称进行模糊匹配。 返回 Markdown 表格，包含成功添加、已存在跳过、未匹配数量及成功添加的股票明细。",
+      "parameters": [
+        {
+          "name": "groupId",
+          "type": "integer",
+          "required": false,
+          "description": "目标分组 ID。一级分组填写一级 groupId，二级分组填写二级 groupId，均来自 stock_group_list 返回结果。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "groupLevel",
+          "type": "integer",
+          "required": false,
+          "description": "分组层级，1 表示一级分组，2 表示二级分组。必须与 groupId 对应的分组层级一致。默认值为1",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "groupName",
+          "type": "string",
+          "required": false,
+          "description": "自选分组名称，与 groupId 二选一。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "marketTypes",
+          "type": "array",
+          "required": false,
+          "description": "市场类型过滤列表。可选值：sh、sz、bj、hk、us、nq。不传或为空时默认包含全部市场。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stockNames",
+          "type": "array",
+          "required": true,
+          "description": "要添加的股票列表，必填。支持股票名称或代码，例如：贵州茅台、AAPL.us。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_bond_basic_info",
+      "description": "查询债券基本资料及发行、兑付信息。支持按债券代码或简称查询国债、地方政府债、公司债、可转债等标的的债券类型、发行人、发行起始日、起息日、到期日、上市日期与地点、发行期限、发行总额、发行利率、付息次数、债券余额、面值及信用评级等数据。query 应包含债券实体和所需指标；查询特定时点数据时应写明日期。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "查询需求描述，包含债券实体、查询指标，涉及时间口径时需包含时间，如\"23广东11、19黑龙江债01的发行期限与发行总额\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_bond_highfreq_quotes",
+      "description": "查询债券交易日日内实时行情快照或高频时间序列。输入债券代码/简称、指标列表、数据模式及分钟间隔，可查询最新价、开盘价、最高价、最低价、成交量、成交额等实时快照，或 1/3/5/10/15/30/60 分钟的开高低收、成交量、涨跌幅等日内序列。单次最多查询 10 个债券和 10 个指标。仅保证交易所债券，不支持历史日期查询。\n",
+      "parameters": [
+        {
+          "name": "data_mode",
+          "type": "string",
+          "required": true,
+          "description": "数据模式：highfreq=日内高频时间序列；real_time=实时快照",
+          "default": null,
+          "enum": [
+            "highfreq",
+            "real_time"
+          ]
+        },
+        {
+          "name": "indicators",
+          "type": "string",
+          "required": true,
+          "description": "指标列表，多个用英文逗号分隔，最多 10 个。两种模式均支持：开盘价、最高价、最低价、均价、成交额、成交量；仅 real_time 支持：最新价、现手、振幅、最新成交价；仅 highfreq 支持：收盘价、涨跌、涨跌幅、内盘、外盘",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "interval",
+          "type": "integer",
+          "required": false,
+          "description": "分钟间隔：可选[1,3,5,10,15,30,60]，默认 1 分钟，仅 highfreq 模式使用",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "symbols",
+          "type": "string",
+          "required": true,
+          "description": "债券代码/简称，支持同花顺代码、交易所六位代码或标准简称；多个用英文逗号分隔，最多 10 个，如\"110076.SH\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_bond_special_data",
+      "description": "查询不同债券类型的专属指标。支持信用债的主体评级、债项评级、评级机构、评级展望及评级变动方向；债券回购的回购期限、回购利率、成交量和成交额；可转债的转股价格、转换比例、转股起始日、赎回条款等数据。query 应包含债券实体、所需指标和时间。\n",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "查询需求描述，包含债券实体、所需指标和时间，如\"华海转债、南航转债截至2026-08-24的最新转股价格及转换比例\"",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "strategy_list",
+      "description": "查询策略列表，支持分页。返回序号、ID、标题、时间、地址、举办机构。",
+      "parameters": [
+        {
+          "name": "endTime",
+          "type": "string",
+          "required": false,
+          "description": "结束时间，格式 yyyy-MM-dd HH:mm:ss，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fullCode",
+          "type": "string",
+          "required": false,
+          "description": "股票代码，使用完整的股票代码（如：sz300750、sh600519）进行标识。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "regionList",
+          "type": "string",
+          "required": false,
+          "description": "地区，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sponsorName",
+          "type": "string",
+          "required": false,
+          "description": "举办方名称，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "startTime",
+          "type": "string",
+          "required": false,
+          "description": "开始时间，格式 yyyy-MM-dd HH:mm:ss，可选。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": false,
+          "description": "标题，可选。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_main_business_segments",
+      "description": "营收拆分(Revenue Breakdown)查询工具，查询上市公司（A股、港股、美股）在主营业务层面的分拆财务数据，包括不同产品、行业或地区下的营业收入、营业成本、毛利润、毛利率等核心经营指标，适用于品牌/渠道结构分析、竞争对手对比、区域业绩分析等场景。 支持 A股（如 sh600519、sz000001）、港股（如 hk00700）、美股（如 usAAPL、usTSLA），可跨市场混合传入。 报告期定位方式为 fiscalYear 与 beginDate+endDate 二选一： - fiscalYear（年度数据专用锚点）：按公司自有财年编号直接取该财年完整年度的累计数据，适用于 A股/港股/美股年报。美股按公司公告财年口径（如苹果财年 10 月结束），不做自然年折算。 - beginDate+endDate（均必填）：覆盖季度、半年度、9 个月累计等其余全部场景。只需传大致的起止日期（如单季度约 3 个月、半年累计约 6 个月），后端返回全部真实区间与请求区间存在任意天数重叠的记录（可能不止一条），无需知道公司真实披露日期、是否发生过财年调整、是否采用非标准月末（如 4-4-5 周历）。 每条返回记录自带 actualBeginDate/actualEndDate（真实起止日期），凭跨度即可判断是单季度还是累计口径；同一请求同时命中\"单季度\"与\"累计\"两条记录时两条都会返回，按需自行选用。 注意：A股/港股主营拆分数据一般在年报和半年报披露；美股分部披露（ASC 280）通常不含成本类科目，营业成本/毛利润/毛利率/成本同比/收入同比可能缺失，不报错，通过 remark 提示。",
+      "parameters": [
+        {
+          "name": "companyInfos",
+          "type": "array",
+          "required": true,
+          "description": "股票信息, 可支持多只股票",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "itemClassify",
+          "type": "array",
+          "required": true,
+          "description": "指定按哪种维度对公司主营业务进行拆解，支持多个维度同时查询：\n  - 按产品：如分为\"服装\"、\"医用耗材\"、\"iPhone\"、\"Services\"等\n  - 按行业：如\"医疗制造\"、\"零售\"、\"物流\"等（仅 A股支持，港股/美股无此披露维度）\n  - 按地区：如\"华东\"、\"华南\"、\"Greater China\"、\"Americas\"等\n按公司实际披露口径匹配，无对应披露口径则返回空结果。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "reportDates",
+          "type": "array",
+          "required": true,
+          "description": "报告期列表。每个报告期二选一：仅传 fiscalYear（查该财年完整年度累计数据），或仅传 beginDate+endDate（查与请求区间存在重叠的全部记录）。二者互斥，不可同传或都不传。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "searchData",
+          "type": "array",
+          "required": true,
+          "description": "查询的数据指标, 会计准则的科目, 仅支持：营业收入,营业成本,毛利润,毛利率,成本同比,收入同比。美股场景下该参数不生效（美股仅返回可得的营业收入指标）",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "backtest_submit",
+      "description": "提交异步量化因子回测。prompt 只写因子逻辑与方向；股票池/基准/调仓/日期/中性化/加权/剔北交·科创·ST/次新天数/成交额或市值头尾初筛必须写成下面的入参，只写 prompt 会静默走默认值。默认行业+市值中性化。支持 A/港/美。\n",
+      "parameters": [
+        {
+          "name": "baseline_task_id",
+          "type": "string",
+          "required": false,
+          "description": "上一轮 taskId，用于迭代对比（comparison + 双净值图）。从改进建议卡片重跑必须带。全新因子不要传。因子/事件不能互为基线。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "benchmark",
+          "type": "string",
+          "required": false,
+          "description": "默认 hs300。个股前复权、策略含分红，优先全收益同口径。\n  全收益：hs300 | zz500=csi500 | sz50 | csi800 | csi1000 | cyb（399606）| ixic（XCMP）\n  仅价格指数（超额约偏高1~3pp，须声明）：csia500 | csi2000（国证2000/399303，不叫中证2000）| kcb50 | hsi | hscei | hstech | dji\n  未指定时：港股池→hsi；美股池→ixic；sz50/cyb/kcb50 成分池→自身同名指数。etf_bond/etf_commodity 不会自动切，勿对股票指数算超额。\n  仅能作基准：csi2000 / hscei / hstech / ixic / dji。sz50/cyb/kcb50 已可作 universe。\n  覆盖缺口见 benchmark_diagnostics.warnings：超额等只在重叠交易日成立。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "YYYY-MM-DD。省略=今天。写死过期日会悄悄截短窗口且不报错。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_bse",
+          "type": "boolean",
+          "required": false,
+          "description": "剔北交所（bj.*），默认 false。用户点名必须传 true，只写 prompt 无效。指数池开了通常空操作。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_st",
+          "type": "boolean",
+          "required": false,
+          "description": "按当日行情简称前缀剔 ST/*ST/S*ST，默认 false。用户点名必须传 true，只写 prompt 无效。\n残缺按日状态，不是完整 PIT：当时还叫 ST 的能看见；摘帽后再改名会漏（如 002175 的 *ST东网）。禁止用今天 ST 名单滤历史。港美/ETF 不套。报告须声明此限制。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "exclude_star",
+          "type": "boolean",
+          "required": false,
+          "description": "剔科创板（688/689），默认 false。用户点名必须传 true。点名科创50用 universe=kcb50，不要开本开关（池会空）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "holding_period",
+          "type": "integer",
+          "required": false,
+          "description": "持仓交易日，1~252，默认 5。周=5、月=20、季=60、半年=120、年=240。必须写进入参。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_bot_by",
+          "type": "string",
+          "required": false,
+          "description": "可交易初筛，取截面最小 N 只，须与 keep_bot_n 成对。建议 market_cap。金叉且市值最小 50 这种信号里的一刀仍写表达式 bot()，不要塞这里。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_bot_n",
+          "type": "integer",
+          "required": false,
+          "description": "与 keep_bot_by 成对的只数。与 keep_top_* 同时设时 M 应 ≤ N（先 top N 再在其中 bot M）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_top_by",
+          "type": "string",
+          "required": false,
+          "description": "可交易初筛键，须与 keep_top_n 成对。列名或表达式，如 amount、ts_mean(amount,20)。ST/价格/天数之后、表达式 rank/top 之前取截面最大 N 只。只写表达式 top() 或只写 prompt 不会改股票池。与 keep_bot_* 同时设是串联（先 top 再 bot）。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keep_top_n",
+          "type": "integer",
+          "required": false,
+          "description": "与 keep_top_by 成对的只数。开了之后 avg_eligible_names≈N、eligible_ratio 很低是设计结果，不是数据质量问题。改 N 会使两次回测不可比。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "min_history_days",
+          "type": "integer",
+          "required": false,
+          "description": "本次行情表里该票已出现的最少交易日数（不是上市日）。未传=20。次新/上市不满一年必须传 250，只写 prompt 仍是 20。不满 N 日就传 N。0=关闭这条过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "默认 local。wq=仅WQ兼容算子，一般不填。",
+          "default": null,
+          "enum": [
+            "local",
+            "wq"
+          ]
+        },
+        {
+          "name": "n_groups",
+          "type": "integer",
+          "required": false,
+          "description": "分组数，2~20，默认 5",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "neutralize_cap",
+          "type": "boolean",
+          "required": false,
+          "description": "市值中性化，默认 true。美股总市值 2025 起才较全。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "neutralize_industry",
+          "type": "boolean",
+          "required": false,
+          "description": "行业中性化，默认 true。A/港申万（港股不是GICS），美股TRBC；单行业池自动降到二级→三级。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "pit_universe",
+          "type": "boolean",
+          "required": false,
+          "description": "时点股票池，默认 true。一般不填。仅「复现旧结果/起始月固定成分/关掉PIT」时传 false。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "required": true,
+          "description": "因子逻辑与方向（如「ROE 越高越好」）。不要把池/基准/调仓/日期/中性化/加权/剔除/次新/头尾初筛写进来。也不要写新闻打标、业绩预告、回购增减持这类事件驱动想法（含 event() 的表达式后端会硬拒），那类改用 backtest_event_submit。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "score_only",
+          "type": "boolean",
+          "required": false,
+          "description": "轻量初筛，默认 false。用户只问一个因子时不要传。true 则无报告/core/解读；与 baseline_task_id 互斥。选出后再去掉本参数重跑。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "YYYY-MM-DD。省略=今天往前5年。勿写死过期日期。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "universe",
+          "type": "string",
+          "required": false,
+          "description": "股票池，默认 hs300。\n  成分池：hs300 沪深300 | csi500/zz500 中证500（同池）| csi800 中证800 | csi1000 中证1000（「小盘/小市值」用这个，禁止 small_scale）| csia500 中证A500 | sz50 上证50成分 | cyb 创业板指成分（399006）| kcb50 科创50成分（000688；点名科创50用这个，不要开 exclude_star）| hsi 恒生成分\n  small_scale：5只超大盘蓝筹，仅调试。不是小盘池，分组/IC 均不成立\n  全市场：all_a 全A（沪深北，已剔B股；默认含北交、科创、ST）| all_hk 全港 | all_us 全美（无纳指/道指成分池）\n  行业：sw:名（A股申万）| sw_hk:名（港股也是申万，非GICS）| trbc:Sector（美股，如 trbc:Technology）\n  ETF：etf / etf_bond / etf_commodity 轮动（不含货币型）；etf:510300 或 etf:510300,510050 择时\n  自选：codes:贵州茅台,五粮液 或 codes:600519,000858（正式简称可直接传；同名多码先问A/H；禁止 custom:；场内基金用 etf:）。因子回测仍要够横截面只数，单只/少数择时走事件回测\n  微盘且要剔科创/北交/ST：all_a + 对应开关，不要映射成 csi1000\n  不能作股票池：csi2000 / hscei / hstech / ixic / dji\n  美股：价/量/技术全历史；pe/pb/总市值/换手 2025起；流通市值全历史；ps与股息率不可用；报表可用 revenue/net_profit/roe/roa/np_margin/gp_margin/debt_ratio/equity_multiplier/asset_turnover/current_ratio；不可用 eps_ttm/bps/股本/yoy_*/fin_*\n  ETF 无估值与财务列，表达式用到会报错\n",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "weighting",
+          "type": "string",
+          "required": false,
+          "description": "分组组合形成日加权，默认 equal_weight。equal_weight 等权 | market_cap 市值 | price 价格（裸价）。期内买入持有、按涨跌漂移，不是每天再平衡。用户说市值/价格加权必须传，只写 prompt 仍是等权。缺市值列时市值加权会退回等权。",
+          "default": null,
+          "enum": [
+            "equal_weight",
+            "market_cap",
+            "price"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "searchMyDoc",
+      "description": "我的云文档内容检索工具,用于在云文档内容中统一搜索,主要为我的文档。",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "提供完整的中文自然语言问题，检索我的个人知识库。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "futures_price",
+      "description": "查询期货实时报价，支持内盘（国内）和外盘（国际）期货。\n通过 market 参数选择内盘（internal）或外盘（external）。\nsymbol 传具体合约代码（非主力品种代码），多个合约用逗号分隔，如 rb2501,i2505,cu2503。",
+      "parameters": [
+        {
+          "name": "market",
+          "type": "string",
+          "required": true,
+          "description": "市场类型：internal=内盘（国内期货）；external=外盘（国际期货）",
+          "default": null,
+          "enum": [
+            "internal",
+            "external"
+          ]
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "required": true,
+          "description": "合约代码，多个用逗号分隔。内盘与外盘格式不同，请注意区分：\n- 内盘（internal）：传具体月份合约代码，格式为品种+年月，如 rb2501（螺纹钢2501合约）、i2505（铁矿石2505合约）、cu2503（铜2503合约）；不要传主力代码（如 RB0）\n- 外盘（external）：传数据源自定义品种代码，不加\"0\"或月份后缀。注意：外盘代码并非标准交易所代码，以数据源实际支持的为准。已知可用示例：CL（WTI原油）、OIL（布伦特原油）",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "screenerStock",
+      "description": "A股/港股/美股智能选股工具，支持通过市场交易数据、估值指标、股息指标、涨跌幅指标、股票概念进行多条件组合筛选与自定义多字段排序，结果分页返回。需严格按照用户的选股需求执行筛选，务必一次性传入全部筛选条件，禁止分步迭代查询。接口固定返回股票名称、代码、总市值，若排序或筛选条件包含其他字段，也会同步返回，且必须完整匹配用户指定的筛选与排序规则。支持字段：最新涨跌幅、总市值、换手率、最新价、成交量、成交额、静态市盈率、滚动市盈率、市净率、滚动股息率、近一周/近一月/近三月/近六月/今年以来涨跌幅、股票概念。",
+      "parameters": [
+        {
+          "name": "enumConditions",
+          "type": "array",
+          "required": false,
+          "description": "枚举筛选条件数组，支持按股票概念、市场类型筛选",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "numberConditions",
+          "type": "array",
+          "required": false,
+          "description": "数值筛选条件数组，支持全量交易、估值、涨跌幅、股息类指标范围组合筛选，可传入多条件",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": true,
+          "description": "分页页码，默认从 1 开始",
+          "default": 1,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": true,
+          "description": "单页返回股票数量，默认 20 条, 可自行调整，但不鼓励超过100条。",
+          "default": 20,
+          "enum": []
+        },
+        {
+          "name": "sort",
+          "type": "array",
+          "required": true,
+          "description": "排序规则数组，支持全量交易、估值、涨跌幅、股息类指标升序/降序排列",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "parseFile",
+      "description": "解析用户提供的文件 URL，调用 OCR 服务提取文本内容。当前要求传入可访问的 HTTP 或 HTTPS 文件地址，适用于图片类文件的文字识别。",
+      "parameters": [
+        {
+          "name": "fileUrl",
+          "type": "string",
+          "required": true,
+          "description": "待 OCR 解析的文件 URL，必须是可访问的 HTTP 或 HTTPS 链接。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "screen_funds",
+      "description": "用于按基金分类、管理人、基金经理、存续状态、交易形态、ETF 联接关系、规模和收益风险指标筛选基金，也支持多只基金/份额的收益风险对比。mode=\"screen\" 时用于选基筛选和排序，可按收益率、最大回撤、波动率、夏普比率、超额收益、净资产规模等字段过滤或排序；mode=\"compare\" 时用于比较多只基金或份额在指定窗口下的收益、回撤、波动率、夏普和超额收益表现。适用于“找近一年收益大于 8% 且回撤小于 20% 的基金”“比较 A 和 B 谁表现更好”等场景；不用于返回长时间序列行情、完整持仓明细或经理画像正文。",
+      "parameters": [
+        {
+          "name": "as_of_date",
+          "type": "string",
+          "required": false,
+          "description": "观察日 yyyy-MM-dd；当前实现接收该参数但不参与筛选、排序或输出，筛选始终使用每只基金最新主体快照。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "default_share_only",
+          "type": "boolean",
+          "required": false,
+          "description": "当前实现接收该参数但不参与 screen 或 compare 查询逻辑，保留为兼容/预留字段。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "filters",
+          "type": "array",
+          "required": false,
+          "description": "筛选条件列表，每项为对象。field 必须在白名单内；op 支持 >=、<=、>、<、=、between、is_not_null。 单值比较使用 value；between 使用 values 传两个数值；is_not_null 不需要 value/values。 当前白名单：return_1d/return_1w/return_1m/return_6m/return_ytd/return_1y/return_3y/return_5y/return_since_inception、 max_drawdown_ytd/max_drawdown_1y/max_drawdown_3y/max_drawdown_5y/max_drawdown_since_inception、 volatility_ytd/volatility_1y/volatility_3y/volatility_5y/volatility_since_inception、 sharpe_ratio_1y/sharpe_ratio_3y/sharpe_ratio_5y/sharpe_ratio_since_inception、 excess_return_1m/excess_return_3m/excess_return_6m/excess_return_ytd/excess_return_1y/excess_return_3y/excess_return_5y/excess_return_since_inception、 latest_net_asset/latest_nav/latest_total_share。非法字段、非法 op 或数值格式错误会返回参数错误。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_company_name",
+          "type": "string",
+          "required": false,
+          "description": "管理人名称，对主体快照管理人名称做包含匹配。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_exchange_type",
+          "type": "string",
+          "required": false,
+          "description": "交易形态等值过滤，如 ETF。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_manager_name",
+          "type": "string",
+          "required": false,
+          "description": "基金经理姓名，先解析经理候选，再按候选经理姓名匹配主体快照的在任经理名称；可叠加 fund_company_name 缩小解析范围。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_type_level1",
+          "type": "array",
+          "required": false,
+          "description": "一级分类码值数组，按主体快照字段 IN 过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "fund_type_level2",
+          "type": "array",
+          "required": false,
+          "description": "二级分类码值数组，按主体快照字段 IN 过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "required": false,
+          "description": "存续状态过滤，true 存续，false 已终止；不传不过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "is_linked_fund",
+          "type": "boolean",
+          "required": false,
+          "description": "是否 ETF 联接基金过滤，true 仅联接，false 仅非联接；不传不过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "screen 结果上限，默认 20，最大 100。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "metrics",
+          "type": "array",
+          "required": false,
+          "description": "compare 模式对比指标，如 return、max_drawdown、volatility、sharpe_ratio、excess_return、benchmark_return；不传默认 return/max_drawdown/sharpe_ratio。未注册的 metric_window 组合在结果中显示为 -。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "模式，compare 时走份额级并排对比；其它值或不传均按 screen 筛选排序处理。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_text",
+          "type": "string",
+          "required": false,
+          "description": "screen 模式关键词收窄，解析到基金主体后按其收窄结果集；为空则不收窄。compare 模式忽略。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "query_texts",
+          "type": "array",
+          "required": false,
+          "description": "compare 模式待对比的基金名称/份额名称/交易代码列表，compare 模式必填。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "return_fields",
+          "type": "array",
+          "required": false,
+          "description": "screen 模式输出列裁剪，可空；为空/含 all 返回默认全列。可选列键： fund_name/default_ticker_symbol/fund_type_level1/fund_type_level2/fund_company_name/ latest_net_asset/return_1y/max_drawdown_1y/sharpe_ratio_1y/as_of_date。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_by",
+          "type": "string",
+          "required": false,
+          "description": "排序字段，取值同 filters 的 field 白名单；不传默认 latest_net_asset。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "sort_order",
+          "type": "string",
+          "required": false,
+          "description": "排序方向；仅 asc 生效为升序，其它值或不传均按 desc。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "windows",
+          "type": "array",
+          "required": false,
+          "description": "compare 模式对比窗口，如 1d/1w/1m/3m/6m/ytd/1y/2y/3y/5y/since_inception；不传默认 1y。未注册的 metric_window 组合在结果中显示为 -。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "meeting_recording_list",
+      "description": "查询当前用户的代录信息列表，支持分页、开始/结束时间、代录状态/类型/来源、关键词等。返回代录ID、会议ID、会议标题、类型、来源、状态、会议时间、纪要链接等。",
+      "parameters": [
+        {
+          "name": "etime",
+          "type": "string",
+          "required": false,
+          "description": "会议结束时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "description": "关键词。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "description": "页码，默认 1。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "recordSource",
+          "type": "string",
+          "required": false,
+          "description": "来源，多个逗号分隔。0 单独会话 1 群聊 2 APP 3 BRM。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "recordStatus",
+          "type": "string",
+          "required": false,
+          "description": "代录状态，多个逗号分隔。1 待审核 2 进行中 3 已完成 4 录会失败。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "recordType",
+          "type": "string",
+          "required": false,
+          "description": "类型，多个逗号分隔。1 腾讯会议 2 进门路演 3 zoom 4 电话会议 -1 未知。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "description": "每页条数，默认 10。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stime",
+          "type": "string",
+          "required": false,
+          "description": "会议开始时间，格式 yyyy-MM-dd HH:mm:ss。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    },
+    {
+      "name": "get_company_events",
+      "description": "查询 A/B 股公司事件查询工具，用于根据股票代码、股票简称、事件归类、时间区间和关键词查询公司事件。它适合获取上市公司近期大事提醒、股票回购、资产收购、资产出售、股权激励、增发提示、股权转让、复牌提示等事件，帮助用户快速了解公司近期发生了什么。 【限制】仅覆盖 A/B 股，不含港股、美股、存托凭证；遇到非 A/B 股标的必须告知用户此工具无数据。 不用于查询股价行情、财务报表具体数值、研究报告，那些场景请用其他工具。",
+      "parameters": [
+        {
+          "name": "end_date",
+          "type": "string",
+          "required": false,
+          "description": "查询截止日期，格式 YYYY-MM-DD。可选, 为空可获取公司全部未来事件安排",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "event_categories",
+          "type": "array",
+          "required": false,
+          "description": "事件归类过滤。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "description": "关键词，同时对事件标题和事件正文做模糊匹配，不传时不过滤。 用于\"查找标题/内容含某词的事件\"场景，如 keyword=\"回购\"、keyword=\"定增\"。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "返回条数上限，整数，默认 20，最大 100。超出 100 时自动截断为 100。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "start_date",
+          "type": "string",
+          "required": false,
+          "description": "查询起始日期，格式 YYYY-MM-DD。 不传时默认为当前日期往前 30 天。 用户说\"最近一周\"→ 当前日期 - 7 天；\"本月\"→ 当月 1 日；\"今年\"→ 当年 1 月 1 日。",
+          "default": null,
+          "enum": []
+        },
+        {
+          "name": "stocks",
+          "type": "array",
+          "required": false,
+          "description": "标的查询条件，支持股票简称（如\"贵州茅台\"）、6位股票代码（如\"600519\"）、 带市场前缀代码（如\"sh600519\"、\"sz300750\"、\"bj430047\"），三种格式可混传，OR 逻辑。 不传时不过滤标的，建议搭配 event_categories 或 keyword 使用。",
+          "default": null,
+          "enum": []
+        }
+      ]
+    }
+  ]
+}
