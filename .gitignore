@@ -27,6 +27,7 @@ data/processed/*
 # 全量导出清单/样本日志/一次性分析产物：含真实 uid/session/msg_id，禁止入库。
 data/tmp_export/
 data/oss_jsonl/
+data/oss_salvage/
 *.zip
 
 # pytest 因系统临时目录权限问题改用仓库内 basetemp，属临时产物。
