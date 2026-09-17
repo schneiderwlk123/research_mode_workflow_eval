@@ -6,11 +6,13 @@
 
 1. 日期过滤:文件名时间戳经实勘为 UTC(与日志内事件 epoch 一致),用户报的
    日期按北京时间理解,换算成 UTC 窗口 [前一天 16:00Z, 当天 16:00Z)。
-2. query 过滤:归一化(去空白/标点/大小写)后做双向开头匹配——文件名里的
-   query 可能被截断,用户给的也可能只是开头片段;命中后同 msg_id 的 noquery
-   版本一并带出(异常诊断需要全量版本)。
+2. query 过滤:归一化(去空白/标点/大小写)后两级匹配——先双向开头匹配
+   (文件名 query 可能被截断,用户给的也可能只是开头片段),不中再单向包含
+   匹配(定时任务文件名带"【定时任务执行】任务名称:"统一前缀,用户报的
+   任务名在中间);命中后同 msg_id 的 noquery 版本一并带出(异常诊断需要
+   全量版本)。
 
-query 未命中时回退返回当天全部候选并标记 date_only,供人工肉眼挑选,
+两级均未命中时回退返回当天全部候选并标记 date_only,供人工肉眼挑选,
 避免"用户记忆措辞与实际 query 有出入"时直接空手而归。
 
 默认只打印候选清单不落盘;--download 才下载,已存在且非空的文件跳过
@@ -47,6 +49,8 @@ _TS_CORE_RE = re.compile(
 )
 # msg_id 形如 msg_<hex>,自身含一个下划线,query 文本里也可能有下划线
 _MSG_RE = re.compile(r"^(msg_[^_]+)_(.+)$", re.DOTALL)
+# 截断重叠匹配的最小重叠字数,见 matches_query_contains
+_MIN_OVERLAP = 4
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ class Candidate:
     ts_bj: str
     key: str
     is_noquery: bool
-    # matched_by 取值:query=命中关键词; sibling=同msg带出;
+    # matched_by 取值:query=开头命中; contains=包含命中; sibling=同msg带出;
     # date=按日期; date_only=query未命中回退
     matched_by: str
     status: str = "pending"  # pending/ok/skipped/error,仅 --download 时更新
@@ -129,6 +133,31 @@ def matches_query_head(filename_query: str, user_query: str) -> bool:
     return fn_norm.startswith(user_norm) or user_norm.startswith(fn_norm)
 
 
+def matches_query_contains(filename_query: str, user_query: str) -> bool:
+    """query 包含匹配(次级):归一化后"用户词 in 文件名"单向包含 + 截断重叠。
+
+    定时任务的文件名带统一前缀(如"【定时任务执行】任务名称:xxx"),用户
+    报的任务名在中间而非开头,开头匹配必然落空,用本层级兜住。只做单向
+    包含:文件名通常远短于用户可能的长描述,反向包含会让短文件名(如"好的")
+    命中任意长查询,产生大量误报。
+
+    截断重叠:线上文件名会按长度截断(实测"…昨日全量群消"少尾字),用户词
+    反而更长时包含匹配也落空;若文件名尾部与用户词开头重叠 >= 4 字
+    (_MIN_OVERLAP),视为同一问题的截断变体。4 字阈值用于压低巧合误报,
+    同时天然排除"好的"这类超短文件名(长度不足 4 不可能重叠达标)。
+    """
+    fn_norm = _normalize(filename_query)
+    user_norm = _normalize(user_query)
+    if not fn_norm or not user_norm:
+        return False
+    if user_norm in fn_norm:
+        return True
+    for k in range(min(len(fn_norm), len(user_norm)), _MIN_OVERLAP - 1, -1):
+        if fn_norm.endswith(user_norm[:k]):
+            return True
+    return False
+
+
 def list_all_keys(bucket: Any, prefix: str) -> list[str]:
     """分页列举 prefix 下全部对象 key(oss2 单页默认最多 100/1000 条)。"""
     keys: list[str] = []
@@ -179,22 +208,27 @@ def find_candidates(
     if not query:
         candidates = [to_candidate(p, k, "date") for p, k in on_date]
     else:
-        hits = [
-            (p, k)
-            for p, k in on_date
-            if not p.is_noquery and matches_query_head(p.query_text, query)
-        ]
-        if hits:
-            hit_msg_ids = {p.msg_id for p, _ in hits}
-            candidates = [to_candidate(p, k, "query") for p, k in hits]
+        # 两级匹配:开头命中优先标记 query,仅包含命中标记 contains
+        matched: list[tuple[LogFilename, str, str]] = []
+        for p, k in on_date:
+            if p.is_noquery:
+                continue
+            if matches_query_head(p.query_text, query):
+                matched.append((p, k, "query"))
+            elif matches_query_contains(p.query_text, query):
+                matched.append((p, k, "contains"))
+        if matched:
+            hit_msg_ids = {p.msg_id for p, _, _ in matched}
+            candidates = [to_candidate(p, k, mb) for p, k, mb in matched]
             # 同 msg_id 的 noquery/多时间戳版本一并带出,异常诊断要看全
+            matched_keys = {(p.msg_id, k) for p, k, _ in matched}
             candidates += [
                 to_candidate(p, k, "sibling")
                 for p, k in on_date
-                if p.msg_id in hit_msg_ids and (p, k) not in hits
+                if p.msg_id in hit_msg_ids and (p.msg_id, k) not in matched_keys
             ]
         else:
-            # query 未命中:回退当天全量,标记 date_only 供人工挑选
+            # 两级均未命中:回退当天全量,标记 date_only 供人工挑选
             candidates = [to_candidate(p, k, "date_only") for p, k in on_date]
     candidates.sort(key=lambda c: c.ts_utc)
     return candidates

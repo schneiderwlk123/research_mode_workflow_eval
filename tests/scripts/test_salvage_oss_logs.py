@@ -12,6 +12,7 @@ from scripts.salvage_oss_logs import (
     find_candidates,
     list_all_keys,
     matches_bj_date,
+    matches_query_contains,
     matches_query_head,
     parse_log_filename,
     salvage,
@@ -104,6 +105,38 @@ class TestMatchesQueryHead:
         assert matches_query_head("帮我分析定时执行的策略", "定时执行") is False
 
 
+class TestMatchesQueryContains:
+    def test_中间包含命中(self) -> None:
+        # 定时任务文件名带统一前缀,用户报的任务名在中间
+        assert matches_query_contains(
+            "【定时任务执行】 任务名称：昨日全量群消息汇总", "昨日全量群消息"
+        ) is True
+
+    def test_归一化标点空白(self) -> None:
+        assert matches_query_contains("任务名称:昨日全量群消息", "昨日 全量 群消息") is True
+
+    def test_不包含不命中(self) -> None:
+        assert (
+            matches_query_contains("【定时任务执行】 任务名称：五标的准实时", "昨日全量群消息")
+            is False
+        )
+
+    def test_反向不做包含防短文件名过度匹配(self) -> None:
+        # 只做"用户词 in 文件名"单向包含,避免短文件名命中任意长查询
+        assert matches_query_contains("好的", "好的,请帮我分析昨日全量群消息") is False
+
+    def test_文件名被截断时重叠匹配(self) -> None:
+        # 线上文件名按长度截断:"…昨日全量群消"少了"息"字,
+        # 文件名尾部与用户词开头重叠 >=4 字即命中
+        assert matches_query_contains(
+            "【定时任务执行】 任务名称：昨日全量群消", "昨日全量群消息"
+        ) is True
+
+    def test_重叠不足4字不命中(self) -> None:
+        # 仅 2 字重叠属巧合概率高,不放行
+        assert matches_query_contains("任务名称：五标的准实时", "实时行情分析") is False
+
+
 class TestListAllKeys:
     def test_跨页取全(self) -> None:
         keys = [
@@ -139,6 +172,32 @@ class TestFindCandidates:
     def test_不给query时按日期全量(self) -> None:
         cands = find_candidates(self.KEYS, ROOT, "u1", "2026-09-10", None)
         assert {c.msg_id for c in cands} == {"msg_1", "msg_2"}
+
+    def test_开头不中时包含匹配次级命中(self) -> None:
+        # 定时任务前缀导致"每日纪要"不在开头,应 contains 命中且只返回相关候选
+        keys = self.KEYS + [
+            make_key(
+                "u1", "ses_d",
+                "msg_4_【定时任务执行】 任务名称：每日纪要汇总_2026-09-10T01-30-00-000Z.jsonl",
+            ),
+        ]
+        cands = find_candidates(keys, ROOT, "u1", "2026-09-10", "每日纪要")
+        assert [(c.msg_id, c.matched_by) for c in cands] == [("msg_4", "contains")]
+
+    def test_开头匹配优先于包含匹配(self) -> None:
+        keys = self.KEYS + [
+            make_key("u1", "ses_d", "msg_5_前缀定时执行后缀_2026-09-10T01-30-00-000Z.jsonl"),
+        ]
+        cands = find_candidates(keys, ROOT, "u1", "2026-09-10", "定时执行")
+        matched = {(c.msg_id, c.matched_by) for c in cands}
+        assert ("msg_1", "query") in matched       # 开头命中
+        assert ("msg_5", "contains") in matched    # 仅包含命中
+        assert ("msg_1", "sibling") in matched     # noquery 版本带出
+        assert ("msg_2", "date_only") not in matched  # 无关候选不混入
+
+    def test_包含也未命中才回退全量(self) -> None:
+        cands = find_candidates(self.KEYS, ROOT, "u1", "2026-09-10", "完全不存在的词")
+        assert cands and all(c.matched_by == "date_only" for c in cands)
 
 
 class TestSalvage:
