@@ -18,9 +18,14 @@
 默认只打印候选清单不落盘;--download 才下载,已存在且非空的文件跳过
 (断点续传)。单 uid 列举失败隔离,不中断多 uid 批处理。
 
+环境:OSS 根前缀末段区分生产/测试(opencode_logs/prod | opencode_logs/test),
+--env prod(默认)/ test / both 指定打捞环境;both 时两个环境同时列举,
+候选清单带环境列,下载目录按 <env>/<uid>/<session>/ 分层。
+
 用法示例:
   python -m scripts.salvage_oss_logs --uid 3694996 --date 2026-09-10 --query "定时执行"
-  python -m scripts.salvage_oss_logs --uid 3694996 --date 2026-09-10 --query "定时执行" --download
+  python -m scripts.salvage_oss_logs --uid 3694996 --date 2026-09-10 --env test --download
+  python -m scripts.salvage_oss_logs --uid 3694996 --date 2026-09-10 --env both --download
 """
 from __future__ import annotations
 
@@ -51,6 +56,21 @@ _TS_CORE_RE = re.compile(
 _MSG_RE = re.compile(r"^(msg_[^_]+)_(.+)$", re.DOTALL)
 # 截断重叠匹配的最小重叠字数,见 matches_query_contains
 _MIN_OVERLAP = 4
+# OSS 根前缀末段的环境名:opencode_logs/prod(生产)与 opencode_logs/test(测试)
+_ENV_SEGMENTS = ("prod", "test")
+
+
+def env_root_prefix(root_prefix: str, env: str) -> str:
+    """从配置的根前缀派生指定环境的根前缀。
+
+    OSS 布局约定:根前缀末段即环境名(opencode_logs/prod | opencode_logs/test)。
+    末段是已知环境名则替换,否则视为无环境段直接追加,保证两种配置写法都可用。
+    """
+    base = root_prefix.strip().rstrip("/")
+    head, _, last = base.rpartition("/")
+    if last in _ENV_SEGMENTS:
+        base = head
+    return f"{base}/{env}" if base else env
 
 
 @dataclass(frozen=True)
@@ -78,6 +98,7 @@ class Candidate:
     # matched_by 取值:query=开头命中; contains=包含命中; sibling=同msg带出;
     # date=按日期; date_only=query未命中回退
     matched_by: str
+    env: str = ""  # prod/test;未指定环境(直接使用 root_prefix)时为空
     status: str = "pending"  # pending/ok/skipped/error,仅 --download 时更新
 
 
@@ -176,8 +197,12 @@ def find_candidates(
     uid: str,
     date_bj: str,
     query: str | None,
+    env: str = "",
 ) -> list[Candidate]:
-    """在已列举的 keys 上做日期 + query 两级过滤,返回候选(按北京时间排序)。"""
+    """在已列举的 keys 上做日期 + query 过滤,返回候选(按北京时间排序)。
+
+    root_prefix 为该环境的根前缀(见 env_root_prefix);env 只用于候选标注。
+    """
     prefix = f"{root_prefix.rstrip('/')}/{uid}/"
     on_date: list[tuple[LogFilename, str]] = []
     for key in keys:
@@ -203,6 +228,7 @@ def find_candidates(
             key=key,
             is_noquery=parsed.is_noquery,
             matched_by=matched_by,
+            env=env,
         )
 
     if not query:
@@ -242,17 +268,29 @@ def salvage(
     query: str | None,
     output_dir: Path,
     download: bool = False,
+    envs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """打捞主流程:列举 → 过滤 → (可选)下载 + manifest。单 uid 失败隔离。"""
+    """打捞主流程:列举 → 过滤 → (可选)下载 + manifest。单环境单 uid 失败隔离。
+
+    envs 为环境列表(["prod"]/["test"]/["prod","test"]);缺省 None 表示
+    直接使用 root_prefix 原样(候选 env 标空),兼容不带环境段的配置。
+    """
     all_candidates: list[Candidate] = []
     errors: list[dict[str, str]] = []
-    for uid in uids:
-        try:
-            keys = list_all_keys(bucket, f"{root_prefix.rstrip('/')}/{uid}/")
-        except Exception as exc:  # noqa: BLE001 - 单 uid 失败隔离,不中断批处理
-            errors.append({"uid": uid, "error": f"{type(exc).__name__}: {exc}"})
-            continue
-        all_candidates += find_candidates(keys, root_prefix, uid, date_bj, query)
+    env_list: list[str | None] = list(envs) if envs else [None]
+    for env in env_list:
+        env_root = env_root_prefix(root_prefix, env) if env else root_prefix
+        for uid in uids:
+            try:
+                keys = list_all_keys(bucket, f"{env_root.rstrip('/')}/{uid}/")
+            except Exception as exc:  # noqa: BLE001 - 单 uid 失败隔离,不中断批处理
+                errors.append(
+                    {"uid": uid, "env": env or "", "error": f"{type(exc).__name__}: {exc}"}
+                )
+                continue
+            all_candidates += find_candidates(
+                keys, env_root, uid, date_bj, query, env=env or ""
+            )
 
     summary = {
         "uids": len(uids),
@@ -265,7 +303,9 @@ def salvage(
     if download and all_candidates:
         output_dir.mkdir(parents=True, exist_ok=True)
         for cand in all_candidates:
-            local = output_dir / cand.uid / cand.session_id / PurePosixPath(cand.key).name
+            # 指定环境时按 <env>/<uid>/<session>/ 分层,避免 prod/test 同名混淆
+            base = output_dir / cand.env if cand.env else output_dir
+            local = base / cand.uid / cand.session_id / PurePosixPath(cand.key).name
             try:
                 # 断点续传:已存在且非空即跳过,重复运行只补未完成的
                 if local.is_file() and local.stat().st_size > 0:
@@ -284,6 +324,7 @@ def salvage(
                 )
         manifest = {
             "root_prefix": root_prefix,
+            "envs": envs or [],
             "date_bj": date_bj,
             "query": query,
             "summary": summary,
@@ -302,12 +343,13 @@ def _print_candidates(candidates: list[Candidate]) -> None:
     if not candidates:
         print("当天无匹配日志。请确认:日期是否为北京时间口径、uid 是否正确、该用户当天是否活跃。")
         return
-    print(f"{'北京时间':<20} {'session':<34} {'msg_id':<38} {'匹配':<10} 问题开头")
+    print(f"{'环境':<6} {'北京时间':<20} {'session':<34} {'msg_id':<38} {'匹配':<16} 问题开头")
     for c in candidates:
         version = "noquery" if c.is_noquery else "query"
         head = c.query_text[:30].replace("\n", " ")
         tag = f"{c.matched_by}/{version}"
-        print(f"{c.ts_bj:<20} {c.session_id:<34} {c.msg_id:<38} {tag:<16} {head}")
+        env = c.env or "-"
+        print(f"{env:<6} {c.ts_bj:<20} {c.session_id:<34} {c.msg_id:<38} {tag:<16} {head}")
 
 
 def main() -> None:
@@ -316,6 +358,12 @@ def main() -> None:
     parser.add_argument("--uid", action="append", required=True, help="用户 uid,可重复传多个")
     parser.add_argument("--date", required=True, help="北京时间日期 YYYY-MM-DD")
     parser.add_argument("--query", default=None, help="问题开头文本(可选;缺省列当天全部)")
+    parser.add_argument(
+        "--env",
+        choices=["prod", "test", "both"],
+        default="prod",
+        help="日志环境:prod 生产(默认)/ test 测试 / both 两个环境同时打捞",
+    )
     parser.add_argument("--download", action="store_true", help="实际下载(缺省只打印候选清单)")
     parser.add_argument(
         "--endpoint",
@@ -346,8 +394,10 @@ def main() -> None:
         )
 
     bucket = make_oss_bucket(args.endpoint, args.bucket)
+    envs = ["prod", "test"] if args.env == "both" else [args.env]
     result = salvage(
-        bucket, args.root_prefix, args.uid, args.date, args.query, args.output, args.download
+        bucket, args.root_prefix, args.uid, args.date, args.query, args.output,
+        args.download, envs=envs,
     )
     _print_candidates(result["candidates"])
     for err in result["errors"]:

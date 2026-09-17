@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.salvage_oss_logs import (
+    env_root_prefix,
     find_candidates,
     list_all_keys,
     matches_bj_date,
@@ -198,6 +199,56 @@ class TestFindCandidates:
     def test_包含也未命中才回退全量(self) -> None:
         cands = find_candidates(self.KEYS, ROOT, "u1", "2026-09-10", "完全不存在的词")
         assert cands and all(c.matched_by == "date_only" for c in cands)
+
+
+class TestEnvRootPrefix:
+    def test_prod替换为test(self) -> None:
+        assert env_root_prefix("opencode_logs/prod", "test") == "opencode_logs/test"
+
+    def test_test替换为prod(self) -> None:
+        assert env_root_prefix("opencode_logs/test", "prod") == "opencode_logs/prod"
+
+    def test_尾斜杠与同环境幂等(self) -> None:
+        assert env_root_prefix("opencode_logs/prod/", "prod") == "opencode_logs/prod"
+
+    def test_末段不是环境名时直接追加(self) -> None:
+        assert env_root_prefix("opencode_logs", "test") == "opencode_logs/test"
+
+
+class TestSalvageDualEnv:
+    KEYS = [
+        f"{ROOT}/u1/ses_p/msg_1_定时执行_2026-09-10T14-00-20-017Z.jsonl",
+        "opencode_logs/test/u1/ses_t/msg_2_定时执行_2026-09-10T14-00-20-017Z.jsonl",
+    ]
+
+    def test_both同时打捞两个环境并标注来源(self, tmp_path: Path) -> None:
+        bucket = FakeBucket(self.KEYS)
+        result = salvage(
+            bucket, ROOT, ["u1"], "2026-09-10", "定时执行", tmp_path,
+            download=True, envs=["prod", "test"],
+        )
+        envs = {c.env for c in result["candidates"]}
+        assert envs == {"prod", "test"}
+        assert result["summary"]["downloaded"] == 2
+        # 下载目录按环境分层
+        assert (tmp_path / "prod" / "u1" / "ses_p").is_dir()
+        assert (tmp_path / "test" / "u1" / "ses_t").is_dir()
+
+    def test_单环境只捞对应前缀(self, tmp_path: Path) -> None:
+        bucket = FakeBucket(self.KEYS)
+        result = salvage(
+            bucket, ROOT, ["u1"], "2026-09-10", None, tmp_path,
+            download=False, envs=["test"],
+        )
+        assert [c.env for c in result["candidates"]] == ["test"]
+        assert all("opencode_logs/test/" in c.key for c in result["candidates"])
+
+    def test_不传envs保持原root_prefix行为(self, tmp_path: Path) -> None:
+        bucket = FakeBucket(self.KEYS[:1])
+        result = salvage(
+            bucket, ROOT, ["u1"], "2026-09-10", None, tmp_path, download=False
+        )
+        assert result["candidates"][0].env == ""
 
 
 class TestSalvage:
