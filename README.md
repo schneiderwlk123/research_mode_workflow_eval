@@ -16,7 +16,7 @@ docs/arch/               架构设计
 docs/specs/              评测规范和指标定义
 src/collectors/          数据采集与格式适配（待实现）
 src/evaluators/          评测器公共契约与逐指标实现
-src/reporters/           报告生成（待实现）
+src/reporters/           指标宽表汇总与报告生成
 src/storage/             存储访问（待实现）
 tests/                   与 src 结构对应的行为测试
 artifacts/               本地运行产物（不提交）
@@ -44,6 +44,28 @@ reports/                 本地评测报告（不提交）
 
 # 类型检查
 .\.venv\Scripts\mypy.exe src tests
+
+# 把聊天与研究日志汇总为一行一个 Trace 的指标宽表
+.\.venv\Scripts\python.exe -m scripts.summarize_metric_table `
+  --chat-log data/raw/<chat-log>.json `
+  --research-log data/raw/<research-log>.json `
+  --output data/processed/metric_table.csv
 ```
 
-评测流水线入口尚未实现，因此当前没有运行命令。首个可运行管线切片会同时加入入口和对应命令，避免提供没有实际行为的占位 CLI。
+宽表当前注册 `tool_calls_count`、`per_tool_repeat_call_count`、`per_tool_call_tokens`、
+`total_token_consumption`、`max_tool_token_share`、`output_token_ratio`、
+`cache_input_token_ratio`、`per_tool_call_latency_ms`、`end_to_end_latency_ms`、
+`max_tool_latency_share` 和 `mcp_tool_call_inflation_rate`。膨胀率列依赖仓库根
+`mcp_tool_manual.json` 构建的能力目录（可用 `--mcp-manual` 覆盖，手册缺失或非法时直接
+报错），以 `[0,1)` 区间内的比率数值写入，零膨胀输出 `0`；手册外工具调用与异步任务
+轮询调用（入参恰为 `taskId` 单键）不进入分子和分母。后续
+指标实现后，只需增加一个 `MetricColumn` 注册项；CSV 中
+固定输出 `user_id`、`session_id`、`log_id`、`mode` 标识列，每个指标只占一个值列，诊断统计
+不会混入指标字段。逐工具重复次数和逐工具 Token 均以紧凑 JSON 数组写入各自的单个 CSV
+单元格；最大工具 Token 与最大工具时延占比均以包含 `tool_name` 和比率的紧凑 JSON 数组写入
+单个单元格；输出
+Token 比率直接写入数值。逐工具 Token 或时延缺失时保留 `null`，安全原因、状态、覆盖计数和
+evaluator 版本仅进入表外诊断。`log_id` 在聊天模式
+读取 `canvas.meta.traceId`，在研究模式读取用户级
+`userMessageID`（兼容 `body.messageID`）；不会使用研究模型步骤的 `part.messageID`。完整评测
+流水线入口仍待后续实现。

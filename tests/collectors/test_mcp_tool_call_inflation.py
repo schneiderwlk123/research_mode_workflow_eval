@@ -16,6 +16,11 @@ def _catalog() -> CapabilityCatalog:
             "tools": [
                 {"name": "quote", "description": "行情", "parameters": []},
                 {"name": "news", "description": "新闻", "parameters": []},
+                {
+                    "name": "stock_analyze_result",
+                    "description": "异步任务轮询",
+                    "parameters": [],
+                },
             ],
         }
     )
@@ -74,6 +79,8 @@ def test_chat_counts_same_mcp_and_canonical_arguments_after_first_call_as_inflat
             "malformed_event_count": 0,
             "out_of_scope_tool_call_count": 1,
             "duplicate_call_observation_count": 0,
+            "polling_call_count": 0,
+            "empty_argument_call_count": 0,
         },
         "normalization_error": None,
     }
@@ -150,6 +157,74 @@ def test_chat_rejects_unserializable_arguments() -> None:
     assert normalized["normalization_error"] == "unserializable_call_arguments"
 
 
+def test_chat_polling_calls_are_excluded_from_numerator_and_denominator() -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(
+        _chat_trace(
+            _chat_message(
+                _chat_call("call-1", "stock_analyze_result", {"taskId": "task-1"}),
+                _chat_call("call-2", "stock_analyze_result", {"taskId": "task-1"}),
+                _chat_call("call-3", "quote", {"symbol": "AAA"}),
+                _chat_call("call-4", "quote", {"symbol": "AAA"}),
+            )
+        ),
+        _catalog(),
+    )
+
+    assert normalized["mcp_call_count"] == 2
+    assert normalized["unique_request_signature_count"] == 1
+    assert normalized["inflated_call_count"] == 1
+    assert normalized["diagnostics"]["polling_call_count"] == 2
+    assert normalized["normalization_error"] is None
+
+
+def test_chat_only_polling_calls_leave_zero_denominator() -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(
+        _chat_trace(
+            _chat_message(
+                _chat_call("call-1", "stock_analyze_result", {"taskId": "task-1"}),
+                _chat_call("call-2", "stock_analyze_result", {"taskId": "task-1"}),
+            )
+        ),
+        _catalog(),
+    )
+
+    assert normalized["mcp_call_count"] == 0
+    assert normalized["inflated_call_count"] == 0
+    assert normalized["diagnostics"]["polling_call_count"] == 2
+    assert normalized["normalization_error"] is None
+
+
+def test_chat_empty_argument_calls_are_counted() -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(
+        _chat_trace(
+            _chat_message(
+                _chat_call("call-1", "quote", {}),
+                _chat_call("call-2", "quote", {}),
+            )
+        ),
+        _catalog(),
+    )
+
+    assert normalized["inflated_call_count"] == 1
+    assert normalized["diagnostics"]["empty_argument_call_count"] == 2
+
+
+def test_chat_polling_rule_is_conservative_on_extra_arguments() -> None:
+    normalized = normalize_chat_mcp_tool_call_inflation(
+        _chat_trace(
+            _chat_message(
+                _chat_call("call-1", "quote", {"taskId": "task-1", "symbol": "AAA"}),
+                _chat_call("call-2", "quote", {"taskId": "task-1", "symbol": "AAA"}),
+            )
+        ),
+        _catalog(),
+    )
+
+    assert normalized["mcp_call_count"] == 2
+    assert normalized["inflated_call_count"] == 1
+    assert normalized["diagnostics"]["polling_call_count"] == 0
+
+
 @pytest.mark.parametrize(
     ("trace", "reason"),
     [
@@ -215,6 +290,41 @@ def test_research_mcp_lifecycle_without_arguments_is_not_computable() -> None:
     )
 
     assert normalized["normalization_error"] == "missing_call_arguments"
+
+
+def test_research_polling_calls_are_excluded_and_exempt_from_argument_requirement() -> None:
+    events = [
+        _research_requests(("call-1", "stock_analyze_result", {"taskId": "task-1"})),
+        _research_state("call-1", "stock_analyze_result", "pending"),
+        _research_state("call-1", "stock_analyze_result", "completed"),
+        # 仅有生命周期入参定义的轮询调用同样按入参形态识别并排除,不触发 missing_call_arguments。
+        {
+            "type": "message.part.updated",
+            "part": {
+                "type": "tool",
+                "callID": "call-2",
+                "tool": "stock_analyze_result",
+                "state": {"status": "completed", "input": {"taskId": "task-1"}},
+            },
+        },
+    ]
+
+    normalized = normalize_research_mcp_tool_call_inflation(events, _catalog())
+
+    assert normalized["mcp_call_count"] == 0
+    assert normalized["unique_request_signature_count"] == 0
+    assert normalized["inflated_call_count"] == 0
+    assert normalized["diagnostics"]["polling_call_count"] == 2
+    assert normalized["normalization_error"] is None
+
+
+def test_research_empty_argument_calls_are_counted() -> None:
+    normalized = normalize_research_mcp_tool_call_inflation(
+        [_research_requests(("call-1", "quote", {}), ("call-2", "quote", {}))], _catalog()
+    )
+
+    assert normalized["inflated_call_count"] == 1
+    assert normalized["diagnostics"]["empty_argument_call_count"] == 2
 
 
 def test_research_request_definition_replaces_pending_placeholder_input() -> None:

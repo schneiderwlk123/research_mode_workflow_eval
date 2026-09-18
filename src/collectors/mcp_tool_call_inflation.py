@@ -1,4 +1,14 @@
-"""规范化 MCP 工具调用膨胀率所需的调用计数，不保留原始入参。"""
+"""规范化 MCP 工具调用膨胀率所需的调用计数，不保留原始入参。
+
+轮询排除规则（2026-09-18 复核修订）：异步任务的 result 类工具（submit 后按同一 taskId
+反复查询进度，如 stock_analyze_result / backtest_tasks_status / tencent_vod_query_image_task）
+必须以完全相同的 taskId 入参轮询，属于工具协议要求的合法同参调用；若按签名重复计数，
+单条 Trace 的轮询链会把膨胀率整体拉高（实测一条聊天 Trace 的 10 次轮询贡献 9 次"膨胀"）。
+轮询调用不进入分子和分母，进入 polling_call_count 诊断；仅轮询调用而无其他 MCP 时，
+分母为空并返回 NOT_COMPUTABLE / no_registered_mcp_calls。排除按"规范化入参顶层键集合
+恰为 taskId 单键"判定，不绑定具体能力名，未来新增 submit/result 配对工具自动覆盖；
+键集合扩大或规则变化时按仓库规则升版 evaluator。
+"""
 
 import hashlib
 import json
@@ -7,6 +17,10 @@ from typing import TypedDict, TypeGuard
 
 from collectors.routing import CapabilityCatalog
 
+# 异步任务 result 类工具的规范化入参键集合：入参完全由这些键组成时视为轮询调用。
+# 判定是保守的白名单交集规则——键不齐或夹带业务参数都不算轮询，避免把普通调用误排除。
+_POLLING_ARGUMENT_KEYS: frozenset[str] = frozenset({"taskId"})
+
 
 class McpToolCallInflationDiagnostics(TypedDict):
     """不包含工具入参或响应正文的调用膨胀诊断。"""
@@ -14,6 +28,8 @@ class McpToolCallInflationDiagnostics(TypedDict):
     malformed_event_count: int
     out_of_scope_tool_call_count: int
     duplicate_call_observation_count: int
+    polling_call_count: int
+    empty_argument_call_count: int
 
 
 class NormalizedMcpToolCallInflationTrace(TypedDict):
@@ -27,6 +43,20 @@ class NormalizedMcpToolCallInflationTrace(TypedDict):
     inflated_call_count: int
     diagnostics: McpToolCallInflationDiagnostics
     normalization_error: str | None
+
+
+def _is_polling_call(arguments: object) -> bool:
+    """按规范化入参形态判定是否为异步任务轮询调用。
+
+    仅当顶层键集合恰为 taskId 单键时视为轮询：键更多说明携带业务参数，
+    键更少或为空说明不是 result 查询，均按普通调用参与签名统计。
+    与请求签名使用同一套规范化，字符串形态的 JSON 对象同样被识别。
+    """
+
+    canonical = _canonicalize(arguments)
+    return isinstance(canonical, Mapping) and set(map(str, canonical)) == set(
+        _POLLING_ARGUMENT_KEYS
+    )
 
 
 def normalize_chat_mcp_tool_call_inflation(
@@ -79,6 +109,8 @@ def normalize_chat_mcp_tool_call_inflation(
     out_of_scope_call_ids: set[str] = set()
     malformed_event_count = 0
     duplicate_call_observation_count = 0
+    polling_call_count = 0
+    empty_argument_call_count = 0
     normalization_error: str | None = None
 
     def record_error(reason: str) -> None:
@@ -153,8 +185,13 @@ def normalize_chat_mcp_tool_call_inflation(
 
                 if capability_id is None:
                     out_of_scope_call_ids.add(call_id)
+                elif _is_polling_call(raw_call["arguments"]):
+                    # 异步轮询调用不计入分子与分母，只进入诊断计数。
+                    polling_call_count += 1
                 else:
                     calls[call_id] = signature
+                    if _is_empty_arguments(raw_call["arguments"]):
+                        empty_argument_call_count += 1
 
     return _result(
         trace_id=trace_id,
@@ -164,6 +201,8 @@ def normalize_chat_mcp_tool_call_inflation(
         malformed_event_count=malformed_event_count,
         out_of_scope_tool_call_count=len(out_of_scope_call_ids),
         duplicate_call_observation_count=duplicate_call_observation_count,
+        polling_call_count=polling_call_count,
+        empty_argument_call_count=empty_argument_call_count,
         normalization_error=normalization_error,
     )
 
@@ -182,8 +221,10 @@ def normalize_research_mcp_tool_call_inflation(
     capabilities_by_call_id: dict[str, str] = {}
     observed_mcp_call_ids: set[str] = set()
     out_of_scope_call_keys: set[str] = set()
+    polling_call_keys: set[str] = set()
     malformed_event_count = 0
     duplicate_call_observation_count = 0
+    empty_argument_call_count = 0
     normalization_error: str | None = None
     resolved_session_id = session_id
     resolved_user_message_id = user_message_id
@@ -197,6 +238,7 @@ def normalize_research_mcp_tool_call_inflation(
         definition_priority: int,
     ) -> None:
         nonlocal duplicate_call_observation_count, normalization_error
+        nonlocal empty_argument_call_count
         call_id = _optional_identifier(call_id_value)
         if call_id is None:
             normalization_error = normalization_error or "missing_call_id"
@@ -222,6 +264,10 @@ def normalize_research_mcp_tool_call_inflation(
         observed_mcp_call_ids.add(call_id)
         if not arguments_present:
             return
+        if _is_polling_call(arguments):
+            # 异步轮询调用不计入分子与分母；按 callID 去重后只进入诊断计数。
+            polling_call_keys.add(call_id)
+            return
 
         signature = _request_signature(capability_id, arguments)
         if signature is None:
@@ -231,6 +277,8 @@ def normalize_research_mcp_tool_call_inflation(
         if existing_signature is None:
             calls[call_id] = signature
             definition_priorities[call_id] = definition_priority
+            if _is_empty_arguments(arguments):
+                empty_argument_call_count += 1
         elif definition_priority > definition_priorities[call_id]:
             # 生命周期的 pending 输入可能只是空占位；模型请求定义具有更高可信度。
             calls[call_id] = signature
@@ -295,7 +343,8 @@ def normalize_research_mcp_tool_call_inflation(
             definition_priority=1,
         )
 
-    if observed_mcp_call_ids - calls.keys():
+    if (observed_mcp_call_ids - calls.keys()) - polling_call_keys:
+        # 轮询调用按协议行为豁免入参完备性要求；其余手册内调用必须有可用入参定义。
         normalization_error = normalization_error or "missing_call_arguments"
 
     return _result(
@@ -306,6 +355,8 @@ def normalize_research_mcp_tool_call_inflation(
         malformed_event_count=malformed_event_count,
         out_of_scope_tool_call_count=len(out_of_scope_call_keys),
         duplicate_call_observation_count=duplicate_call_observation_count,
+        polling_call_count=len(polling_call_keys),
+        empty_argument_call_count=empty_argument_call_count,
         normalization_error=normalization_error,
     )
 
@@ -341,6 +392,16 @@ def _canonicalize(value: object) -> object:
     return value
 
 
+def _is_empty_arguments(arguments: object) -> bool:
+    """判断规范化后的入参是否为空对象。
+
+    空入参签名不携带任何判别信息（无参工具的同参重复仅由"重复"本身构成），
+    其膨胀判定解读需结合 empty_argument_call_count 诊断。
+    """
+
+    return _canonicalize(arguments) == {}
+
+
 def _result(
     *,
     trace_id: str | None,
@@ -350,6 +411,8 @@ def _result(
     malformed_event_count: int = 0,
     out_of_scope_tool_call_count: int = 0,
     duplicate_call_observation_count: int = 0,
+    polling_call_count: int = 0,
+    empty_argument_call_count: int = 0,
     normalization_error: str | None,
 ) -> NormalizedMcpToolCallInflationTrace:
     signatures = tuple((calls or {}).values())
@@ -366,6 +429,8 @@ def _result(
             "malformed_event_count": malformed_event_count,
             "out_of_scope_tool_call_count": out_of_scope_tool_call_count,
             "duplicate_call_observation_count": duplicate_call_observation_count,
+            "polling_call_count": polling_call_count,
+            "empty_argument_call_count": empty_argument_call_count,
         },
         "normalization_error": normalization_error,
     }

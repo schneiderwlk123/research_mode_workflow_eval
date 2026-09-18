@@ -1,4 +1,9 @@
-"""MCP 工具调用膨胀率的确定性评估器。"""
+"""MCP 工具调用膨胀率的确定性评估器。
+
+版本 1.2.0（2026-09-18 复核修订）：异步任务轮询调用（入参恰为 taskId 单键）不进入
+分子与分母，进入 polling_call_count 诊断；新增 empty_argument_call_count 空入参诊断。
+仅存在轮询调用而无其他手册内 MCP 时，返回 NOT_COMPUTABLE / no_non_polling_mcp_calls。
+"""
 
 from collections.abc import Mapping
 
@@ -6,7 +11,7 @@ from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 
 
 class McpToolCallInflationEvaluator(BaseEvaluator):
-    """计算同一任务内相同 MCP 与相同入参的后续调用占比。"""
+    """计算同一任务内相同 MCP 与相同入参的后续调用占比（轮询调用已排除）。"""
 
     @property
     def metric_name(self) -> str:
@@ -14,7 +19,7 @@ class McpToolCallInflationEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.1.0"
+        return "1.2.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         """使用规范化阶段产生的安全聚合计数计算指标。"""
@@ -47,6 +52,8 @@ class McpToolCallInflationEvaluator(BaseEvaluator):
             "malformed_event_count": diagnostics["malformed_event_count"],
             "out_of_scope_tool_call_count": diagnostics["out_of_scope_tool_call_count"],
             "duplicate_call_observation_count": diagnostics["duplicate_call_observation_count"],
+            "polling_call_count": diagnostics["polling_call_count"],
+            "empty_argument_call_count": diagnostics["empty_argument_call_count"],
         }
         if mode not in {"chat", "research"}:
             metadata["reason"] = "unsupported_trace_mode"
@@ -63,7 +70,12 @@ class McpToolCallInflationEvaluator(BaseEvaluator):
                 metadata=metadata,
             )
         if call_count == 0:
-            metadata["reason"] = "no_registered_mcp_calls"
+            # 轮询调用已按协议行为排除；仅剩轮询时说明本 Trace 没有可评价的普通 MCP 调用。
+            metadata["reason"] = (
+                "no_non_polling_mcp_calls"
+                if diagnostics["polling_call_count"] > 0
+                else "no_registered_mcp_calls"
+            )
             return self._result(
                 value=None,
                 status=EvaluationStatus.NOT_COMPUTABLE,
@@ -135,7 +147,15 @@ def _parse_trace(
     duplicate_observation_count = _non_negative_int(
         diagnostics_value.get("duplicate_call_observation_count")
     )
-    if malformed_count is None or out_of_scope_count is None or duplicate_observation_count is None:
+    polling_count = _non_negative_int(diagnostics_value.get("polling_call_count"))
+    empty_argument_count = _non_negative_int(diagnostics_value.get("empty_argument_call_count"))
+    if (
+        malformed_count is None
+        or out_of_scope_count is None
+        or duplicate_observation_count is None
+        or polling_count is None
+        or empty_argument_count is None
+    ):
         return None
 
     return (
@@ -149,6 +169,8 @@ def _parse_trace(
             "malformed_event_count": malformed_count,
             "out_of_scope_tool_call_count": out_of_scope_count,
             "duplicate_call_observation_count": duplicate_observation_count,
+            "polling_call_count": polling_count,
+            "empty_argument_call_count": empty_argument_count,
         },
         _non_empty_string(normalization_error),
     )

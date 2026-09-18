@@ -13,6 +13,8 @@ def _trace(
     inflated: object,
     mode: str = "chat",
     normalization_error: str | None = None,
+    polling: object = 0,
+    empty_arguments: object = 0,
 ) -> dict[str, object]:
     return {
         "trace_id": "trace-001",
@@ -25,6 +27,8 @@ def _trace(
             "malformed_event_count": 0,
             "out_of_scope_tool_call_count": 2,
             "duplicate_call_observation_count": 1,
+            "polling_call_count": polling,
+            "empty_argument_call_count": empty_arguments,
         },
         "normalization_error": normalization_error,
     }
@@ -37,7 +41,7 @@ def test_evaluator_calculates_inflated_mcp_calls_over_all_mcp_calls() -> None:
     result = McpToolCallInflationEvaluator().evaluate(trace)
 
     assert result.metric_name == "mcp_tool_call_inflation_rate"
-    assert result.evaluator_version == "1.1.0"
+    assert result.evaluator_version == "1.2.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == pytest.approx(0.25)
     assert result.metadata == {
@@ -50,6 +54,8 @@ def test_evaluator_calculates_inflated_mcp_calls_over_all_mcp_calls() -> None:
         "malformed_event_count": 0,
         "out_of_scope_tool_call_count": 2,
         "duplicate_call_observation_count": 1,
+        "polling_call_count": 0,
+        "empty_argument_call_count": 0,
     }
     assert trace == original
 
@@ -69,6 +75,17 @@ def test_no_registered_mcp_calls_is_not_computable() -> None:
     assert result.status is EvaluationStatus.NOT_COMPUTABLE
     assert result.value is None
     assert result.metadata["reason"] == "no_registered_mcp_calls"
+
+
+def test_only_polling_calls_report_non_polling_reason() -> None:
+    result = McpToolCallInflationEvaluator().evaluate(
+        _trace(calls=0, signatures=0, inflated=0, polling=3)
+    )
+
+    assert result.status is EvaluationStatus.NOT_COMPUTABLE
+    assert result.value is None
+    assert result.metadata["reason"] == "no_non_polling_mcp_calls"
+    assert result.metadata["polling_call_count"] == 3
 
 
 def test_normalization_failure_is_not_computable() -> None:
@@ -94,6 +111,8 @@ def test_normalization_failure_is_not_computable() -> None:
         _trace(calls=2, signatures=1, inflated=0),
         _trace(calls=2, signatures=1, inflated=2),
         _trace(calls=1, signatures=1, inflated=0, mode="unsupported"),
+        _trace(calls=1, signatures=1, inflated=0, polling=-1),
+        _trace(calls=1, signatures=1, inflated=0, empty_arguments="2"),
     ],
 )
 def test_invalid_normalized_trace_is_isolated_as_error(trace: dict[str, object]) -> None:

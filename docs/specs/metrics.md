@@ -1,7 +1,8 @@
 # 指标定义与字段映射
 
-本文集中记录所有评测指标的定义和原始日志字段映射。后续指标按
-`docs/specs/metric-development-order.md` 的顺序追加，不再为单个指标创建独立规格文件。
+本文集中记录所有已确认并实现的评测指标定义和原始日志字段映射。当前批次候选指标以
+`docs/specs/metrics_initial.md` 为初始口径，并按 `docs/specs/metric-development-order.md` 的顺序
+逐项确认后追加到本文，不再为单个指标创建独立规格文件。
 
 ### 新版聊天模式统一口径与重算范围
 
@@ -869,17 +870,27 @@ automatic_assessment_coverage =
   (supported_claim_count + unsupported_claim_count) ÷ verifiable_claim_count
 ```
 
-- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。默认实现不调用外部
-  模型或网络，evaluator 版本为 `3.0.0`，规则版本为 `rules-1.0.0`。
-- 确定性规则覆盖：标点/Markdown 分句、建议与免责声明排除、NFKC 规范化、字符 bigram
+- 最终回答不含可验证陈述时返回 `NOT_COMPUTABLE / no_verifiable_claims`。默认实现不调用
+  生成式 LLM 或远程推理接口，evaluator 版本为 `4.0.0`，Embedding 规则版本为
+  `embedding-rules-1.0.0`。本地模型或依赖不可用时返回
+  `NOT_COMPUTABLE / embedding_model_unavailable`，不得静默切换判定版本。
+- 基础确定性规则覆盖：标点/Markdown 分句、建议与免责声明排除、NFKC 规范化、字符 bigram
   相似度、指标别名、年份、金额/百分比单位归一化、否定或数值冲突，以及同比的白名单
   简单推导。复杂因果、弱相关概括和规则无法可靠确认的语义返回 `not_assessable`。
 
-### 确定性判定契约
+### Embedding 召回与确定性判定契约
 
-程序按回答顺序分配稳定 `claim_id`，并把每条陈述与全部证据单元横向比对。数值事实要求
-时间、指标和归一化数值同时满足；文本事实要求强包含或高字符 bigram 重合；只有白名单公式
-可以跨证据推导。任何阶段均不调用 LLM、embedding 服务或外部知识库。
+程序按回答顺序分配稳定 `claim_id`。先执行高精度规则，再用本地开源 Embedding 为未命中的
+陈述召回 Top-K 证据单元。Embedding 只决定候选范围，不能单独决定 `supported`：数值事实仍
+要求时间、指标和归一化数值同时满足，文本事实还要通过实体、否定和增长/下降方向检查；只有
+白名单公式可以跨证据推导。高相似且结构规则通过才判 `supported`，明确冲突判
+`unsupported`，低阈值与高阈值之间的灰区判 `not_assessable`。
+
+默认模型为 `BAAI/bge-small-zh-v1.5`，默认阈值为 `low=0.45`、`high=0.82`、`top_k=5`。
+模型名称、revision、阈值和 Top-K 全部进入 `judge_version`。生产环境必须把
+`STATEMENT_SUPPORT_EMBEDDING_REVISION` 配置为不可变 commit；默认只读取本地缓存，只有显式
+设置 `STATEMENT_SUPPORT_EMBEDDING_LOCAL_ONLY=0` 才允许下载。向量缓存仅存在于进程内，键由
+模型名、revision、用途和正文 SHA-256 组成，不进入评测结果或持久化存储。
 
 ```json
 {
@@ -892,7 +903,12 @@ automatic_assessment_coverage =
       "supporting_unit_ids": ["call-1:0"],
       "confidence": 0.96
     }
-  ]
+  ],
+  "diagnostics": {
+    "embedding_candidate_count": 5,
+    "embedding_rule_rejected_count": 1,
+    "embedding_conflict_count": 0
+  }
 }
 ```
 
@@ -903,6 +919,7 @@ automatic_assessment_coverage =
 - `supporting_unit_ids` 不得重复或引用请求外 ID。`supported` 必须非空，其他 verdict 必须为空。
 - `confidence` 必须是 `[0, 1]` 内有限数值；`reason_code` 必须来自按 verdict 划分的固定安全
   白名单。评测结果只持久化各类计数、版本和安全原因码。
+- 可选 `diagnostics` 只允许非负整数的候选数、规则拒绝数和冲突数，不得记录正文、摘要或向量。
 
 ### 分模式可计算性与字段映射
 
@@ -913,6 +930,7 @@ automatic_assessment_coverage =
 - 固定“模型服务暂时不可用，请稍后重试”回答返回 `pre_answer_failure`；缺少最终回答返回
   `missing_final_answer`。
 - 证据复用显式 `EvidenceSourceCatalog` 和共享结构化证据单元抽取。
+- 运行节点必须预装 `sentence-transformers` 和指定 revision 的本地模型缓存。
 - 没有证据调用、明确失败或明确空结果仍可计算；调用过证据工具但缺少终态响应时返回
   `incomplete_evidence_observation`。
 
@@ -926,6 +944,7 @@ automatic_assessment_coverage =
   返回 `missing_final_answer`。
 - 证据定义、终态响应和 `callID` 关联由共享证据抽取器处理；已定义证据调用缺少终态时返回
   `incomplete_evidence_observation`。
+- 运行节点必须预装 `sentence-transformers` 和指定 revision 的本地模型缓存。
 
 已登记证据工具的完整普通字符串响应，以及 `data/items/results/documents/chunks/records` 信封
 中的字符串，保留为一个“响应级证据单元”。这是材料边界而非事实条数估计；长文本后续只为
@@ -942,8 +961,9 @@ query、最终回答、原子陈述、证据正文、摘要与 Judge 原始响�
 unsupported、245 条 not_assessable，微平均陈述支持率约 `0.07646`，自动判定覆盖率约
 `0.93606`。研究模式共有 139 条可验证陈述，其中 13 条 supported、121 条 unsupported、
 5 条 not_assessable，陈述支持率约 `0.09353`，自动判定覆盖率约 `0.96403`。31 条日志本地
-规则评测总耗时约 20.4 秒。由于无法建立人工 Golden 样本，这些数值是可复现的运行基线，
-不是对规则语义准确率的人工验收结论。
+规则评测总耗时约 20.4 秒。该结果是 `3.0.0` 纯规则版历史基线，不可与 `4.0.0` 混合聚合。
+由于无法建立人工 Golden 样本，新版阈值使用确定性正负对照测试约束，不代表人工语义准确率
+验收结论；上线后必须按模型版本分别观察分数分布和冲突诊断。
 
 ### 模拟计算
 
@@ -978,6 +998,14 @@ MCP 工具调用膨胀率 = (N - U) ÷ N
 - 同一调用 ID 的重复定义或生命周期事件只计一次；同一 ID 出现不同能力或入参时返回
   `NOT_COMPUTABLE / conflicting_call_definition`。
 - 手册外工具不进入分子和分母，只记录 `out_of_scope_tool_call_count`。
+- 异步任务轮询调用不进入分子和分母（2026-09-18 复核修订，1.2.0）：入参规范化后顶层键集合
+  恰为 `taskId` 单键的调用视为 result 类工具按协议重复查询（如 `stock_analyze_result`、
+  `backtest_tasks_status`、`tencent_vod_query_image_task`），只记录 `polling_call_count`。
+  键更多或更少都不视为轮询（保守方向：宁可多计膨胀，不误排普通调用）；规则不绑定能力名，
+  新增 submit/result 配对工具自动覆盖。分母为空时，仅剩轮询调用返回
+  `NOT_COMPUTABLE / no_non_polling_mcp_calls`，否则返回 `no_registered_mcp_calls`。
+- 入参规范化后为空对象（`{}`）的手册内调用计入 `empty_argument_call_count`；空入参签名
+  不含判别信息，解读膨胀值时需结合该计数。
 - 本指标与完全重复调用率不同：完全重复调用率还要求响应相同，且不限定 MCP 范围；本指标
   只比较手册内 MCP 与入参，不读取响应正文。
 
@@ -1006,9 +1034,10 @@ MCP 工具调用膨胀率 = (N - U) ÷ N
 
 两种模式均使用版本化 `CapabilityCatalog` 解析手册直接名称和 `mcp__...__工具名`。入参无法
 稳定序列化时返回 `unserializable_call_arguments`；没有手册内 MCP 时返回
-`NOT_COMPUTABLE / no_registered_mcp_calls`。结果只保留 `manual_version`、调用计数、签名计数、
-膨胀计数和安全诊断，不保留工具名、入参、摘要或响应正文。新版 canvas 适配的 evaluator
-版本为 `1.1.0`。
+`NOT_COMPUTABLE / no_registered_mcp_calls`（仅剩轮询调用时返回 `no_non_polling_mcp_calls`）。
+结果只保留 `manual_version`、调用计数、签名计数、膨胀计数和安全诊断（含轮询与空入参计数），
+不保留工具名、入参、摘要或响应正文。新版 canvas 适配的 evaluator
+版本为 `1.2.0`。
 
 ### 模拟计算
 
@@ -1027,6 +1056,13 @@ MCP 工具调用膨胀率 = 1 ÷ 4 = 0.25
 新版聊天日志微平均验算：4,266 次普通工具调用中 2,911 次精确匹配当前 MCP 手册，按 Trace
 统计得到 2,878 个不同请求签名和 33 次膨胀调用，`33 / 2911 ≈ 0.01134`；1,355 次手册外
 调用不进入分子和分母。271/336 条 Trace 至少包含一次已登记 MCP 调用。
+
+2026-09-18 复核样本重算（74 条聊天 + 47 研究回合，evaluator 1.2.0）：轮询排除前聊天
+均值 2.24%、最高 33.33%（单条 Trace 的 10 次 `stock_analyze_result` 同 taskId 轮询贡献
+9 次"膨胀"）；排除后聊天 54/74 computed、零膨胀 46 条、均值 1.82%、最高 33.33%，
+轮询调用排除 10 次（该 Trace 归零）；研究 43/47 computed、零膨胀 37 条、均值 2.64%、
+最高 42.86%。研究模式主膨胀源为"空结果原样重发"（每次返回空列表的同参 `research_query`
+重发），属真膨胀；埋点 D 落地前失败重试仍按口径混计（本样本实测为 0）。
 
 ## 12. 超时率
 
@@ -1179,7 +1215,7 @@ evaluator_version
 
 - 直接反映用户感知的整体响应速度，是所有工具调用效率指标的 Trace 级基准。
 - 与 `tool_calls_count` 联合观察，可以区分“调用次数膨胀”与“少量调用但整体仍慢”。
-- 与 `per_tool_call_latency` 联合观察，可以定位单个慢工具是否构成主要瓶颈。
+- 与 `per_tool_call_latency_ms` 联合观察，可以定位单个慢工具是否构成主要瓶颈。
 - 与 `per_tool_repeat_call_count` 联合观察，可以判断同名工具反复调用是否伴随总耗时上升。
 - 与 `total_token_consumption` 联合观察，可以区分高 Token 的模型循环问题与低 Token、长等待的
   外部工具问题。
@@ -1294,7 +1330,7 @@ Token 重复记为工具 Token。未来上游补齐逐工具 Token 后，如需�
   消息不进入模型步骤集合。
 - 研究模式以 `messageID` 标识唯一模型步骤；同一 loop 的多个协议投影不重复计数。
 - cache Token 不得在已经包含它的 input 或 total 之外再次累加。cache 构成由
-  `cache_token_ratio` 单独解释。
+  `cache_input_token_ratio` 单独解释。
 - Judge、离线评测器或报告生成阶段自身消耗的 Token 不属于被评测 Trace，不进入本指标。
 
 ### 分模式可计算性与字段映射
@@ -1352,7 +1388,7 @@ evaluator_version
 - 与 `tool_calls_count`、`per_tool_repeat_call_count` 联合观察，可以判断总 Token 增长是否来自工具
   调用轮次和重复调用膨胀。
 - 与 `output_token_ratio` 联合观察，可以区分 Token 主要消耗在上下文输入还是模型输出。
-- 与 `cache_token_ratio` 联合观察，可以识别大量 Token 是否来自重复读取缓存上下文。
+- 与 `cache_input_token_ratio` 联合观察，可以识别大量输入 Token 是否来自重复读取缓存上下文。
 - 与 `end_to_end_latency_ms` 联合观察，可以区分“高 Token 且慢”“高 Token 但不慢”和
   “Token 不高但外部工具很慢”等不同瓶颈。
 - 该指标不能直接替代费用。跨模型、跨供应商或跨缓存策略比较时，必须同时保留模型版本、
@@ -1374,30 +1410,35 @@ evaluator_version
 
 本节只定义工具调用次数、同名工具重复调用、工具耗时、工具关联模型步骤 Token，以及用于解释
 工具调用成本的 Trace 级 Token 比例和端到端时延。工具关联模型步骤 Token 表示“产生该工具
-调用的模型步骤消耗”，不表示工具服务内部执行消耗。所有字段均由日志和版本化目录确定，不使用
-人工主观判断。
+调用的模型步骤消耗”，不表示工具服务内部执行消耗。所有字段均由日志结构和确定性规则计算，
+不使用人工主观判断。
 
 ### 统一工具范围与同名聚合
 
-进入本节统计范围的调用必须属于 `business_tool`。以下事件不得进入工具调用次数、平均工具
-耗时或平均工具 Token：
+当前批次不依赖额外工具类别目录，直接按日志结构识别调用：
 
-- `agent_delegation`：父 Agent 创建子 Agent 的委派事件。
-- `agent_return`：子 Agent 向父 Agent 返回结果的控制事件，例如聊天日志中的 `respond`。
-- `framework_control`：框架内部调度、收尾或协议投影。
+- 聊天模式统计同时具有非空 `toolId` 和 `toolName` 的 `tool_call`；只有 `agentName` 且没有
+  `toolId/toolName` 的父 Agent 委派事件不进入统计。
+- 聊天工具名精确为 `respond`（忽略大小写）时按 Agent 返回事件排除。
+- 研究模式直接统计 `message.part.updated` 中同时具有非空 `part.callID` 和 `part.tool` 的
+  `part.type == tool` 事件。
 
-工具名称先通过版本化 `tool_name_alias_catalog_version` 归一到稳定名称，再按稳定名称聚合。
-工具类别优先读取上游 `call_category`；当前日志缺少该字段时，允许使用版本化
-`tool_category_catalog_version` 做条件映射。目录缺失时返回
-`NOT_COMPUTABLE / missing_tool_category_catalog`，不得把所有带 `toolId/callID` 的事件默认视为
-业务工具。
+工具名称只做首尾空白清理，之后按日志中的精确名称聚合；当前版本不做别名合并或模糊匹配。
 
-每个 Trace 输出以下同名工具统计结构：
+`tool_calls_count` 与 `per_tool_repeat_call_count` 阶段先输出以下稳定计数字段：
 
 ```text
 per_tool_statistics[tool_name] = {
   call_count,
-  repeat_call_count,
+  repeat_call_count
+}
+```
+
+后续 Token 与时延指标按开发顺序在同一工具统计语义上增加以下字段，不要求首个指标提前填充
+不可观测值：
+
+```text
+{
   tool_step_count,
   single_tool_step_count,
   multi_tool_step_count,
@@ -1408,7 +1449,7 @@ per_tool_statistics[tool_name] = {
   latency_observed_count,
   latency_missing_count,
   tool_latency_total_ms,
-  per_tool_call_latency
+  per_tool_call_latency_ms
 }
 
 repeat_call_count = max(call_count - 1, 0)
@@ -1422,8 +1463,8 @@ repeat_call_count = max(call_count - 1, 0)
 
 #### 指标定义
 
-`tool_calls_count` 表示单条 Trace 内唯一业务工具调用总数，不包含 Agent 委派、Agent 返回和
-框架控制事件。
+`tool_calls_count` 表示单条 Trace 内按当前结构规则识别的唯一工具调用总数。聊天模式排除可明确
+识别的 Agent 委派和 `respond` 返回；研究模式直接统计合法的 `part.type == tool` 事件。
 
 ```text
 tool_calls_count = Σ per_tool_statistics[tool_name].call_count
@@ -1436,20 +1477,19 @@ tool_calls_count = Σ per_tool_statistics[tool_name].call_count
 
 #### 字段映射
 
-聊天模式：`CONDITIONALLY_COMPUTABLE`。
+聊天模式：`DIRECTLY_COMPUTABLE`。
 
 - 调用定义：`canvas.agents[].messages[].content.tool_call[]`。
 - 调用 ID：`toolId`；工具名称：`toolName`。
-- `agentName` 子 Agent 委派，以及被分类为 `agent_return/framework_control` 的调用不进入统计。
-- 当前日志中的 `respond` 带 `taskId`，对应结果仅包含 `toolId`，应由工具类别目录归为
-  `agent_return`，不能作为缺耗时的业务工具。
+- 只有 `agentName` 且没有 `toolId/toolName` 的子 Agent 委派不进入统计。
+- 工具名精确为 `respond`（忽略大小写）时按 Agent 返回事件排除。
 
-研究模式：`CONDITIONALLY_COMPUTABLE`。
+研究模式：`DIRECTLY_COMPUTABLE`。
 
 - 调用事件：`message.part.updated.part.type == tool`。
 - 调用 ID：`part.callID`；工具名称：`part.tool`。
 - 同一 `callID` 的 pending、running 和终态事件合并为一次调用。
-- 仍需工具类别目录排除框架工具和控制事件。
+- 当前口径直接统计所有合法的 `part.type == tool` 事件，不依赖额外目录。
 
 缺少调用 ID 返回 `ERROR / missing_call_id`；缺少工具名称返回 `ERROR / missing_tool_name`。
 
@@ -1506,6 +1546,9 @@ B 重复 1 次、C 不进入重复工具列表，`total_repeat_call_count = 4`�
 没有重复工具时返回 `COMPUTED`，数组为空，两个汇总计数均为 `0`；不得返回不可计算或省略
 字段。
 
+汇总宽表只增加 `per_tool_repeat_call_count` 一个字段，其单元格保存上述紧凑 JSON 数组；
+`repeated_tool_name_count` 和 `total_repeat_call_count` 仅作为表外诊断，不增加 CSV 字段。
+
 跨 Trace 聚合时必须先在每条 Trace 内计算重复次数，再按工具名求和：
 
 ```text
@@ -1518,42 +1561,40 @@ report_repeat_call_count[tool_name] =
 
 #### 字段映射
 
-聊天模式：`CONDITIONALLY_COMPUTABLE`。
+聊天模式：`DIRECTLY_COMPUTABLE`。
 
-- 复用 `tool_calls_count` 的 `canvas.agents[].messages[].content.tool_call[]`、`toolId`、
-  `toolName` 和工具类别目录。
+- 复用 `tool_calls_count` 的 `canvas.agents[].messages[].content.tool_call[]`、`toolId` 和
+  `toolName`。
 - 按 `traceId + toolId` 唯一化后，以规范化 `tool_name` 分组计数。
-- `agent_delegation`、`agent_return` 和 `framework_control` 不进入分组；聊天日志中的 `respond`
-  必须归类为 `agent_return`。
+- 结构化子 Agent 委派和工具名为 `respond` 的 Agent 返回不进入分组。
 
-研究模式：`CONDITIONALLY_COMPUTABLE`。
+研究模式：`DIRECTLY_COMPUTABLE`。
 
-- 复用 `message.part.updated.part.type == tool`、`part.callID`、`part.tool` 和工具类别目录。
+- 复用 `message.part.updated.part.type == tool`、`part.callID` 和 `part.tool`。
 - 同一 `callID` 的多个状态事件先合并为一次调用，再按规范化 `tool_name` 分组计数。
 
-工具类别目录缺失时返回 `NOT_COMPUTABLE / missing_tool_category_catalog`。缺少调用 ID、缺少工具
-名称或同一调用 ID 的工具定义冲突时，分别返回 `ERROR / missing_call_id`、
+缺少调用 ID、缺少工具名称或同一调用 ID 的工具定义冲突时，分别返回 `ERROR / missing_call_id`、
 `ERROR / missing_tool_name`、`ERROR / conflicting_call_definition`。
 
 #### 观测价值
 
 - 直接定位单条 Trace 内被反复调用的具体工具及额外调用次数。
 - 区分“工具种类多”与“少数同名工具反复调用”；两者的优化方式不同。
-- 与 `per_tool_call_latency` 联合观察，可以估算重复调用带来的额外时延压力。
+- 与 `per_tool_call_latency_ms` 联合观察，可以估算重复调用带来的额外时延压力。
 - 与 `per_tool_call_tokens` 联合观察，可以定位重复次数和单次 Token 同时较高的重点工具。
 - 报告级 `affected_trace_count` 可判断问题是集中在少量异常 Trace，还是普遍存在于多数请求。
 
-### per_tool_call_latency
+### per_tool_call_latency_ms
 
 #### 指标定义
 
-`per_tool_call_latency` 表示同一 Trace 内，同名业务工具所有可观测调用的平均执行耗时，单位为
+`per_tool_call_latency_ms` 表示同一 Trace 内，同名业务工具所有可观测调用的平均执行耗时，单位为
 毫秒。
 
 ```text
 单次工具耗时 = 工具终态时间 - 工具开始时间
 
-per_tool_call_latency[tool_name] =
+per_tool_call_latency_ms[tool_name] =
   Σ 同名工具有效调用耗时
   ÷ latency_observed_count
 ```
@@ -1580,6 +1621,26 @@ per_tool_call_latency[tool_name] =
 
 两种模式缺少完整边界时，该调用标记为 `NOT_COMPUTABLE / missing_tool_duration`；非法时间和
 负时序分别返回 `ERROR / invalid_duration`、`ERROR / invalid_event_order`。
+
+汇总宽表只增加 `per_tool_call_latency_ms` 一个字段，单元格保存按 `tool_name` 升序排列的紧凑
+JSON 数组，每项只包含 `tool_name` 和 `per_tool_call_latency_ms`。状态、原因、覆盖计数和
+`evaluator_version` 仅保留在表外元数据与问题摘要。部分调用缺失时仍对同名工具的有效调用
+求平均；全部缺失时该工具项的值为 `null`，并记录
+`NOT_COMPUTABLE / no_observable_tool_duration`。非法、负时序或冲突耗时只使受影响工具项的值
+为 `null` 并记录 `ERROR`，其他工具继续输出。evaluator 版本为 `1.0.0`。
+
+#### 模拟计算
+
+```text
+quote 调用 A：1000 ms
+quote 调用 B：2000 ms
+quote 调用 C：缺失，不补零
+
+latency_observed_count = 2
+latency_missing_count = 1
+tool_latency_total_ms = 3000
+per_tool_call_latency_ms[quote] = 3000 ÷ 2 = 1500 ms
+```
 
 #### 观测价值
 
@@ -1616,20 +1677,20 @@ max_tool_latency_share =
 `NOT_COMPUTABLE / incomplete_tool_duration_coverage`；无业务工具调用时返回
 `NOT_COMPUTABLE / no_tool_calls`；全部工具累计耗时为零时返回
 `NOT_COMPUTABLE / zero_tool_duration`。非法耗时、负时序和同一调用的耗时观察冲突继续沿用
-`per_tool_call_latency` 的错误原因，不得使用部分调用估算占比。
+`per_tool_call_latency_ms` 的错误原因，不得使用部分调用估算占比。
 
 #### 字段映射
 
 聊天模式：`DIRECTLY_COMPUTABLE`。
 
-- 复用 `per_tool_call_latency` 的 `traceId + toolId` 调用关联和业务工具分类。
+- 复用 `per_tool_call_latency_ms` 的 `traceId + toolId` 调用关联和业务工具分类。
 - 单次调用耗时读取 `tool_result.durationSeconds × 1000`。
 - 按规范化 `tool_name` 汇总 `tool_latency_total_ms`，再从所有业务工具累计耗时计算最大占比。
 - `tool_result.durationSeconds` 缺失的调用进入耗时缺失计数，并使本 Trace 的该指标不可计算。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
 
-- 复用 `per_tool_call_latency` 的 `callID` 生命周期合并和业务工具分类。
+- 复用 `per_tool_call_latency_ms` 的 `callID` 生命周期合并和业务工具分类。
 - 单次调用耗时为最晚终态 `part.state.time.end` 减最早
   `part.state.time.start`。
 - 同一 `callID` 的重复状态先去重，再按规范化 `tool_name` 汇总累计耗时。
@@ -1639,10 +1700,24 @@ max_tool_latency_share =
 `end_to_end_latency_ms`。本指标的分子和分母都使用同一累计工具耗时口径，所以不得将
 `max_tool_latency_share` 解读为端到端时间占比，也不得为了消除重叠而擅自截断调用耗时。
 
+聊天模式排除结构化子 Agent 调用及 `respond` 结果侧 Agent 返回，只统计业务工具。汇总宽表
+只增加 `max_tool_latency_share` 一个字段，单元格保存按 `tool_name` 升序排列的紧凑 JSON
+数组，每项只包含 `tool_name` 和 `max_tool_latency_share`；累计耗时、覆盖与排除计数仅进入
+表外元数据。evaluator 版本为 `1.0.0`。
+
+#### 模拟计算
+
+```text
+document_search 累计耗时 = 3000 ms
+research_query 累计耗时 = 1000 ms
+total_tool_latency_ms = 4000 ms
+max_tool_latency_share = 3000 ÷ 4000 = 0.75
+```
+
 #### 观测价值
 
 - 比例高表示工具执行成本集中在少数工具上，可优先排查头部工具的单次性能和调用策略。
-- 与 `per_tool_call_latency` 联合观察，可以区分“单次调用慢”和“单次不慢但累计调用次数多”。
+- 与 `per_tool_call_latency_ms` 联合观察，可以区分“单次调用慢”和“单次不慢但累计调用次数多”。
 - 与 `repeat_call_count` 联合观察，可以识别最大耗时工具是否由重复调用累计形成。
 - 与 `end_to_end_latency_ms` 联合观察，可以判断工具累计耗时集中是否同时伴随用户等待时间增长；
   但两者不能直接相减或相除解释并行贡献。
@@ -1708,6 +1783,11 @@ shared_token_step_count =
 `NOT_COMPUTABLE / no_tool_calls`；存在业务工具调用但没有可关联模型步骤时返回
 `NOT_COMPUTABLE / missing_tool_step_association`。
 
+汇总宽表只增加 `per_tool_call_tokens` 一个字段，单元格保存按 `tool_name` 升序排列的紧凑 JSON
+数组。可计算工具项只输出 `tool_name` 和 `per_tool_call_tokens`；局部不可计算工具保留
+`per_tool_call_tokens: null` 和安全 `reason`，其他覆盖计数只进入表外诊断。只要至少存在业务
+工具，局部缺失不阻止同一日志中其他工具输出；没有业务工具时整格留空。
+
 #### 字段映射
 
 聊天模式：`DIRECTLY_COMPUTABLE`。
@@ -1749,7 +1829,7 @@ shared_token_step_count =
 #### 观测价值
 
 - 识别哪些工具通常由高 Token 模型步骤产生，定位工具选择和参数生成阶段的上下文成本。
-- 与 `per_tool_call_latency` 联合观察，可区分“模型规划成本高”和“工具执行本身慢”。
+- 与 `per_tool_call_latency_ms` 联合观察，可区分“模型规划成本高”和“工具执行本身慢”。
 - 与 `repeat_call_count` 联合观察，可以判断同名工具反复调用是否持续触发高 Token 模型步骤。
 - 本指标不能用于计算工具供应商费用；工具内部 Token 仍需工具终态提供独立 usage 字段。
 
@@ -1785,12 +1865,16 @@ max_tool_token_share =
   ÷ total_token_consumption
 ```
 
-结果范围为 `(0, 1]`。同一模型步骤包含多个不同工具时，完整步骤 Token 分别进入各工具的
+结果范围为 `[0, 1]`；工具关联步骤 Token 合法为零时结果计算为 `0`，不得误记为缺失。同一模型步骤包含多个不同工具时，完整步骤 Token 分别进入各工具的
 `tool_associated_token_total`，但分母始终使用不重复的 Trace 级 `total_token_consumption`。
 因此各工具的 share 允许重叠，其总和可能大于 `1`。
 
 指标同时输出 `max_token_tool_names` 和 `max_tool_associated_tokens`。多个工具并列最高时，
 `max_token_tool_names` 使用按规范化工具名升序排列的 JSON 数组。
+
+汇总宽表只增加 `max_tool_token_share` 一个字段，单元格保存紧凑 JSON 数组，每项仅含
+`tool_name` 和 `max_tool_token_share`；并列最大工具各占一个数组项并使用相同比率，关联 Token
+仅保留在表外元数据，不增加 CSV 字段。
 
 本指标要求 Trace 总 Token 以及全部工具关联步骤 Token 覆盖完整。存在缺失时返回
 `NOT_COMPUTABLE / incomplete_token_coverage`；无业务工具调用时返回
@@ -1817,7 +1901,7 @@ max_tool_token_share =
 - 比例高表示大部分模型 Token 出现在包含同一种工具的步骤中，应优先检查该工具对应的上下文、
   参数生成和重复调用链路。
 - 与 `repeat_call_count` 联合观察，可以区分“少量高 Token 步骤”和“重复调用累计模型成本”。
-- 与 `output_token_ratio`、`cache_token_ratio` 联合观察，可以进一步判断关联成本主要来自模型输出、
+- 与 `output_token_ratio`、`cache_input_token_ratio` 联合观察，可以进一步判断关联成本主要来自模型输出、
   新输入还是缓存上下文。
 - 多工具步骤会让多个工具共享同一份 Token，因此该指标用于定位关联热点，不能用于工具间费用
   分摊。
@@ -1848,6 +1932,11 @@ output_token_ratio =
 返回 `NOT_COMPUTABLE / incomplete_token_coverage`；分母为零时返回
 `NOT_COMPUTABLE / zero_total_token_consumption`。
 
+合法零输出返回 `0`。全部步骤无 Token 时返回
+`NOT_COMPUTABLE / no_observable_token_usage`；非法非负整数、研究步骤 ID 缺失、同一步骤快照
+冲突或 `output > total` 时返回 `ERROR`。汇总宽表只增加 `output_token_ratio` 一个数值字段，
+覆盖与重复诊断不进入 CSV；evaluator 版本为 `1.0.0`。
+
 #### 字段映射
 
 聊天模式：`DIRECTLY_COMPUTABLE`。
@@ -1868,43 +1957,54 @@ output_token_ratio =
 - 比例高时，可进一步检查模型是否产生过长中间文本或最终回答。
 - 与 `tool_calls_count` 联合观察，可以判断工具调用轮次增加是否主要放大输入上下文。
 
-### cache_token_ratio
+#### 全量日志验算
+
+- 聊天模式：`312/336` 条可计算，`24` 条 `no_observable_token_usage`；结果范围
+  `0.00058775990008081693` 至 `0.11505385684503128`，中位数
+  `0.0060333224349133577`，平均值 `0.012974958009279032`。
+- 研究模式：`1/1` 条可计算，`output = 41695`、`total = 18064255`，结果为
+  `0.0023081494365530158`。
+
+### cache_input_token_ratio
 
 #### 指标定义
 
-`cache_token_ratio` 是 Trace 级缓存 Token 占模型总 Token 的比例。
+`cache_input_token_ratio` 是 Trace 级缓存 Token 占真实输入 Token 的比例。
 
 ```text
-cache_token_ratio =
+cache_input_token_ratio =
   cache_token_consumption
-  ÷ total_token_consumption
+  ÷ effective_input_token_consumption
 ```
 
-缓存 Token 是模型步骤资源，不属于工具自身 Token。必须先确认供应商的缓存计数包含关系，禁止
-在未知语义下把 cache Token 再次加入总 Token。
+缓存 Token 是模型步骤资源，不属于工具自身 Token。聊天日志的 `input_tokens` 已包含
+`cache_tokens`；研究日志的 `input` 不包含缓存，因此两种模式使用不同字段组合重建同一语义的
+真实输入。
 
 #### 字段映射
 
-聊天模式：`CONDITIONALLY_COMPUTABLE`。
+聊天模式：`DIRECTLY_COMPUTABLE`。
 
-- 候选分子：`canvas.agents[].messages[].content.usageTokens.cache_tokens` 之和。
-- 候选分母：相同模型步骤的 `input_tokens + output_tokens` 之和。
-- 只有配置确认 `cache_tokens` 已包含在 `input_tokens` 中时才按上述公式计算；否则返回
-  `NOT_COMPUTABLE / unknown_cache_token_semantics`。
+- 分子：`canvas.agents[].messages[].content.usageTokens.cache_tokens` 之和。
+- 分母：相同模型步骤的 `input_tokens` 之和；该字段已包含 `cache_tokens`，不得重复相加。
+- 每一步必须满足 `cache_tokens <= input_tokens`；否则返回
+  `ERROR / inconsistent_cache_components`。
 - `canvas.answer.usageTokens` 不参与计算。
 
 研究模式：`DIRECTLY_COMPUTABLE`。
 
 - 分子：唯一 `message.part.updated` 中 `part.type == step-finish` 的
   `part.tokens.cache.read + part.tokens.cache.write` 之和。
-- 分母：同一批唯一步骤的 `part.tokens.total` 之和。
+- 分母：同一批唯一步骤的
+  `part.tokens.input + part.tokens.cache.read + part.tokens.cache.write` 之和。
 - 每一步必须满足
   `total = input + output + reasoning + cache.read + cache.write`；不满足时返回
   `ERROR / inconsistent_token_breakdown`。
 
-缺少 cache 分项返回 `NOT_COMPUTABLE / no_observable_cache_usage`；部分步骤缺失返回
-`NOT_COMPUTABLE / incomplete_cache_token_coverage`；分母为零返回
-`NOT_COMPUTABLE / zero_total_token_consumption`。
+缺少完整 input/cache 观测返回 `NOT_COMPUTABLE / no_observable_cache_usage`；部分步骤缺失返回
+`NOT_COMPUTABLE / incomplete_cache_token_coverage`；真实输入分母为零返回
+`NOT_COMPUTABLE / zero_effective_input_token_consumption`。合法零缓存计算为 `0`。汇总宽表只
+增加 `cache_input_token_ratio` 一个数值字段，诊断计数不进入 CSV；evaluator 版本为 `1.0.0`。
 
 #### 观测价值
 
@@ -1913,6 +2013,14 @@ cache_token_ratio =
 - 比例低但 input Token 高，说明主要消耗来自未缓存的新输入或频繁变化的上下文。
 - 缓存命中不等于零成本或零时延，本指标只能解释 Token 构成，不能单独代表成本节省比例。
 
+#### 全量日志验算
+
+- 聊天模式：`312/336` 条可计算，`24` 条 `no_observable_cache_usage`；结果范围 `0` 至
+  `0.999285997619992`，中位数 `0.5977799802035351`，平均值 `0.5650148398166177`，其中
+  `7` 条结果为合法零值。
+- 研究模式：`1/1` 条可计算，`cache = 18022506`、真实输入 `= 18022560`，结果为
+  `0.9999970037552933`。
+
 ### 输出字段约束
 
 单条 Trace 至少输出以下字段：
@@ -1920,7 +2028,7 @@ cache_token_ratio =
 ```text
 tool_calls_count
 output_token_ratio
-cache_token_ratio
+cache_input_token_ratio
 max_tool_token_share
 max_token_tool_names[]
 max_tool_associated_tokens
@@ -1945,7 +2053,7 @@ repeated_tool_name_count
 total_repeat_call_count
 per_tool_statistics[].per_tool_call_tokens
 per_tool_statistics[].tool_latency_total_ms
-per_tool_statistics[].per_tool_call_latency
+per_tool_statistics[].per_tool_call_latency_ms
 ```
 
 每个指标或同名工具字段必须携带独立的 `status`、稳定 `reason` 和 `evaluator_version`。一个字段
