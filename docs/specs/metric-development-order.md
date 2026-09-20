@@ -1,34 +1,29 @@
 # Metric Development Order
 
-具体指标严格按以下顺序逐个设计、确认、实现和验收。优先完成完整性、可靠性、参数、
-语义和结果质量指标；时延与 Token 消耗等性能与资源指标统一放在最后阶段计算。
+当前批次指标以 `docs/specs/metrics_initial.md` 为口径来源，严格按以下顺序逐个设计、确认、
+实现和验收。先建立工具调用规模基线，再开发 Token 成本指标，最后开发时延指标。
 
-## 第一阶段：调用可靠性
+当前进度：10 项全部验收（2026-09-20 确认第十项 `max_tool_latency_share` 验收通过）。
+后续新指标按《初步入库评测指标.md》维度推进，下一项为回答质量维度引用可溯率。
 
-1. 完全重复调用率
+## 第一阶段：工具调用
 
-## 第二阶段：参数、路由与规划
+1. 工具调用总次数（`tool_calls_count`）
+2. 单工具调用重复次数（`per_tool_repeat_call_count`）
 
-2. 必填参数完整率
-3. Schema 合法率
-4. 参数值准确率
-5. 路由 Precision
-6. 路由 Recall
-7. 子任务冗余率
+## 第二阶段：Token 成本
 
-## 第三阶段：需求与忠实度
+3. 单工具 Token 消耗（`per_tool_call_tokens`）
+4. 端到端总 Token 消耗（`e2e_total_tokens`，复用稳定指标名 `total_token_consumption`）
+5. 单工具最大 Token 消耗比率（`max_tool_token_share`）
+6. 输出 Token 比率（`output_token_ratio`）
+7. 缓存输入 Token 比率（`cache_input_token_ratio`）
 
-8. 意图识别准确率
-9. 时间范围提取准确率
-10. 陈述支持率
+## 第三阶段：时间
 
-## 第四阶段：时延与资源
-
-11. MCP 工具调用膨胀率
-12. 超时率
-13. 端到端时延
-14. 平均模型步骤时延
-15. Token 消耗
+8. 单工具调用时延（`per_tool_call_latency_ms`）
+9. 端到端总耗时（`e2e_latency`，复用稳定指标名 `end_to_end_latency_ms`）
+10. 单工具最大时延比率（`max_tool_latency_share`）
 
 每一项进入编码前，都必须单独确认算法与数学公式、聊天/研究日志字段映射、异常边界及样例计算。
 聊天模式和研究模式必须分别标记为“可直接计算”“有条件可计算”或“不可计算”；不可计算时
