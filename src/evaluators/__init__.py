@@ -1,7 +1,15 @@
 """评测器及其公共契约。"""
 
+from evaluators.answer_evidence_grounding import AnswerEvidenceGroundingRateEvaluator
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
+from evaluators.cache_input_token_ratio import CacheInputTokenRatioEvaluator
 from evaluators.deterministic_statement_support import DeterministicStatementSupportJudge
+from evaluators.embedding_statement_support import (
+    EmbeddingProvider,
+    EmbeddingStatementSupportJudge,
+    InMemoryEmbeddingCache,
+    SentenceTransformerEmbeddingProvider,
+)
 from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
 from evaluators.intent_recognition import (
@@ -9,6 +17,8 @@ from evaluators.intent_recognition import (
     IntentRecognitionJudge,
     IntentRecognitionJudgeRequest,
 )
+from evaluators.max_tool_latency_share import MaxToolLatencyShareEvaluator
+from evaluators.max_tool_token_share import MaxToolTokenShareEvaluator
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
 from evaluators.model_step_latency import AverageModelStepLatencyEvaluator
 from evaluators.openai_compatible_intent_judge import OpenAICompatibleIntentRecognitionJudge
@@ -27,11 +37,15 @@ from evaluators.openai_compatible_statement_support_judge import (
     OpenAICompatibleStatementSupportJudge,
 )
 from evaluators.openai_compatible_time_range_judge import OpenAICompatibleTimeRangeJudge
+from evaluators.output_token_ratio import OutputTokenRatioEvaluator
 from evaluators.parameter_value_accuracy import (
     ParameterValueAccuracyEvaluator,
     ParameterValueJudge,
     ParameterValueJudgeRequest,
 )
+from evaluators.per_tool_call_latency import PerToolCallLatencyEvaluator
+from evaluators.per_tool_call_tokens import PerToolCallTokensEvaluator
+from evaluators.per_tool_repeat_call_count import PerToolRepeatCallCountEvaluator
 from evaluators.required_parameter_completeness import RequiredParameterCompletenessEvaluator
 from evaluators.routing import (
     IntentRouteMappingStore,
@@ -58,6 +72,7 @@ from evaluators.time_range_accuracy import (
 )
 from evaluators.token_consumption import TotalTokenConsumptionEvaluator
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
+from evaluators.tool_calls_count import ToolCallsCountEvaluator
 from evaluators.tool_resource_usage import (
     ToolCallDurationEvaluator,
     ToolTokenConsumptionEvaluator,
@@ -65,17 +80,24 @@ from evaluators.tool_resource_usage import (
 from evaluators.tool_timeout_rate import ToolTimeoutRateEvaluator
 
 __all__ = [
+    "AnswerEvidenceGroundingRateEvaluator",
     "BaseEvaluator",
+    "CacheInputTokenRatioEvaluator",
     "DeterministicStatementSupportJudge",
     "EvaluationResult",
     "EvaluationStatus",
     "EndToEndLatencyEvaluator",
+    "EmbeddingProvider",
+    "EmbeddingStatementSupportJudge",
     "ExactDuplicateToolCallEvaluator",
     "IntentRecognitionAccuracyEvaluator",
+    "InMemoryEmbeddingCache",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
     "JudgeExecutionError",
     "McpToolCallInflationEvaluator",
+    "MaxToolTokenShareEvaluator",
+    "MaxToolLatencyShareEvaluator",
     "AverageModelStepLatencyEvaluator",
     "JudgeSettings",
     "OpenAICompatibleParameterValueJudge",
@@ -84,9 +106,13 @@ __all__ = [
     "OpenAICompatibleRoutingJudge",
     "OpenAICompatibleStatementSupportJudge",
     "OpenAICompatibleTimeRangeJudge",
+    "OutputTokenRatioEvaluator",
     "ParameterValueAccuracyEvaluator",
     "ParameterValueJudge",
     "ParameterValueJudgeRequest",
+    "PerToolCallTokensEvaluator",
+    "PerToolCallLatencyEvaluator",
+    "PerToolRepeatCallCountEvaluator",
     "RequiredParameterCompletenessEvaluator",
     "IntentRouteMappingStore",
     "ReusableIntentRouteMapping",
@@ -99,6 +125,7 @@ __all__ = [
     "StatementSupportEvaluator",
     "StatementSupportJudge",
     "StatementSupportJudgeRequest",
+    "SentenceTransformerEmbeddingProvider",
     "TimeRangeAccuracyEvaluator",
     "TimeRangeExpectedField",
     "TimeRangeFieldMatchRequest",
@@ -106,6 +133,7 @@ __all__ = [
     "TimeRangeRequirementRequest",
     "TotalTokenConsumptionEvaluator",
     "ToolCallDurationEvaluator",
+    "ToolCallsCountEvaluator",
     "ToolTokenConsumptionEvaluator",
     "ToolTimeoutRateEvaluator",
     "ToolArgumentSchemaValidityEvaluator",

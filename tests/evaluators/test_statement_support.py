@@ -1,5 +1,4 @@
 from collections.abc import Mapping
-from typing import cast
 
 import pytest
 
@@ -90,7 +89,7 @@ def test_supported_verifiable_claims_divided_by_all_verifiable_claims(mode: str)
     result = StatementSupportEvaluator(judge).evaluate(_trace(mode=mode))
 
     assert result.metric_name == "statement_support_rate"
-    assert result.evaluator_version == "3.0.0"
+    assert result.evaluator_version == "4.0.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 0.5
     assert result.metadata["verifiable_claim_count"] == 2
@@ -147,16 +146,16 @@ def test_canvas_collector_output_is_accepted_by_evaluator() -> None:
 
     assert result.status is EvaluationStatus.COMPUTED
     assert result.value == 1.0
-    assert result.evaluator_version == "3.0.0"
+    assert result.evaluator_version == "4.0.0"
 
 
-def test_default_evaluator_uses_deterministic_rules_without_judge_configuration() -> None:
+def test_default_evaluator_reports_missing_embedding_dependency_safely() -> None:
     result = StatementSupportEvaluator().evaluate(_trace())
 
-    assert result.status is EvaluationStatus.COMPUTED
-    assert result.metadata["judge_name"] == "deterministic-statement-support"
-    coverage = cast(float, result.metadata["automatic_assessment_coverage"])
-    assert 0 <= coverage <= 1
+    assert result.status is EvaluationStatus.NOT_COMPUTABLE
+    assert result.metadata["judge_name"] == "embedding-statement-support"
+    assert result.metadata["reason"] == "embedding_model_unavailable"
+    assert "收入为 100" not in repr(result.metadata)
 
 
 def test_no_evidence_can_produce_zero_and_no_verifiable_claims_is_not_computable() -> None:

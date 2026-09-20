@@ -11,6 +11,13 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
+oss = [
+  "oss2>=2.18",
+  "openpyxl>=3.1",
+]
+embedding = [
+  "sentence-transformers>=3,<4",
+]
 dev = [
   "mypy>=1.11,<2",
   "pytest>=8.3,<9",
@@ -38,3 +45,8 @@ select = ["E", "F", "I", "UP"]
 python_version = "3.11"
 strict = true
 files = ["src", "tests"]
+
+# oss2 与 openpyxl 无官方类型存根,忽略其导入类型检查
+[[tool.mypy.overrides]]
+module = ["oss2.*", "openpyxl.*"]
+ignore_missing_imports = true

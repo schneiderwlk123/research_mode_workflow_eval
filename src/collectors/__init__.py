@@ -1,5 +1,17 @@
 """Trace 输入读取与格式适配。"""
 
+from collectors.answer_evidence_grounding import (
+    AnswerEvidenceGroundingDiagnostics,
+    NormalizedAnswerEvidenceGroundingTrace,
+    normalize_chat_answer_grounding,
+    normalize_research_answer_grounding,
+)
+from collectors.cache_input_token_ratio import (
+    CacheInputTokenRatioDiagnostics,
+    NormalizedCacheInputTokenRatioTrace,
+    normalize_chat_cache_input_token_ratio,
+    normalize_research_cache_input_token_ratio,
+)
 from collectors.end_to_end_latency import (
     EndToEndLatencyDiagnostics,
     NormalizedEndToEndLatencyTrace,
@@ -30,6 +42,12 @@ from collectors.intent_recognition import (
     normalize_chat_intent_recognition,
     normalize_research_intent_recognition,
 )
+from collectors.max_tool_latency_share import (
+    NormalizedMaxToolLatencyShareTrace,
+    ToolLatencyTotal,
+    normalize_chat_max_tool_latency_share,
+    normalize_research_max_tool_latency_share,
+)
 from collectors.mcp_tool_call_inflation import (
     McpToolCallInflationDiagnostics,
     NormalizedMcpToolCallInflationTrace,
@@ -41,6 +59,12 @@ from collectors.model_step_latency import (
     NormalizedModelStepLatencyTrace,
     normalize_chat_model_step_latency,
     normalize_research_model_step_latency,
+)
+from collectors.output_token_ratio import (
+    NormalizedOutputTokenRatioTrace,
+    OutputTokenRatioDiagnostics,
+    normalize_chat_output_token_ratio,
+    normalize_research_output_token_ratio,
 )
 from collectors.parameter_value_accuracy import (
     NormalizedParameterValueTrace,
@@ -104,12 +128,33 @@ from collectors.tool_argument_schema import (
     normalize_chat_tool_argument_schema,
     normalize_research_tool_argument_schema,
 )
+from collectors.tool_call_latency import (
+    NormalizedToolCallLatencyTrace,
+    PerToolLatencyStatistics,
+    ToolCallLatencyDiagnostics,
+    normalize_chat_tool_call_latency,
+    normalize_research_tool_call_latency,
+)
+from collectors.tool_call_statistics import (
+    NormalizedToolCallStatisticsTrace,
+    PerToolCallStatistics,
+    ToolCallStatisticsDiagnostics,
+    normalize_chat_tool_call_statistics,
+    normalize_research_tool_call_statistics,
+)
 from collectors.tool_resource_usage import (
     NormalizedToolResourceCall,
     NormalizedToolResourceTrace,
     ToolResourceUsageDiagnostics,
     normalize_chat_tool_resource_usage,
     normalize_research_tool_resource_usage,
+)
+from collectors.tool_step_tokens import (
+    NormalizedToolStepTokenTrace,
+    PerToolStepTokenStatistics,
+    ToolStepTokenDiagnostics,
+    normalize_chat_tool_step_tokens,
+    normalize_research_tool_step_tokens,
 )
 from collectors.tool_timeout_rate import (
     NormalizedTimeoutCall,
@@ -120,8 +165,16 @@ from collectors.tool_timeout_rate import (
     normalize_chat_tool_timeout_rate,
     normalize_research_tool_timeout_rate,
 )
+from collectors.tool_token_share import (
+    NormalizedToolTokenShareTrace,
+    ToolAssociatedTokenTotal,
+    normalize_chat_tool_token_share,
+    normalize_research_tool_token_share,
+)
 
 __all__ = [
+    "AnswerEvidenceGroundingDiagnostics",
+    "CacheInputTokenRatioDiagnostics",
     "ExactDuplicateDiagnostics",
     "EvidenceCandidate",
     "EvidenceDiagnostics",
@@ -132,21 +185,29 @@ __all__ = [
     "IntentRecognitionCandidate",
     "IntentRecognitionDiagnostics",
     "McpToolCallInflationDiagnostics",
+    "NormalizedAnswerEvidenceGroundingTrace",
+    "NormalizedMaxToolLatencyShareTrace",
     "ModelStepLatencyDiagnostics",
     "CapabilityCatalog",
     "CapabilityDefinition",
     "CapabilityParameter",
     "NormalizedToolResourceCall",
     "NormalizedToolResourceTrace",
+    "NormalizedToolStepTokenTrace",
+    "NormalizedToolTokenShareTrace",
     "NormalizedTimeoutCall",
+    "NormalizedCacheInputTokenRatioTrace",
     "NormalizedToolTimeoutTrace",
     "NormalizedToolArgumentSchemaTrace",
+    "NormalizedToolCallStatisticsTrace",
+    "NormalizedToolCallLatencyTrace",
     "NormalizedExactDuplicateTrace",
     "NormalizedEvidenceTrace",
     "NormalizedEndToEndLatencyTrace",
     "NormalizedIntentRecognitionTrace",
     "NormalizedMcpToolCallInflationTrace",
     "NormalizedModelStepLatencyTrace",
+    "NormalizedOutputTokenRatioTrace",
     "NormalizedParameterValueTrace",
     "NormalizedRequiredParameterTrace",
     "NormalizedRoutingCandidate",
@@ -154,10 +215,14 @@ __all__ = [
     "NormalizedStatementSupportTrace",
     "NormalizedTimeRangeTrace",
     "NormalizedTokenConsumptionTrace",
+    "OutputTokenRatioDiagnostics",
     "ParameterValueCandidate",
     "ParameterValueCatalog",
     "ParameterValueDiagnostics",
     "ParameterValueToolDefinition",
+    "PerToolCallStatistics",
+    "PerToolLatencyStatistics",
+    "PerToolStepTokenStatistics",
     "RequiredParameterCatalog",
     "RequiredParameterDiagnostics",
     "RoutingDiagnostics",
@@ -169,16 +234,25 @@ __all__ = [
     "ParameterSchema",
     "ToolArgumentSchemaCatalog",
     "ToolArgumentSchemaDiagnostics",
+    "ToolCallStatisticsDiagnostics",
+    "ToolCallLatencyDiagnostics",
+    "ToolLatencyTotal",
     "ToolResourceUsageDiagnostics",
+    "ToolStepTokenDiagnostics",
+    "ToolAssociatedTokenTotal",
     "ToolTimeoutDiagnostics",
     "ToolTimeoutPolicyCatalog",
     "normalize_chat_exact_duplicates",
+    "normalize_chat_answer_grounding",
+    "normalize_chat_cache_input_token_ratio",
     "normalize_chat_end_to_end_latency",
     "build_evidence_source_catalog",
     "normalize_chat_evidence",
     "normalize_chat_intent_recognition",
     "normalize_chat_mcp_tool_call_inflation",
+    "normalize_chat_max_tool_latency_share",
     "normalize_chat_model_step_latency",
+    "normalize_chat_output_token_ratio",
     "build_required_parameter_catalog",
     "build_capability_catalog",
     "build_parameter_value_catalog",
@@ -192,14 +266,22 @@ __all__ = [
     "normalize_chat_time_range",
     "normalize_chat_token_consumption",
     "normalize_chat_tool_resource_usage",
+    "normalize_chat_tool_step_tokens",
+    "normalize_chat_tool_token_share",
+    "normalize_chat_tool_call_statistics",
+    "normalize_chat_tool_call_latency",
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
     "normalize_research_exact_duplicates",
+    "normalize_research_answer_grounding",
+    "normalize_research_cache_input_token_ratio",
     "normalize_research_end_to_end_latency",
     "normalize_research_evidence",
     "normalize_research_intent_recognition",
     "normalize_research_mcp_tool_call_inflation",
+    "normalize_research_max_tool_latency_share",
     "normalize_research_model_step_latency",
+    "normalize_research_output_token_ratio",
     "normalize_research_required_parameters",
     "normalize_research_parameter_value_candidates",
     "normalize_research_routing",
@@ -208,6 +290,10 @@ __all__ = [
     "normalize_research_time_range",
     "normalize_research_token_consumption",
     "normalize_research_tool_resource_usage",
+    "normalize_research_tool_step_tokens",
+    "normalize_research_tool_token_share",
+    "normalize_research_tool_call_statistics",
+    "normalize_research_tool_call_latency",
     "normalize_research_tool_argument_schema",
     "normalize_research_tool_timeout_rate",
 ]

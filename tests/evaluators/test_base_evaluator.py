@@ -71,6 +71,17 @@ def test_not_computable_result_represents_missing_value_without_using_zero() -> 
     assert result.status is EvaluationStatus.NOT_COMPUTABLE
 
 
+def test_computed_result_accepts_non_empty_string_metric_value() -> None:
+    result = EvaluationResult(
+        metric_name="structured_metric",
+        evaluator_version="1.0.0",
+        value='[{"tool_name":"search","repeat_call_count":1}]',
+        status=EvaluationStatus.COMPUTED,
+    )
+
+    assert result.value == '[{"tool_name":"search","repeat_call_count":1}]'
+
+
 @pytest.mark.parametrize("value", [None, float("nan"), float("inf"), True])
 def test_computed_result_rejects_missing_or_non_finite_numeric_value(value: object) -> None:
     with pytest.raises(ValueError):
@@ -78,6 +89,17 @@ def test_computed_result_rejects_missing_or_non_finite_numeric_value(value: obje
             metric_name="stub_metric",
             evaluator_version="1.0.0",
             value=value,  # type: ignore[arg-type]
+            status=EvaluationStatus.COMPUTED,
+        )
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_computed_result_rejects_blank_string_value(value: str) -> None:
+    with pytest.raises(ValueError):
+        EvaluationResult(
+            metric_name="stub_metric",
+            evaluator_version="1.0.0",
+            value=value,
             status=EvaluationStatus.COMPUTED,
         )
 

@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
 from types import MappingProxyType
+from typing import TypeAlias
+
+MetricValue: TypeAlias = int | float | str
 
 
 class EvaluationStatus(StrEnum):
@@ -27,7 +30,7 @@ class EvaluationResult:
 
     metric_name: str
     evaluator_version: str
-    value: int | float | None
+    value: MetricValue | None
     status: EvaluationStatus
     metadata: Mapping[str, object] = field(default_factory=dict)
 
@@ -38,12 +41,16 @@ class EvaluationResult:
             raise ValueError("evaluator_version 不能为空")
 
         if self.status is EvaluationStatus.COMPUTED:
-            if (
+            if isinstance(self.value, str):
+                if not self.value.strip():
+                    raise ValueError("computed 状态的字符串指标值不能为空")
+            elif (
                 self.value is None
                 or isinstance(self.value, bool)
+                or not isinstance(self.value, (int, float))
                 or not isfinite(float(self.value))
             ):
-                raise ValueError("computed 状态必须携带有限数值")
+                raise ValueError("computed 状态必须携带有限数值或非空字符串")
         elif self.value is not None:
             raise ValueError("非 computed 状态不得携带数值，避免误参与聚合")
 

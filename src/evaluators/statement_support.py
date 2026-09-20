@@ -63,11 +63,9 @@ class StatementSupportEvaluator(BaseEvaluator):
 
     def __init__(self, judge: StatementSupportJudge | None = None) -> None:
         if judge is None:
-            from evaluators.deterministic_statement_support import (
-                DeterministicStatementSupportJudge,
-            )
+            from evaluators.embedding_statement_support import EmbeddingStatementSupportJudge
 
-            judge = DeterministicStatementSupportJudge()
+            judge = EmbeddingStatementSupportJudge()
         self._judge = judge
         self._judge_name = _required_string(judge.judge_name)
         self._judge_version = _required_string(judge.judge_version)
@@ -79,7 +77,7 @@ class StatementSupportEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "3.0.0"
+        return "4.0.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -126,10 +124,12 @@ class StatementSupportEvaluator(BaseEvaluator):
             metadata.update(safe_metadata)
             metadata["reason"] = reason
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
-        claims = _parse_claims(response, candidate.evidence_units)
-        if claims is None:
+        parsed_response = _parse_claims(response, candidate.evidence_units)
+        if parsed_response is None:
             metadata["reason"] = "invalid_judge_output"
             return self._result(None, EvaluationStatus.NOT_COMPUTABLE, metadata)
+        claims, judge_diagnostics = parsed_response
+        metadata.update(judge_diagnostics)
         supported = sum(
             verdict == "supported" for claim_type, verdict in claims if claim_type == "verifiable"
         )
@@ -166,9 +166,12 @@ class StatementSupportEvaluator(BaseEvaluator):
 
 def _parse_claims(
     response: Mapping[str, object], evidence_units: tuple[EvidenceUnit, ...]
-) -> tuple[tuple[str, str], ...] | None:
+) -> tuple[tuple[tuple[str, str], ...], dict[str, int]] | None:
     raw_claims = response.get("claims")
-    if set(response) != {"claims"} or not isinstance(raw_claims, list):
+    if not set(response).issubset({"claims", "diagnostics"}) or not isinstance(raw_claims, list):
+        return None
+    diagnostics = _parse_safe_diagnostics(response.get("diagnostics"))
+    if diagnostics is None:
         return None
     if not raw_claims:
         return None
@@ -219,7 +222,28 @@ def _parse_claims(
             return None
         claim_ids.add(claim_id)
         parsed.append((claim_type, verdict))
-    return tuple(parsed)
+    return tuple(parsed), diagnostics
+
+
+def _parse_safe_diagnostics(value: object) -> dict[str, int] | None:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        return None
+    allowed = {
+        "embedding_candidate_count",
+        "embedding_rule_rejected_count",
+        "embedding_conflict_count",
+    }
+    if not set(value).issubset(allowed):
+        return None
+    parsed: dict[str, int] = {}
+    for key, raw in value.items():
+        count = _non_negative_int(raw)
+        if count is None:
+            return None
+        parsed[str(key)] = count
+    return parsed
 
 
 def _parse_trace(
