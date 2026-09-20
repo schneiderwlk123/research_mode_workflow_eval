@@ -5,13 +5,14 @@
 1. `AGENTS.md`：仓库级开发、安全、测试、提交和逐指标确认规则。
 2. `docs/PROJECT_STATUS.md`：当前完成度、下一步和已知缺口。
 3. `docs/arch/code-map.md`：模块、入口、调用方向和测试位置。
-4. `docs/specs/metric-development-order.md`：16 项指标的唯一开发顺序。
+4. `docs/specs/metrics_initial.md`：当前批次指标的初始定义、字段映射和观测价值。
 5. 当前任务直接相关的规格、测试和指标章节。
 
 ## 按需阅读
 
+- `docs/RESEARCH_SUMMARY.md`：项目调研总结。对外汇报或回顾整体结论时阅读。
 - `共性指标.md`：原始指标口径总文档。进入某个指标时只读取对应章节及统一统计约定。
-- `docs/specs/metrics.md`：已确认指标的定义与字段映射汇总；按开发顺序持续追加。
+- `docs/specs/metrics.md`：已确认并实现的指标定义与字段映射汇总；按开发顺序持续追加。
 - `mcp_tool_manual.json`：MCP 工具名称、参数和 schema 参考。只有字段映射涉及工具时才读取，避免每次加载大型文件。
 
 ## 不可破坏的项目约束

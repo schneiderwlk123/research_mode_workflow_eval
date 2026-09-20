@@ -4,8 +4,6 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metric-development-order.md`：当前批次 10 项指标的唯一开发顺序；依次覆盖工具调用、
-  Token 成本和时间维度。
 - `docs/specs/metrics_initial.md`：当前批次 10 项指标的初始定义、双模式字段映射、异常边界和
   观测价值；指标确认后再进入集中规格与实现。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究

@@ -11,7 +11,7 @@ Before planning, editing, or running project commands, read these files in order
 2. `docs/START_HERE.md`
 3. `docs/PROJECT_STATUS.md`
 4. `docs/arch/code-map.md`
-5. `docs/specs/metric-development-order.md`
+5. `docs/specs/metrics_initial.md`
 
 For metric work, then read only the relevant section of `共性指标.md`. Read
 `mcp_tool_manual.json` only when tool names, parameters, or schemas are involved.
