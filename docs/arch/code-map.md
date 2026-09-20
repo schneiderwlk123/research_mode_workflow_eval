@@ -4,8 +4,8 @@
 
 - `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
 - `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
-- `docs/specs/metrics_initial.md`：当前批次 10 项指标的初始定义、双模式字段映射、异常边界和
-  观测价值；指标确认后再进入集中规格与实现。
+- `初步入库评测指标.md`（根目录）：全部评测指标的权威口径来源——指标定义、双模式字段映射、
+  异常边界、真实日志基线与埋点需求；指标确认后的实现细节进入集中规格 `docs/specs/metrics.md`。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和
