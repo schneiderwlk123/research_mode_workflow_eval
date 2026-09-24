@@ -1,8 +1,11 @@
 """评测器及其公共契约。"""
 
 from evaluators.answer_evidence_grounding import AnswerEvidenceGroundingRateEvaluator
+from evaluators.api_retry_rate import ApiRetryRateEvaluator
 from evaluators.base import BaseEvaluator, EvaluationResult, EvaluationStatus
 from evaluators.cache_input_token_ratio import CacheInputTokenRatioEvaluator
+from evaluators.compaction_event_count import CompactionEventCountEvaluator
+from evaluators.continuation_restart import ContinuationRestartCountEvaluator
 from evaluators.deterministic_statement_support import DeterministicStatementSupportJudge
 from evaluators.embedding_statement_support import (
     EmbeddingProvider,
@@ -11,12 +14,15 @@ from evaluators.embedding_statement_support import (
     SentenceTransformerEmbeddingProvider,
 )
 from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
+from evaluators.error_recovery import ErrorRecoveryRateEvaluator
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
+from evaluators.high_risk_turn_profile import HighRiskTurnProfileEvaluator
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudge,
     IntentRecognitionJudgeRequest,
 )
+from evaluators.llm_error_count import LlmErrorCountEvaluator
 from evaluators.max_tool_latency_share import MaxToolLatencyShareEvaluator
 from evaluators.max_tool_token_share import MaxToolTokenShareEvaluator
 from evaluators.mcp_tool_call_inflation import McpToolCallInflationEvaluator
@@ -73,28 +79,36 @@ from evaluators.time_range_accuracy import (
 from evaluators.token_consumption import TotalTokenConsumptionEvaluator
 from evaluators.tool_argument_schema_validity import ToolArgumentSchemaValidityEvaluator
 from evaluators.tool_calls_count import ToolCallsCountEvaluator
+from evaluators.tool_error_rate import ToolErrorRateEvaluator
 from evaluators.tool_resource_usage import (
     ToolCallDurationEvaluator,
     ToolTokenConsumptionEvaluator,
 )
 from evaluators.tool_timeout_rate import ToolTimeoutRateEvaluator
+from evaluators.turn_completion import TurnCompletionRateEvaluator
 
 __all__ = [
     "AnswerEvidenceGroundingRateEvaluator",
+    "ApiRetryRateEvaluator",
     "BaseEvaluator",
     "CacheInputTokenRatioEvaluator",
+    "CompactionEventCountEvaluator",
+    "ContinuationRestartCountEvaluator",
     "DeterministicStatementSupportJudge",
     "EvaluationResult",
     "EvaluationStatus",
     "EndToEndLatencyEvaluator",
+    "ErrorRecoveryRateEvaluator",
     "EmbeddingProvider",
     "EmbeddingStatementSupportJudge",
     "ExactDuplicateToolCallEvaluator",
+    "HighRiskTurnProfileEvaluator",
     "IntentRecognitionAccuracyEvaluator",
     "InMemoryEmbeddingCache",
     "IntentRecognitionJudge",
     "IntentRecognitionJudgeRequest",
     "JudgeExecutionError",
+    "LlmErrorCountEvaluator",
     "McpToolCallInflationEvaluator",
     "MaxToolTokenShareEvaluator",
     "MaxToolLatencyShareEvaluator",
@@ -135,7 +149,9 @@ __all__ = [
     "ToolCallDurationEvaluator",
     "ToolCallsCountEvaluator",
     "ToolTokenConsumptionEvaluator",
+    "ToolErrorRateEvaluator",
     "ToolTimeoutRateEvaluator",
+    "TurnCompletionRateEvaluator",
     "ToolArgumentSchemaValidityEvaluator",
     "load_judge_settings",
     "build_routing_assessment",

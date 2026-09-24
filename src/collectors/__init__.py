@@ -6,17 +6,42 @@ from collectors.answer_evidence_grounding import (
     normalize_chat_answer_grounding,
     normalize_research_answer_grounding,
 )
+from collectors.api_retry import (
+    ApiRetryDiagnostics,
+    NormalizedApiRetryTrace,
+    normalize_chat_api_retry,
+    normalize_research_api_retry,
+)
 from collectors.cache_input_token_ratio import (
     CacheInputTokenRatioDiagnostics,
     NormalizedCacheInputTokenRatioTrace,
     normalize_chat_cache_input_token_ratio,
     normalize_research_cache_input_token_ratio,
 )
+from collectors.compaction_event_count import (
+    CompactionEventDiagnostics,
+    NormalizedCompactionEventTrace,
+    normalize_chat_compaction_events,
+    normalize_research_compaction_events,
+)
+from collectors.continuation_restart import (
+    ContinuationRestartDiagnostics,
+    NormalizedContinuationRestartTrace,
+    normalize_chat_continuation_restart,
+    normalize_research_continuation_restart,
+)
 from collectors.end_to_end_latency import (
     EndToEndLatencyDiagnostics,
     NormalizedEndToEndLatencyTrace,
     normalize_chat_end_to_end_latency,
     normalize_research_end_to_end_latency,
+)
+from collectors.error_recovery import (
+    RECOVERY_SEMANTICS,
+    ErrorRecoveryDiagnostics,
+    NormalizedErrorRecoveryTrace,
+    normalize_chat_error_recovery,
+    normalize_research_error_recovery,
 )
 from collectors.evidence_quality import (
     EvidenceCandidate,
@@ -34,6 +59,13 @@ from collectors.exact_duplicate_calls import (
     normalize_chat_exact_duplicates,
     normalize_research_exact_duplicates,
 )
+from collectors.high_risk_turn_profile import (
+    HIGH_RISK_PROFILE_VERSION,
+    HighRiskProfileDiagnostics,
+    NormalizedHighRiskTurnProfileTrace,
+    normalize_chat_high_risk_turn_profile,
+    normalize_research_high_risk_turn_profile,
+)
 from collectors.intent_recognition import (
     IntentEvidenceFragment,
     IntentRecognitionCandidate,
@@ -41,6 +73,16 @@ from collectors.intent_recognition import (
     NormalizedIntentRecognitionTrace,
     normalize_chat_intent_recognition,
     normalize_research_intent_recognition,
+)
+from collectors.llm_error_count import (
+    LLM_ERROR_CLASS_CATALOG_VERSION,
+    LLM_ERROR_CLASSES,
+    LlmErrorDiagnostics,
+    LlmErrorModelCount,
+    LlmModelCallCount,
+    NormalizedLlmErrorTrace,
+    normalize_chat_llm_errors,
+    normalize_research_llm_errors,
 )
 from collectors.max_tool_latency_share import (
     NormalizedMaxToolLatencyShareTrace,
@@ -142,6 +184,18 @@ from collectors.tool_call_statistics import (
     normalize_chat_tool_call_statistics,
     normalize_research_tool_call_statistics,
 )
+from collectors.tool_error_rate import (
+    ATTRIBUTION_CATALOG_VERSION,
+    CHAT_TERMINAL_SEMANTICS,
+    FAILURE_SIGNAL_RULES_VERSION,
+    RESEARCH_TERMINAL_SEMANTICS,
+    NormalizedToolErrorCall,
+    NormalizedToolErrorRateTrace,
+    ToolErrorRateDiagnostics,
+    classify_tool_error,
+    normalize_chat_tool_error_rate,
+    normalize_research_tool_error_rate,
+)
 from collectors.tool_resource_usage import (
     NormalizedToolResourceCall,
     NormalizedToolResourceTrace,
@@ -171,9 +225,17 @@ from collectors.tool_token_share import (
     normalize_chat_tool_token_share,
     normalize_research_tool_token_share,
 )
+from collectors.turn_completion import (
+    FAILURE_TEMPLATE_CATALOG_VERSION,
+    NormalizedTurnCompletionTrace,
+    TurnCompletionDiagnostics,
+    normalize_chat_turn_completion,
+    normalize_research_turn_completion,
+)
 
 __all__ = [
     "AnswerEvidenceGroundingDiagnostics",
+    "ApiRetryDiagnostics",
     "CacheInputTokenRatioDiagnostics",
     "ExactDuplicateDiagnostics",
     "EvidenceCandidate",
@@ -186,6 +248,7 @@ __all__ = [
     "IntentRecognitionDiagnostics",
     "McpToolCallInflationDiagnostics",
     "NormalizedAnswerEvidenceGroundingTrace",
+    "NormalizedApiRetryTrace",
     "NormalizedMaxToolLatencyShareTrace",
     "ModelStepLatencyDiagnostics",
     "CapabilityCatalog",
@@ -215,6 +278,22 @@ __all__ = [
     "NormalizedStatementSupportTrace",
     "NormalizedTimeRangeTrace",
     "NormalizedTokenConsumptionTrace",
+    "NormalizedTurnCompletionTrace",
+    "ATTRIBUTION_CATALOG_VERSION",
+    "CHAT_TERMINAL_SEMANTICS",
+    "FAILURE_SIGNAL_RULES_VERSION",
+    "RESEARCH_TERMINAL_SEMANTICS",
+    "NormalizedToolErrorCall",
+    "NormalizedToolErrorRateTrace",
+    "ToolErrorRateDiagnostics",
+    "classify_tool_error",
+    "FAILURE_TEMPLATE_CATALOG_VERSION",
+    "HIGH_RISK_PROFILE_VERSION",
+    "HighRiskProfileDiagnostics",
+    "NormalizedHighRiskTurnProfileTrace",
+    "normalize_chat_high_risk_turn_profile",
+    "normalize_research_high_risk_turn_profile",
+    "TurnCompletionDiagnostics",
     "OutputTokenRatioDiagnostics",
     "ParameterValueCandidate",
     "ParameterValueCatalog",
@@ -244,6 +323,7 @@ __all__ = [
     "ToolTimeoutPolicyCatalog",
     "normalize_chat_exact_duplicates",
     "normalize_chat_answer_grounding",
+    "normalize_chat_api_retry",
     "normalize_chat_cache_input_token_ratio",
     "normalize_chat_end_to_end_latency",
     "build_evidence_source_catalog",
@@ -270,10 +350,13 @@ __all__ = [
     "normalize_chat_tool_token_share",
     "normalize_chat_tool_call_statistics",
     "normalize_chat_tool_call_latency",
+    "normalize_chat_tool_error_rate",
     "normalize_chat_tool_argument_schema",
     "normalize_chat_tool_timeout_rate",
+    "normalize_chat_turn_completion",
     "normalize_research_exact_duplicates",
     "normalize_research_answer_grounding",
+    "normalize_research_api_retry",
     "normalize_research_cache_input_token_ratio",
     "normalize_research_end_to_end_latency",
     "normalize_research_evidence",
@@ -294,6 +377,29 @@ __all__ = [
     "normalize_research_tool_token_share",
     "normalize_research_tool_call_statistics",
     "normalize_research_tool_call_latency",
+    "normalize_research_tool_error_rate",
     "normalize_research_tool_argument_schema",
     "normalize_research_tool_timeout_rate",
+    "CompactionEventDiagnostics",
+    "NormalizedCompactionEventTrace",
+    "normalize_chat_compaction_events",
+    "normalize_research_compaction_events",
+    "ContinuationRestartDiagnostics",
+    "NormalizedContinuationRestartTrace",
+    "normalize_chat_continuation_restart",
+    "normalize_research_continuation_restart",
+    "RECOVERY_SEMANTICS",
+    "ErrorRecoveryDiagnostics",
+    "NormalizedErrorRecoveryTrace",
+    "normalize_chat_error_recovery",
+    "normalize_research_error_recovery",
+    "normalize_research_turn_completion",
+    "LLM_ERROR_CLASSES",
+    "LLM_ERROR_CLASS_CATALOG_VERSION",
+    "LlmErrorDiagnostics",
+    "LlmErrorModelCount",
+    "LlmModelCallCount",
+    "NormalizedLlmErrorTrace",
+    "normalize_chat_llm_errors",
+    "normalize_research_llm_errors",
 ]
