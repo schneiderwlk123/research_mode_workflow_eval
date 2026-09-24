@@ -30,6 +30,21 @@ data/oss_jsonl/
 data/oss_salvage/
 *.zip
 
+# 一次性脚本与验算产物：实勘脚本可能硬编码真实 uid/清单路径，中间 CSV/JSONL
+# 含真实 log_id 与指标数值，一律不入库；需要长期保留的脚本请移到 scripts/。
+.tmp/
+
+# 驱动脚本的相对路径误用产生的嵌套数据目录，非正式产物。
+data/data/
+
+# 本机工具链配置：仅在本机有意义（MCP 端口、本地 agent 配置），入库会污染他人环境。
+.mcp.json
+.codex/
+
+# 评测体系的外部依据文档：篇幅大且属背景资料，只留本地参考。
+AI投研平台模型评测方案_v1.8.md
+Agent测评框架_wechat.md
+
 # pytest 因系统临时目录权限问题改用仓库内 basetemp，属临时产物。
 .pytest_tmp/
 
