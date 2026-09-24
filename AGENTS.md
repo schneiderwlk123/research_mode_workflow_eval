@@ -10,7 +10,7 @@ Every new session must restore project context before planning or editing. Read,
 4. `docs/arch/code-map.md`
 5. `初步入库评测指标.md`（根目录；评测指标的权威口径来源）
 
-Then read only the current task's relevant specification, tests, and metric section. Read `mcp_tool_manual.json` only when tool names, parameters, or schemas are needed. Inspect `git status` before editing, preserve unrelated user changes, and update `docs/PROJECT_STATUS.md` after a verified batch changes the milestone, next action, blockers, or verification baseline.
+Then read only the current task's relevant specification, tests, and metric section. Read `mcp_tool_manual.json` only when tool names, parameters, or schemas are needed. For operational work (log salvage, full wide-table recompute, report generation), read the matching manual under `docs/runbooks/` before running scripts. Inspect `git status` before editing, preserve unrelated user changes, and update `docs/PROJECT_STATUS.md` after a verified batch changes the milestone, next action, blockers, or verification baseline.
 
 ## Project Structure & Module Organization
 
