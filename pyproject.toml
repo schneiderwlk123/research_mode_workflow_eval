@@ -41,6 +41,12 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# 报告生成器的正文与样式都在 Python f-string 里拼 HTML/内联 CSS。HTML 属性、
+# CSS 规则和中文长句折行会破坏可读性,且该文件产出的是可视化工件而非库代码,
+# 因此只在这里放宽行长,其余规则照旧。
+".agents/skills/metric-report/scripts/generate_report.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
