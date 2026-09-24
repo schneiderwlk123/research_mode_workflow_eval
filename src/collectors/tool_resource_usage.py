@@ -1,9 +1,25 @@
-"""规范化聊天与研究模式的逐工具调用耗时和 Token 可观测性。"""
+"""规范化聊天与研究模式的逐工具调用耗时和 Token 可观测性。
+
+统计范围为全部业务工具类型(MCP、文件类、文档类、skill、task、run_code 等,
+不按 MCP 手册过滤;task 为研究侧子 Agent 委派,按 2026-09-21 需求方确认保留
+计入),仅排除两类非业务调用:
+
+- 聊天 `agentName` 结构化子 Agent 委派(无 toolId):排除并计入
+  `excluded_agent_delegation_count` 诊断(此前静默丢弃,2026-09-21 补齐计数)。
+- 聊天 `respond` Agent 返回(权威口径 1.1 归类 agent_return,大小写不敏感):
+  排除并计入 `excluded_agent_return_count` 诊断;其结果载荷不算孤立结果。
+  修复记录: 此前 respond 泄漏进 per_tool_call_latency_ms 聊天列(2026-09-17
+  样本 13 处),与 per_tool_call_tokens/max_tool_latency_share 口径不一致。
+"""
 
 import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Literal, TypedDict, TypeGuard
+
+# 结果侧 Agent 返回工具名(与 tool_call_statistics/tool_step_tokens 同一目录,
+# casefold 比较);研究模式无此结构,两个排除计数恒为 0。
+_CHAT_AGENT_RETURN_TOOL_NAMES = frozenset({"respond"})
 
 
 class NormalizedToolResourceCall(TypedDict):
@@ -26,6 +42,8 @@ class ToolResourceUsageDiagnostics(TypedDict):
     duplicate_observation_count: int
     orphan_result_count: int
     malformed_event_count: int
+    excluded_agent_delegation_count: int
+    excluded_agent_return_count: int
 
 
 class NormalizedToolResourceTrace(TypedDict):
@@ -65,6 +83,8 @@ def normalize_chat_tool_resource_usage(
     duplicate_count = 0
     orphan_count = 0
     malformed_count = 0
+    delegation_count = 0
+    excluded_return_ids: set[str] = set()
     error: str | None = None
 
     for raw_agent in agents:
@@ -104,6 +124,7 @@ def normalize_chat_tool_resource_usage(
                     call_id = _text(raw_call.get("toolId"))
                     tool_name = _text(raw_call.get("toolName"))
                     if call_id is None and tool_name is None and _text(raw_call.get("agentName")):
+                        delegation_count += 1
                         continue
                     if call_id is None:
                         return _empty(
@@ -113,6 +134,13 @@ def normalize_chat_tool_resource_usage(
                         return _empty(
                             "chat", trace_id, "missing_tool_name", malformed=malformed_count + 1
                         )
+                    if tool_name.casefold() in _CHAT_AGENT_RETURN_TOOL_NAMES:
+                        # respond 是 Agent 返回,不是业务工具;重复定义只计一次排除。
+                        if call_id in excluded_return_ids or call_id in definitions:
+                            duplicate_count += 1
+                        else:
+                            excluded_return_ids.add(call_id)
+                        continue
                     existing = definitions.get(call_id)
                     if existing is not None:
                         duplicate_count += 1
@@ -184,7 +212,12 @@ def normalize_chat_tool_resource_usage(
             missing_count += 1
         calls.append(_call(trace_id, "chat", call_id, tool_name, duration_ms, duration_error))
 
-    orphan_count = sum(len(values) for values in observations.values())
+    # 被排除 Agent 返回的结果载荷随调用一并排除,不算孤立结果。
+    orphan_count = sum(
+        len(values)
+        for call_id, values in observations.items()
+        if call_id not in excluded_return_ids
+    )
     if not calls and error is None:
         error = "no_tool_calls"
     return {
@@ -196,6 +229,8 @@ def normalize_chat_tool_resource_usage(
             "duplicate_observation_count": duplicate_count,
             "orphan_result_count": orphan_count,
             "malformed_event_count": malformed_count,
+            "excluded_agent_delegation_count": delegation_count,
+            "excluded_agent_return_count": len(excluded_return_ids),
         },
         "normalization_error": error,
     }
@@ -325,6 +360,8 @@ def normalize_research_tool_resource_usage(
             "duplicate_observation_count": duplicate_count,
             "orphan_result_count": 0,
             "malformed_event_count": malformed_count,
+            "excluded_agent_delegation_count": 0,
+            "excluded_agent_return_count": 0,
         },
         "normalization_error": error,
     }
@@ -368,6 +405,8 @@ def _empty(
             "duplicate_observation_count": duplicate,
             "orphan_result_count": 0,
             "malformed_event_count": malformed,
+            "excluded_agent_delegation_count": 0,
+            "excluded_agent_return_count": 0,
         },
         "normalization_error": error,
     }

@@ -22,7 +22,7 @@ def test_outputs_computed_partial_missing_and_local_error_items() -> None:
     )
 
     assert result.metric_name == "per_tool_call_latency_ms"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert json.loads(str(result.value)) == [
         {
@@ -84,6 +84,8 @@ def _trace(statistics: object, *, error: object = None) -> dict[str, object]:
             "duplicate_observation_count": 0,
             "orphan_result_count": 0,
             "malformed_event_count": 0,
+            "excluded_agent_delegation_count": 0,
+            "excluded_agent_return_count": 0,
         },
         "normalization_error": error,
     }

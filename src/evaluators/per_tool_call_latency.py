@@ -1,4 +1,11 @@
-"""计算单条 Trace 内逐工具平均执行时延。"""
+"""计算单条 Trace 内逐工具平均执行时延。
+
+1.1.0(2026-09-21): 聊天侧业务工具范围与权威口径 1.1 对齐——respond
+(agent_return)在上游逐调用规范化排除,不再泄漏进逐工具时延(修复前
+2026-09-17 样本聊天列 13 处);诊断新增 excluded_agent_delegation_count /
+excluded_agent_return_count。统计范围覆盖全部业务工具类型(MCP、文件类、
+skill、task 等),不按 MCP 手册过滤。
+"""
 
 import json
 from collections.abc import Mapping, Sequence
@@ -40,7 +47,7 @@ class PerToolCallLatencyEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -178,6 +185,8 @@ def _parse_trace(
         "duplicate_observation_count",
         "orphan_result_count",
         "malformed_event_count",
+        "excluded_agent_delegation_count",
+        "excluded_agent_return_count",
     ):
         value = _non_negative_int(raw_diagnostics.get(name))
         if value is None:

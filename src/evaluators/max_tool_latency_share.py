@@ -1,4 +1,9 @@
-"""计算累计执行耗时最高的业务工具占全部工具耗时的比例。"""
+"""计算累计执行耗时最高的业务工具占全部工具耗时的比例。
+
+1.1.0(2026-09-21): 聊天 respond 排除上移至上游逐调用规范化(本指标值不变,
+此前已在组合层排除);诊断新增 excluded_agent_delegation_count,
+excluded_agent_return_count 改为继承上游计数、组合层过滤仅作安全网。
+"""
 
 import json
 from collections.abc import Mapping, Sequence
@@ -33,7 +38,7 @@ class MaxToolLatencyShareEvaluator(BaseEvaluator):
 
     @property
     def evaluator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def evaluate(self, trace: Mapping[str, object]) -> EvaluationResult:
         parsed = _parse_trace(trace)
@@ -128,6 +133,7 @@ def _parse_trace(
         "duplicate_observation_count",
         "orphan_result_count",
         "malformed_event_count",
+        "excluded_agent_delegation_count",
         "excluded_agent_return_count",
     ):
         value = _non_negative_int(raw_diagnostics.get(name))

@@ -125,6 +125,42 @@ def test_invalid_duration_is_isolated_to_affected_tool() -> None:
     )
 
 
+def test_chat_excludes_respond_from_per_tool_statistics() -> None:
+    # 回归(2026-09-21): respond 曾泄漏进逐工具时延统计(宽表聊天列 13 处),
+    # 与 per_tool_call_tokens 的业务工具范围不一致;排除后不得出现在统计中,
+    # 且其耗时缺失不计入 missing 诊断。
+    trace = {
+        "canvas": {
+            "meta": {"traceId": "trace-1"},
+            "agents": [
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "tool_call": [
+                                    {"toolId": "c1", "toolName": "quote"},
+                                    {"toolId": "c2", "toolName": "respond"},
+                                ],
+                                "tool_result": [
+                                    {"toolId": "c1", "durationSeconds": 1},
+                                    {"toolId": "c2", "durationSeconds": 5},
+                                ],
+                            }
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+
+    normalized = normalize_chat_tool_call_latency(trace)
+
+    assert [item["tool_name"] for item in normalized["per_tool_statistics"]] == ["quote"]
+    assert normalized["diagnostics"]["excluded_agent_return_count"] == 1
+    assert normalized["diagnostics"]["duration_missing_count"] == 0
+    assert normalized["normalization_error"] is None
+
+
 def _research_event(
     call_id: str,
     tool_name: str,

@@ -63,9 +63,13 @@ def _combine(
         "duplicate_observation_count": trace["diagnostics"]["duplicate_observation_count"],
         "orphan_result_count": trace["diagnostics"]["orphan_result_count"],
         "malformed_event_count": trace["diagnostics"]["malformed_event_count"],
+        "excluded_agent_delegation_count": trace["diagnostics"]["excluded_agent_delegation_count"],
+        "excluded_agent_return_count": trace["diagnostics"]["excluded_agent_return_count"],
     }
     statistics = trace["per_tool_statistics"]
     if exclude_agent_returns:
+        # 上游逐调用规范化已排除 respond(2026-09-21 修复);此过滤为安全网,
+        # 命中数在上游计数上累加,正常情况下 excluded 为空。
         excluded = tuple(
             item
             for item in statistics
@@ -76,13 +80,11 @@ def _combine(
             for item in statistics
             if item["tool_name"].casefold() not in _CHAT_AGENT_RETURN_TOOL_NAMES
         )
-        diagnostics["excluded_agent_return_count"] = sum(item["call_count"] for item in excluded)
+        diagnostics["excluded_agent_return_count"] += sum(item["call_count"] for item in excluded)
         # 排除结果侧 Agent 后，缺失计数也必须使用相同业务工具范围。
         diagnostics["duration_missing_count"] -= sum(
             item["latency_missing_count"] for item in excluded
         )
-    else:
-        diagnostics["excluded_agent_return_count"] = 0
 
     source_error = trace["normalization_error"]
     if source_error is not None and source_error != "no_tool_calls":

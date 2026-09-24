@@ -12,7 +12,7 @@ def test_computes_share_and_preserves_all_tied_tool_names() -> None:
     )
 
     assert result.metric_name == "max_tool_latency_share"
-    assert result.evaluator_version == "1.0.0"
+    assert result.evaluator_version == "1.1.0"
     assert result.status is EvaluationStatus.COMPUTED
     assert json.loads(str(result.value)) == [
         {"tool_name": "excel", "max_tool_latency_share": pytest.approx(0.5)},
@@ -67,6 +67,7 @@ def _trace(
             "duplicate_observation_count": 0,
             "orphan_result_count": 0,
             "malformed_event_count": 0,
+            "excluded_agent_delegation_count": 0,
             "excluded_agent_return_count": 0,
         },
         "normalization_error": error,

@@ -29,6 +29,8 @@ class ToolCallLatencyDiagnostics(TypedDict):
     duplicate_observation_count: int
     orphan_result_count: int
     malformed_event_count: int
+    excluded_agent_delegation_count: int
+    excluded_agent_return_count: int
 
 
 class NormalizedToolCallLatencyTrace(TypedDict):
