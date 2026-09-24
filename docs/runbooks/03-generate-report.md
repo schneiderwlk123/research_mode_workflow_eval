@@ -35,10 +35,16 @@ C:\Users\EDY\anaconda3\python.exe -c "import matplotlib, numpy; print(matplotlib
 "C:/Users/EDY/anaconda3/python.exe" -X utf8 `
   .agents/skills/metric-report/scripts/generate_report.py `
   --csv data/processed/metric_table_full.csv `
-  --output reports/metric_report.html
+  --output reports/metric_report.html `
+  --data-range 20260915-20260922
 ```
 
 产出 `reports/metric_report.html`（gitignored），浏览器直接打开。
+
+**`--data-range` 必填**（2026-09-24 需求方要求）：报告表头必须标明本批次日志的数据
+日期区间，格式 `YYYYMMDD-YYYYMMDD`。宽表只有身份列 + 指标列、不存日期字段，无法从
+CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围显式传入。缺失或格式不符
+脚本会直接报错退出——**没有数据日期的报告不允许产出**。
 
 ## 报告结构
 
@@ -47,7 +53,7 @@ C:\Users\EDY\anaconda3\python.exe -c "import matplotlib, numpy; print(matplotlib
 | 0 | 样本与可计算性：日志总数 / 用户数 / 会话数 / 模式 + 逐指标可计算日志数表 |
 | 1 | 两版指标横向对比（保留 / 删除 / 新增）+ 新增指标的"含义与取值举例" |
 | 2 | 宽表指标统计总结：分位数表（p50~p99）+ 总 Token / 总时延四宫图 + 稳定性信号分布 |
-| 3 | 分布与排名：工具耗时、工具频率、模型层错误分类与路由、框架 API 重试归因 |
+| 3 | 分布与排名：工具耗时、工具频率、工具错误归因、模型层错误分类与路由、框架 API 重试归因 |
 | 4 | bad case 洞察：死亡日志 / 高危日志双主体归因 + 工具热点 + 步数分档风险曲线 |
 | 5 | Agent 迭代建议：止血 / 降本 / 提效三层，数字全部由脚本实时计算注入 |
 

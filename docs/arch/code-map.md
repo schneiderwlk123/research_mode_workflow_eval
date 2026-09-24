@@ -15,7 +15,18 @@
   标量/逐工具/JSON 标量列集分别由 `SCALAR_COLS` / `PER_TOOL_COLS` / `JSON_SCALAR` 定义，
   第 1 节列集演进与新增指标释义由 `EVOLUTION_*` / `ADDED_NOTES` 定义，模型错误分类由
   `LLM_ERROR_CLASS_CATALOG` 穷举（须与 `src/collectors/llm_error_count.py` 的
-  `_ERROR_CLASS_RULES_V1` 同步）；依赖 matplotlib/numpy，须用 anaconda python 运行。
+  `_ERROR_CLASS_RULES_V1` 同步）；3.3 节工具错误归因由
+  `build_tool_error_attribution_stats` / `chart_tool_error_attribution` /
+  `chart_tool_error_rate_and_matrix` 产出（归因分布 + 错误量、失败率 + 逐工具归因堆叠；
+  逐工具归因矩阵仅用"单工具失败"日志推导并在图下标注覆盖率），全部可由宽表实时重算
+  （曾有的 3.5.3「冻结抽样基线」静态 OSS 抽样段已按 2026-09-24 需求删除）；
+  2.3 稳定性表只展示命中数/占比/其中未闭环三个原始计数，不展示派生的死亡富集倍数
+  （该倍数仍作为内部排序/论证用于 4.2/5.1/3.4 的文字）；
+  高危口径阈值 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD` 须与
+  `.tmp/rebuild_badcase_sheet.py` 的同名常量一致；
+  必填参数 `--data-range YYYYMMDD-YYYYMMDD` 渲染进报告表头（宽表不存日期字段，
+  无法从 CSV 推导，缺失即报错退出）；
+  依赖 matplotlib/numpy，须用 anaconda python 运行。
 - `.cursor/rules/metric-calculability.mdc`：要求每个指标在编码和验收前分别说明聊天与研究
   模式的可计算性、缺失条件和稳定不可计算原因，禁止估算或静默省略模式。
 - `.env.example`：本地运行配置模板；Judge 使用 `JUDGE_API_URL`、`JUDGE_API_KEY` 和

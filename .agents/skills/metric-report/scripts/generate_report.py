@@ -8,7 +8,12 @@
   "C:/Users/EDY/anaconda3/python.exe" \
     .agents/skills/metric-report/scripts/generate_report.py \
     --csv data/processed/metric_table_full.csv \
-    --output reports/metric_report.html
+    --output reports/metric_report.html \
+    --data-range 20260915-20260922
+
+`--data-range` 为必填:报告表头必须标明本批次日志的数据日期区间(2026-09-24
+需求方要求)。宽表不存日期字段,无法从 CSV 推导,须由调用方按本次导出清单的
+实际日期范围传入;格式 `YYYYMMDD-YYYYMMDD`。
 
 输出:自包含 HTML(图表内嵌),无外部依赖,浏览器直接打开。
 """
@@ -54,8 +59,8 @@ SCALAR_COLS = [
 # 单元素 JSON 数组、但不作逐工具聚合也不作稳定性信号的列:只进第 0 节可计算性清单。
 # max_tool_* 两列虽含 tool_name,但每行只有一条记录,按工具聚合会退化成单点排名,
 # 故不进 PER_TOOL_COLS;它们是消耗/时延的集中度结论,不是稳定性信号,故不进 JSON_SCALAR。
-# api_retry_attribution 由第 3.4 节单独消费;tool_error_attribution 目前只进清单,
-# 尚未有专属展示节(见 SKILL.md「待补」)。
+# api_retry_attribution 由第 3.5 节单独消费;tool_error_attribution 由第 3.3 节
+# 单独消费(见 `chart_tool_error_attribution` / `chart_tool_error_rate_and_matrix`)。
 JSON_EXTRA_COLS = [
     "max_tool_token_share",
     "max_tool_latency_share",
@@ -77,6 +82,12 @@ JSON_SCALAR = {
     "error_recovery_rate": "error_recovered",
     "api_retry_rate": "api_retry_rate",
 }
+
+# 高危日志阈值(2026-09-24 需求方确认):闭环 ∧ (业务错误数 be>=3 ∨ 工具错误数 te>10)。
+# 与 `.tmp/rebuild_badcase_sheet.py` 的同名常量必须一致——报告与 bad case sheet
+# 的高危口径不允许分叉。改这里必须同步改那边(以及 SKILL.md 的「关键口径」)。
+HIGH_BE_THRESHOLD = 3
+HIGH_TOOL_ERROR_THRESHOLD = 10
 
 # 模型错误分类目录(llm_error_class_v1):分类图必须穷举这 6 类,零命中类也要列出。
 # 与 src/collectors/llm_error_count.py 的 _ERROR_CLASS_RULES_V1 同步;目录升版时同步此处。
@@ -579,29 +590,22 @@ def chart_tool_freq(presence: Counter, n_logs: int, top=15):
     return fig_to_b64(fig)
 
 
-def build_stability_signals(rows) -> list[tuple[str, int, str, int, float]]:
-    """稳定性维度信号:标签 + 命中日志数 + 定义与举例 + 命中中未闭环数 + 死亡富集倍数。
+def build_stability_signals(rows) -> list[tuple[str, int, str, int]]:
+    """稳定性维度信号:标签 + 命中日志数 + 定义与举例 + 命中中未闭环数。
 
-    返回五元组,按命中日志数从高到低排序;图表与下方表格共用这一份数据,
+    返回四元组,按命中日志数从高到低排序;图表与下方表格共用这一份数据,
     避免两处口径漂移。
-
-    死亡富集 = P(未闭环 | 命中该信号) ÷ P(未闭环 | 全样本)。频次排序会让
-    「上下文压缩>0」这类低发信号排到末位,而它恰是死亡判别力最强者(8.1x),
-    因此富集倍数必须与频次并列展示,否则读者会误把低频等同于低危。
 
     2026-09-24 需求方确认:API 重试信号改用 fingerprint_dup_v2 口径、阈值取
     p90≈0.15(旧 0.6 在新口径下几乎为 0,无判别力);并新增「API业务错误≥3」
-    信号(高消耗/死亡双重富集最强),与第 4 节高危口径(be≥3)对齐。
+    信号(高消耗/死亡双重富集最强),与第 4 节高危口径对齐——高危口径此后
+    扩展为 be≥3 ∨ te>10,本表的两个信号分行展示,不作高危险替代。
+    2026-09-24 后续需求:移除「死亡富集」倍数列(曾为第五元素),2.3 只保留
+    命中数与命中中未闭环数两个原始计数,不做派生倍数展示。
     """
-    # 基准行(未闭环)是其它信号的被解释变量,其自身富集恒为 1/基线、无信息量,
-    # 用占位符占住预测行位置但不算富集。
-    OUTCOME_LABEL = "日志未闭环"
-    base_death_rate = (
-        sum(1 for r in rows if r.get("turn_completion_rate") == "0") / len(rows) if rows else 0.0
-    )
     specs = [
         (
-            OUTCOME_LABEL,
+            "日志未闭环",
             lambda r: r.get("turn_completion_rate") == "0",
             "该日志没跑到终点。研究模式以 turn.end 事件为闭环锚点,缺 turn.end 即计入;"
             "聊天模式用回答是否存在做代理判定。例:一条日志调了 60 步工具后中断、"
@@ -647,26 +651,19 @@ def build_stability_signals(rows) -> list[tuple[str, int, str, int, float]]:
     for label, pred, desc in specs:
         hits = [r for r in rows if pred(r)]
         dead_hits = sum(1 for r in hits if r.get("turn_completion_rate") == "0")
-        if label == OUTCOME_LABEL:
-            # 被解释变量本身:富集无定义,置 None 由表格渲染为「—(基准)」
-            signals.append((label, len(hits), desc, dead_hits, None))
-            continue
-        rate = dead_hits / len(hits) if hits else 0.0
-        enrichment = rate / base_death_rate if base_death_rate else 0.0
-        signals.append((label, len(hits), desc, dead_hits, enrichment))
+        signals.append((label, len(hits), desc, dead_hits))
     signals.sort(key=lambda item: -item[1])
     return signals
 
 
 def chart_stability_dist(signals, n: int) -> str:
-    """稳定性信号频次条形图,条尾同时标注死亡富集倍数。
+    """稳定性信号频次条形图,条尾标注命中数与占比。
 
-    排序仍按频次(读者习惯),但条尾必须带富集倍数:否则「上下文压缩>0」这类
-    低频信号会被误读为低危,而它恰是死亡判别力最强的一项。
+    排序按频次(读者习惯)。2026-09-24 后续需求移除了条尾的死亡富集倍数标注,
+    本图只呈现原始计数,派生倍数不在 2.3 展示。
     """
     labels = [s[0] for s in signals]
     counts = [s[1] for s in signals]
-    enrich = [s[4] for s in signals]
     fig, ax = plt.subplots(figsize=(7.6, 3.4))
     y = range(len(labels))
     ax.barh(
@@ -677,10 +674,8 @@ def chart_stability_dist(signals, n: int) -> str:
     ax.invert_yaxis()
     # 参考 3.1:数值标签放条尾、不加白底,靠 xlim 留白避免文字压柱/压轴标签
     ax.set_xlim(0, max(counts) * 1.75 if max(counts) else 1)
-    for yi, c, e in zip(y, counts, enrich):
-        # 基准行(日志未闭环)自身不能对自己算富集,条尾只标频次
-        tail = f" {c:,} ({c / n:.1%})" if e is None else f" {c:,} ({c / n:.1%}) · 死亡{e:.1f}x"
-        ax.text(c, yi, tail, va="center", ha="left", fontsize=9)
+    for yi, c in zip(y, counts):
+        ax.text(c, yi, f" {c:,} ({c / n:.1%})", va="center", ha="left", fontsize=9)
     ax.set_xlabel("日志数", fontsize=11)
     ax.set_title(f"稳定性维度信号分布(全量 {n:,} 条日志，按频次降序)", fontsize=12, pad=12)
     return fig_to_b64(fig)
@@ -801,7 +796,7 @@ def build_api_retry_stats(rows):
 
 
 def chart_api_retry(rows) -> tuple[str, str]:
-    """3.4 图:框架层重试按工具 / 按接口双栏;返回 (图, 洞察文字 HTML)。"""
+    """3.5 图:框架层重试按工具 / 按接口双栏;返回 (图, 洞察文字 HTML)。"""
     rates, zero, rtool, rep, ras, tot = build_api_retry_stats(rows)
 
     def _p(vals, p):
@@ -849,7 +844,7 @@ def chart_api_retry(rows) -> tuple[str, str]:
     _panel(
         (0.16, 0.47), tool_items, "#d32f2f", "重复请求数", f"框架层重试按工具 Top{len(tool_items)}"
     )
-    # 接口名过长会与左栏标签相压,y 轴只显示末段;全路径见 3.4 文字
+    # 接口名过长会与左栏标签相压,y 轴只显示末段;全路径见 3.5 文字
     ep_disp = [(e.split("/")[-1], c) for e, c in ep_items]
     _panel((0.64, 1.0), ep_disp, "#1565c0", "重复请求数", f"框架层重试按接口 Top{len(ep_disp)}")
 
@@ -865,6 +860,250 @@ p99={_p(rates, 0.99):.4f}。</p>
 占 {ep_items[0][1] / tot:.1%}。治理优先级:先修框架"成功后仍重发",再治该接口的
 路径失效(业务错误 11410)。</p>"""
     return fig_to_b64(fig), text
+
+
+# 工具错误归因的固定类目顺序与配色(与 tool_error_rate 归因目录 v1 对齐;
+# unclassified 刻意用中性灰,提醒读者它是"目录没覆盖"而非"已识别的某类")。
+_TOOL_ERR_ATTR_ORDER = (
+    "model_misuse",
+    "unclassified",
+    "infrastructure_failure",
+    "data_availability",
+)
+_TOOL_ERR_ATTR_COLORS = {
+    "model_misuse": "#d32f2f",
+    "unclassified": "#9e9e9e",
+    "infrastructure_failure": "#1565c0",
+    "data_availability": "#2e7d32",
+}
+
+
+def build_tool_error_attribution_stats(rows) -> dict:
+    """从宽表 `tool_error_attribution` 聚合工具错误归因,供 3.3 节图表与文案。
+
+    全部取自宽表单元格,零回源。返回:
+      att            全量归因计数(by_attribution,所有有错行)
+      bt             全量逐工具错误计数(by_tool,所有有错行)
+      total          错误总次数
+      logs_with_err  有工具错误的日志数
+      terminal       工具调用终态总数(错误率分母,取自 tool_error_rate)
+      presence       各工具"出现日志数"(失败率分母,取自 per_tool_call_latency_ms)
+      err_logs       各工具"出错日志数"(失败率分子)
+      per_tool_attr  逐工具归因矩阵——仅用"单工具失败"的日志推导(该日志 by_tool
+                     恰 1 个工具时 by_attribution 可无歧义归给该工具);多工具混失败
+                     的行不计入,故这是代理值,coverage_single 标注其覆盖的错误质量占比
+      coverage_single 单工具推导覆盖的错误次数 / total
+      storm_logs     错误次数>=10 的日志数;storm_share 其承担的错误占比
+    """
+    att: Counter = Counter()
+    bt: Counter = Counter()
+    presence: Counter = Counter()
+    err_logs: Counter = Counter()
+    per_tool_attr: dict = defaultdict(Counter)
+    total = 0
+    logs_with_err = 0
+    terminal = 0
+    single_mass = 0
+    storm_logs = 0
+    storm_mass = 0
+    for r in rows:
+        p = _j(r, "per_tool_call_latency_ms")
+        if isinstance(p, list):
+            for o in p:
+                if isinstance(o, dict) and isinstance(o.get("tool_name"), str):
+                    presence[o["tool_name"]] += 1
+        te = _j(r, "tool_error_rate")
+        if isinstance(te, list) and te and isinstance(te[0], dict):
+            terminal += te[0].get("terminal_call_count", 0) or 0
+        a = _j(r, "tool_error_attribution")
+        if not (isinstance(a, list) and a and isinstance(a[0], dict)):
+            continue
+        logs_with_err += 1
+        tools = [t for t in (a[0].get("by_tool") or []) if isinstance(t, dict)]
+        attrs = [x for x in (a[0].get("by_attribution") or []) if isinstance(x, dict)]
+        row_total = sum(int(t.get("count", 0)) for t in tools)
+        total += row_total
+        if row_total >= 10:
+            storm_logs += 1
+            storm_mass += row_total
+        for t in tools:
+            bt[str(t.get("name") or "?")] += int(t.get("count", 0))
+            err_logs[str(t.get("name") or "?")] += 1
+        for x in attrs:
+            att[str(x.get("name") or "?")] += int(x.get("count", 0))
+        if len(tools) == 1:
+            name = str(tools[0].get("name") or "?")
+            single_mass += int(tools[0].get("count", 0))
+            for x in attrs:
+                per_tool_attr[name][str(x.get("name") or "?")] += int(x.get("count", 0))
+    return {
+        "att": att,
+        "bt": bt,
+        "total": total,
+        "logs_with_err": logs_with_err,
+        "terminal": terminal,
+        "presence": presence,
+        "err_logs": err_logs,
+        "per_tool_attr": per_tool_attr,
+        "coverage_single": (single_mass / total) if total else 0.0,
+        "storm_logs": storm_logs,
+        "storm_share": (storm_mass / total) if total else 0.0,
+    }
+
+
+def chart_tool_error_attribution(rows) -> tuple[str, str, str]:
+    """3.3 图一:归因分布 + 工具错误量 Top10 双栏;返回 (图, 分布文字, 洞察文字)。"""
+    s = build_tool_error_attribution_stats(rows)
+    att, bt, total = s["att"], s["bt"], s["total"]
+    att_items = [(k, att.get(k, 0)) for k in _TOOL_ERR_ATTR_ORDER]
+    tool_items = bt.most_common(10)
+
+    row_in = 0.34
+    rows_n = max(len(att_items), len(tool_items), 1)
+    fig_h = rows_n * row_in + 1.5
+    fig = plt.figure(figsize=(12.6, fig_h))
+    top = 1 - 0.70 / fig_h
+
+    def _panel(rect, items, colors, xlabel, title, fmt):
+        height = len(items) * row_in / fig_h
+        ax = fig.add_axes([rect[0], top - height, rect[1] - rect[0], height])
+        y = list(range(len(items)))
+        vals = [c for _, c in items]
+        ax.barh(y, vals, color=colors, alpha=0.9, height=0.72, edgecolor="#455a64", linewidth=0.6)
+        ax.set_yticks(y)
+        ax.set_yticklabels([n for n, _ in items], fontsize=9.5)
+        ax.invert_yaxis()
+        ax.set_xlim(0, max(vals) * 1.5 if max(vals) else 1)
+        ax.set_xlabel(xlabel, fontsize=10.5)
+        ax.set_title(title, fontsize=12, pad=10)
+        for yi, v in zip(y, vals):
+            ax.text(v, yi, fmt(v), va="center", ha="left", fontsize=9.5)
+        ax.tick_params(axis="x", labelsize=9.5)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    _panel(
+        (0.16, 0.47),
+        att_items,
+        [_TOOL_ERR_ATTR_COLORS.get(k, "#757575") for k, _ in att_items],
+        "错误次数",
+        "归因分布(全量)",
+        lambda v: f"  {v:,} ({v / total:.0%})" if total else f"  {v:,}",
+    )
+    _panel((0.64, 1.0), tool_items, "#8e24aa", "错误次数", f"工具错误量 Top{len(tool_items)}",
+           lambda v: f"  {v:,} ({v / total:.0%})" if total else f"  {v:,}")
+
+    top3 = sum(c for _, c in bt.most_common(3))
+    top5 = sum(c for _, c in bt.most_common(5))
+    dist = f"""<p>全量 <b>{total:,}</b> 次工具错误分布在 <b>{len(bt)}</b> 种工具上,
+    有错误的日志 {s['logs_with_err']:,} / {len(rows):,} =
+    <b>{s['logs_with_err'] / len(rows):.1%}</b>;微平均错误率
+    <b>{total / s['terminal']:.2%}</b>(分母=工具调用终态 {s['terminal']:,})。
+    归因四类:model_misuse {att.get('model_misuse', 0):,}
+    ({att.get('model_misuse', 0) / total:.1%})、unclassified {att.get('unclassified', 0):,}
+    ({att.get('unclassified', 0) / total:.1%})、infrastructure
+    {att.get('infrastructure_failure', 0):,}、data_availability
+    {att.get('data_availability', 0):,}。</p>"""
+    insight = f"""<p><b>关键洞察一:错误高度集中,治理应按"量"派单。</b>Top1
+    ({tool_items[0][0] if tool_items else '—'}) 占 {tool_items[0][1] / total:.1%}、Top3 占
+    {top3 / total:.1%}、Top5 占 {top5 / total:.1%};错误数≥10 的"风暴日志"仅
+    {s['storm_logs']:,} 条(占全量 {s['storm_logs'] / len(rows):.1%})却承担
+    <b>{s['storm_share']:.1%}</b> 的错误——优先人工复查这 {s['storm_logs']:,} 条,
+    比全量治理效率高一个量级。</p>
+    <p><b>关键洞察二:{att.get('unclassified', 0) / total:.0%} 的 unclassified 表示归因目录
+    v1 未命中这些错误文本。</b>unclassified 是"目录没匹配上"的定义性结果,不等于原因不明;
+    补齐目录即可把这部分还原为可派单的类别,当前 model_misuse 占比因此可能被低估。
+    右图(逐工具归因矩阵)显示未归类集中在 excel / cp / read / scheduler_task,
+    而 write / grep / word 以 model_misuse 为主——两类工具的治理手段完全不同。</p>"""
+    return fig_to_b64(fig), dist, insight
+
+
+def chart_tool_error_rate_and_matrix(rows) -> tuple[str, str]:
+    """3.3 图二:工具失败率 Top10 + 逐工具归因堆叠;返回 (图, 文字)。
+
+    失败率 = 出错日志数 ÷ 出现该工具的日志数,与"错误量"是两个维度:量看治理优先级,
+    率看"这个工具多容易坏"。逐工具归因矩阵仅用单工具失败日志推导(见
+    build_tool_error_attribution_stats 的 coverage_single),多工具混失败行不计入。
+    """
+    s = build_tool_error_attribution_stats(rows)
+    presence, err_logs, bt = s["presence"], s["err_logs"], s["bt"]
+    per_tool_attr = s["per_tool_attr"]
+
+    rate_items = []
+    for tool, p in presence.items():
+        if p < 50:
+            continue
+        e = err_logs.get(tool, 0)
+        if e:
+            rate_items.append((tool, e / p))
+    rate_items.sort(key=lambda x: -x[1])
+    rate_items = rate_items[:10]
+
+    # 堆叠图取错误量 Top8,保证与"量"排名同序、便于交叉阅读
+    stack_tools = [t for t, _ in bt.most_common(8)]
+
+    row_in = 0.34
+    rows_n = max(len(rate_items), len(stack_tools), 1)
+    fig_h = rows_n * row_in + 1.5
+    fig = plt.figure(figsize=(12.6, fig_h))
+    top = 1 - 0.70 / fig_h
+
+    # 左:失败率
+    h1 = len(rate_items) * row_in / fig_h
+    ax = fig.add_axes([0.16, top - h1, 0.31, h1])
+    y = list(range(len(rate_items)))
+    vals = [r for _, r in rate_items]
+    ax.barh(y, vals, color="#f57c00", alpha=0.9, height=0.72, edgecolor="#455a64", linewidth=0.6)
+    ax.set_yticks(y)
+    ax.set_yticklabels([n for n, _ in rate_items], fontsize=9.5)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max(vals) * 1.4 if vals else 1)
+    ax.set_xlabel("失败率(出错日志/出现日志)", fontsize=10)
+    ax.set_title(f"工具失败率 Top{len(rate_items)}(出现≥50 日志)", fontsize=11.5, pad=10)
+    for yi, v in zip(y, vals):
+        ax.text(v, yi, f"  {v:.0%}", va="center", ha="left", fontsize=9.5)
+    ax.tick_params(axis="x", labelsize=9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # 右:逐工具归因堆叠(单工具日志推导)
+    h2 = len(stack_tools) * row_in / fig_h
+    ax2 = fig.add_axes([0.62, top - h2, 0.36, h2])
+    y2 = list(range(len(stack_tools)))
+    left = [0.0] * len(stack_tools)
+    for cat in _TOOL_ERR_ATTR_ORDER:
+        widths = []
+        for i, t in enumerate(stack_tools):
+            tot_t = sum(per_tool_attr[t].values()) or 1
+            widths.append(per_tool_attr[t].get(cat, 0) / tot_t)
+        ax2.barh(y2, widths, left=left, color=_TOOL_ERR_ATTR_COLORS[cat], alpha=0.9,
+                 height=0.72, edgecolor="#455a64", linewidth=0.6, label=cat)
+        left = [a + b for a, b in zip(left, widths)]
+    ax2.set_yticks(y2)
+    ax2.set_yticklabels(stack_tools, fontsize=9.5)
+    ax2.invert_yaxis()
+    ax2.set_xlim(0, 1)
+    ax2.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
+    ax2.set_xticklabels(["0%", "25%", "50%", "75%", "100%"], fontsize=9)
+    ax2.set_xlabel("归因构成占比(单工具失败日志推导)", fontsize=10)
+    ax2.set_title(f"逐工具归因矩阵 Top{len(stack_tools)}(按错误量)", fontsize=11.5, pad=10)
+    # 图例放整张图下方横排:堆叠条本身是满宽的,放图内任何位置都会压住条体
+    ax2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.30), ncol=4, frameon=False, fontsize=8.5)
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
+
+    txt = f"""<p><b>"量"与"率"分歧本身是洞察。</b>grep / word 是"又常用又爱坏"
+    (量、率双高);read 用量最大({presence.get('read', 0):,} 条日志)但失败率仅
+    {err_logs.get('read', 0) / presence['read']:.1%},很稳;scheduler_task 失败率
+    {err_logs.get('scheduler_task', 0) / presence['scheduler_task']:.1%} 却 0% 致死、
+    Token 极小,属低危害噪声。三者应用不同策略:grep/word 修行为、read 不必动、
+    scheduler_task 先补归因目录再谈治理。右图显示 excel / cp / read / scheduler_task
+    的错误几乎全落在 unclassified(目录盲区),而 write / grep / word 以 model_misuse
+    为主(可修的行为问题)。</p>
+    <p class="note">逐工具归因矩阵由"单工具失败"日志推导,覆盖
+    {s['coverage_single']:.1%} 的错误质量;多工具混失败的行未计入,故为代理值。
+    by_tool 的错误总量({s['total']:,})是全量精确值。</p>"""
+    return fig_to_b64(fig), txt
 
 
 def build_llm_error_stats(rows):
@@ -968,7 +1207,27 @@ def main() -> None:
     ap.add_argument("--csv", type=Path, default=Path("data/processed/metric_table_full.csv"))
     ap.add_argument("--output", type=Path, default=Path("reports/metric_report.html"))
     ap.add_argument("--title", default="研究模式指标宽表分析报告")
+    # 数据日期区间(必填):2026-09-24 需求方要求每份报告的表头都必须标明本批次
+    # 日志的数据日期,否则读者无法判断这份统计对应哪段时间。宽表本身不存日期字段
+    # (只有 user_id/session_id/log_id/mode + 指标列),无法从 CSV 自动推导,
+    # 故由调用方按本次导出清单的日期范围显式传入。格式约定 `YYYYMMDD-YYYYMMDD`。
+    ap.add_argument(
+        "--data-range",
+        required=True,
+        help="本次统计覆盖的日志数据日期区间,格式 YYYYMMDD-YYYYMMDD(如 20260915-20260922)",
+    )
     args = ap.parse_args()
+
+    data_range = args.data_range.strip()
+    if not data_range:
+        ap.error("--data-range 不能为空;表头必须标明数据日期")
+    # 宽松校验:只拦明显不是区间串的输入,不强制 8 位数字(调研批次可能带后缀)
+    if not re.fullmatch(r"[0-9]{8}\s*[-~—]\s*[0-9]{8}", data_range):
+        ap.error(
+            f"--data-range 格式应为 YYYYMMDD-YYYYMMDD,收到 {data_range!r};"
+            "如确需非常规区间请改脚本校验并在此说明理由"
+        )
+    data_range_disp = re.sub(r"\s*[-~—]\s*", "-", data_range)
 
     rows = load_rows(args.csv)
     n = len(rows)
@@ -1035,15 +1294,34 @@ def main() -> None:
 
     # ---- 洞察计算(第 4/5 节) ----
     dead = [r for r in rows if r.get("turn_completion_rate") == "0"]
-    # 高危日志口径(2026-09-24 修订): 闭环 ∧ API业务错误数 be>=3。
-    # 富集分析显示 be>=3 对高消耗(3.6x)与死亡(2.4x)双重富集最强;新口径 rate 对
-    # 死亡无判别力(1.2x),且 be>=3∧rate 反而削弱信号,故弃用旧"压缩>0∨重试>0.6"。
+    # 高危日志口径(2026-09-24 二次修订): 闭环 ∧ (API业务错误数 be>=3 ∨ 工具错误数 te>10)。
+    # be>=3 由富集分析确认对高消耗(3.6x)与死亡(2.4x)双重富集最强;新口径 rate 对死亡
+    # 无判别力(1.2x),且 be>=3∧rate 反而削弱信号,故弃用旧"压缩>0∨重试>0.6"。
+    # te>10 为同日追加:该分支单独多收 17 条闭环日志(中位 19.1M Token = 全样本 11.8x),
+    # 其中 15 条不同时满足 be>=3,属"错得多且特别贵"的另一类消耗主体,原口径完全漏掉。
+    # 两条件按 log_id 取并集(同一日志只计一次),与 bad case sheet 口径一致。
     high = [
         r
         for r in rows
         if r.get("turn_completion_rate") == "1"
-        and jnum(r, "api_retry_rate", "api_business_error_count") >= 3
+        and (
+            jnum(r, "api_retry_rate", "api_business_error_count") >= HIGH_BE_THRESHOLD
+            or jnum(r, "tool_error_rate", "error_call_count") > HIGH_TOOL_ERROR_THRESHOLD
+        )
     ]
+    # 高危构成拆分:用于 4.2 说明"两个条件各自收到什么",避免读者以为只有一类。
+    high_only_be = [
+        r
+        for r in high
+        if jnum(r, "api_retry_rate", "api_business_error_count") >= HIGH_BE_THRESHOLD
+        and jnum(r, "tool_error_rate", "error_call_count") <= HIGH_TOOL_ERROR_THRESHOLD
+    ]
+    high_only_te = [
+        r
+        for r in high
+        if jnum(r, "api_retry_rate", "api_business_error_count") < HIGH_BE_THRESHOLD
+    ]
+    high_both = len(high) - len(high_only_be) - len(high_only_te)
     high_be = len(high)
     dead_te = sum(1 for r in dead if jnum(r, "tool_error_rate", "error_call_count") > 0)
     dead_none = sum(
@@ -1070,7 +1348,7 @@ def main() -> None:
 
     _median_all = med_tok(rows)
 
-    # 框架层重试"前置成功仍重发"占比(5.2 文案用),与 3.4 同源
+    # 框架层重试"前置成功仍重发"占比(5.2 文案用),与 3.5 同源
     _rates, _zero, _rtool, _rep, _ras, _tot = build_api_retry_stats(rows)
     ras_pct = f"{_ras / _tot:.1%}" if _tot else "—"
     _top_rep = _rep.most_common(1)[0] if _rep else ("—", 0)
@@ -1210,7 +1488,7 @@ def main() -> None:
     llm_hit = sum(1 for r in rows if jnum(r, "llm_error_count", "llm_error_count") > 0)
     llm_dead_rate = llm_dead / llm_hit if llm_hit else 0.0
     llm_enrich = llm_dead_rate / base_death_rate if base_death_rate else 0.0
-    # 模型错误的第一大分类(报告 3.3 的主导类目),用于说明"占比高 ≠ 危险"
+    # 模型错误的第一大分类(报告 3.4 的主导类目),用于说明"占比高 ≠ 危险"
     _llm_classes, _, _, _ = build_llm_error_stats(rows)
     _top_llm_class = _llm_classes.most_common(1)[0] if _llm_classes else ("—", 0)
     _llm_total = sum(_llm_classes.values())
@@ -1219,6 +1497,34 @@ def main() -> None:
     te_total = sum(jnum(r, "tool_error_rate", "error_call_count") for r in rows)
     te_uncls = sum(jnum(r, "tool_error_rate", "unclassified_error_count") for r in rows)
     te_misuse = sum(jnum(r, "tool_error_rate", "model_misuse_error_count") for r in rows)
+
+    # 3.3 节工具错误归因:第 5 节建议直接引用这里的集中度与失败率,单一事实来源
+    te_stats = build_tool_error_attribution_stats(rows)
+    _te_bt = te_stats["bt"]
+    _te_top = _te_bt.most_common(5)
+    te_top_tool, te_top_cnt = _te_top[0] if _te_top else ("—", 0)
+    te_top_share = _ratio(te_top_cnt, te_stats["total"])
+    te_top5_share = _ratio(sum(c for _, c in _te_top), te_stats["total"])
+    # 失败率(出错日志数 ÷ 出现日志数)Top3,只取样本量够的工具
+    _te_rate = []
+    for _t, _p in te_stats["presence"].items():
+        if _p < 50:
+            continue
+        _e = te_stats["err_logs"].get(_t, 0)
+        if _e:
+            _te_rate.append((_t, _e / _p))
+    _te_rate.sort(key=lambda x: -x[1])
+    te_rate_note = "、".join(f"{t} {r:.0%}" for t, r in _te_rate[:3]) or "—"
+    # 归因最集中的工具(错误量 Top3 各自的首要归因),用于说明两类工具病灶不同
+    _te_mix = []
+    for _t, _c in _te_top[:3]:
+        _d = te_stats["per_tool_attr"].get(_t) or {}
+        _tot_t = sum(_d.values()) or 1
+        _top_attr = max(_d.items(), key=lambda kv: kv[1])[0] if _d else "—"
+        _te_mix.append((_t, _top_attr, _d.get(_top_attr, 0) / _tot_t))
+    # 错误最集中的"风暴日志"(单日志错误数≥10)数量与占比,供 5.1/5.2 引用
+    _te_storm_logs = te_stats["storm_logs"]
+    _te_storm_share = te_stats["storm_share"]
 
     # 死亡富集最高的工具:5.1 的加固清单按实测富集选,不写死工具名
     _dead_set = {r["log_id"] for r in dead}
@@ -1312,10 +1618,11 @@ def main() -> None:
 </ul>
 
 <h3>4.2 消耗主体:高危日志(有产出但消耗严重)</h3>
-<p>闭环但 <b>API 业务错误数 be≥3</b> 的日志共 <b>{high_be} 条</b>。它们是"磨了很久才出来"的日志。</p>
+<p>闭环且命中 <b>业务错误数 be≥{HIGH_BE_THRESHOLD}</b> 或 <b>工具错误数 te&gt;{HIGH_TOOL_ERROR_THRESHOLD}</b> 的日志共 <b>{high_be} 条</b>。它们是"磨了很久才出来"的日志。</p>
 <ul>
 <li><b>成本富集</b>:高危日志中位单条 {med_tok(high) / 1e6:.1f}M Token,是全局中位的 <b>{med_tok(high) / _median_all:.1f}x</b>,{high_be / n:.1%} 的日志数吃掉 {high_tok / total_tok:.1%} 的总 Token。</li>
-<li><b>为何选 be≥3</b>:富集分析显示 be≥3 对高消耗(3.6x)与死亡(2.4x)双重富集最强;而新口径重试率对死亡仅 1.2x、且 be≥3∧rate 反而把死亡富集打到 0.4x,故率不宜作门槛(详见 3.4)。</li>
+<li><b>两个条件各收到什么</b>:仅 be≥{HIGH_BE_THRESHOLD} 的 {len(high_only_be)} 条(反复撞同一接口/路径)、仅 te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 的 {len(high_only_te)} 条(坏在多个不同工具上)、两者同时命中 {high_both} 条。后一类只占 {len(high_only_te) / n:.1%} 的日志数但中位单条 {med_tok(high_only_te) / 1e6:.1f}M Token,单看工具错误数就能捞出这批原口径漏掉的贵日志。</li>
+<li><b>为何是这两个条件</b>:富集分析显示 be≥{HIGH_BE_THRESHOLD} 对高消耗(3.6x)与死亡(2.4x)双重富集最强;而重试率对死亡仅 1.2x、且 be≥{HIGH_BE_THRESHOLD}∧rate 反而把死亡富集打到 0.4x,故率不宜作门槛(详见 3.5)。te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 补的是"错误分散在多个工具、但每条都不重"的场景,be≥{HIGH_BE_THRESHOLD} 抓不到。</li>
 <li><b>与死亡日志几乎不重叠</b>:两者是独立的两类问题——一个"坏了",一个"贵了",打捞策略应分开。</li>
 </ul>
 
@@ -1350,10 +1657,12 @@ def main() -> None:
 </ul>
 
 <h3>5.2 降本：管住"跑完了但特别贵"的日志</h3>
-<p>另一类问题日志是<b>跑完了、但过程反复撞错</b>（闭环且 API 业务错误 ≥3 次）的 {high_be} 条：只占 {high_be / n:.1%} 的日志数，却吃掉 {high_tok / total_tok:.1%} 的总 Token，并承接全样本 {be_retry_share:.1%} 的框架层重复与 {be_err_share:.1%} 的业务错误。它和 5.1 是两回事，分开治。</p>
+<p>另一类问题日志是<b>跑完了、但过程中反复出错</b>（闭环且命中业务错误 ≥{HIGH_BE_THRESHOLD} 次或工具错误 &gt;{HIGH_TOOL_ERROR_THRESHOLD} 次）的 {high_be} 条：只占 {high_be / n:.1%} 的日志数，却吃掉 {high_tok / total_tok:.1%} 的总 Token，并承接全样本 {be_retry_share:.1%} 的框架层重复与 {be_err_share:.1%} 的业务错误。它和 5.1 是两回事，分开治。</p>
 <ul>
-<li><b>对同一个死路径反复问</b>：这类日志撞的墙集中在接口 {top_rep_name}（框架层重复 {top_rep_cnt:,} 次，见 3.4），典型情况是拿一个已删除的路径反复查询（业务错误码 11410）。做法：工具返回里直接写明"该路径不存在，无需重试"，或提示模型"同一报错连出现 2 次就换思路"，避免对死路径空转。</li>
-<li><b>框架自己在重复发请求</b>：框架层重复请求共 {_tot:,} 次，其中 {ras_pct} 是"上一次明明已经成功，框架又原样发了一遍"（见 3.4）。这是框架重试判断的缺陷，不是模型问题，修框架侧的判定就能直接省下这部分调用。</li>
+<li><b>对同一个死路径反复问</b>：这类日志撞的墙集中在接口 {top_rep_name}（框架层重复 {top_rep_cnt:,} 次，见 3.5），典型情况是拿一个已删除的路径反复查询（业务错误码 11410）。做法：工具返回里直接写明"该路径不存在，无需重试"，或提示模型"同一报错连出现 2 次就换思路"，避免对死路径空转。</li>
+<li><b>框架自己在重复发请求</b>：框架层重复请求共 {_tot:,} 次，其中 {ras_pct} 是"上一次明明已经成功，框架又原样发了一遍"（见 3.5）。这是框架重试判断的缺陷，不是模型问题，修框架侧的判定就能直接省下这部分调用。</li>
+<li><b>先修最高频的坏工具，别平均用力</b>：全样本 {te_stats["total"]:,} 次工具错误里，单个 <b>{te_top_tool}</b> 就占 <b>{te_top_share:.1%}</b>，前五名工具合计 {te_top5_share:.1%}（见 3.3）；按失败率看最易坏的是 {te_rate_note}。做法：把改造资源先压到这几个工具上——它们的错误多属模型用法/参数问题（{_te_mix[0][0] if _te_mix else '—'} 的错误 {_te_mix[0][2]:.0%} 是 {_te_mix[0][1] if _te_mix else '—'}），改提示词与参数约束即可见效，不必等框架层重构。</li>
+<li><b>风暴日志优先人工复查</b>：错误数≥10 的日志仅 {_te_storm_logs:,} 条（占全量 {_te_storm_logs / n:.1%}），却承担全样本 <b>{_te_storm_share:.1%}</b> 的工具错误——它们是"对同一面墙反复撞"的重灾区。先看这 {_te_storm_logs:,} 条，比全量铺开排查效率高一个量级。</li>
 <li><b>把工具错误归因补齐</b>：全样本 {te_total:,} 次工具错误里，<b>{te_uncls:,} 次（{_ratio(te_uncls, te_total):.0%}）落在 unclassified</b>，只有 {_ratio(te_misuse, te_total):.0%} 被明确归到模型误用。归因不明的错误无法派单修复，建议先扩充归因目录覆盖、把 unclassified 占比压下去——这是工具侧所有改进的前置条件。</li>
 <li><b>上下文越滚越大</b>：本样本平均每次工具调用摊 <b>{per_call_token / 1e6:.1f}M Token</b>，调用步数与总 Token 的相关性达 {corr_tc_tok:.2f}——调得越多，每轮要重读的历史就越长。做法：大的工具结果不要整段塞回上下文，改为写进工作区，上下文里只留一句摘要加编号，需要时再按编号读取；上下文减半，循环成本近似减半。</li>
 <li><b>子任务在排队</b>：task（委派子 Agent）平均单次 {task_mean_s:.0f} 秒，累计约 {task_total_h:.0f} 小时，是时延里最大的一块。互不依赖的子任务应当同时派发、并行执行，而不是一个做完再做下一个；在"每次调用约 {per_call_lat_s:.0f} 秒"的串行结构下，并行是唯一能把时延降一个量级的办法。</li>
@@ -1400,12 +1709,15 @@ def main() -> None:
         f"({llm_dead_rate:.1%}),而未闭环基线是 {base_death_rate:.1%}"
         f"(富集 {llm_enrich:.1f}x,低于基线)。也就是说本节的高频类目"
         "主要反映<b>成本</b>(错误后重试多花的 Token),已由框架重试兜住,"
-        "不构成'日志跑不完'的成因;排查稳定性问题请优先看 2.3 的死亡富集列。"
+        "不构成'日志跑不完'的主因。"
         "这与分类出现次数是两回事,不要按错误数排修复优先级。</p>"
     )
     llm_error_img, llm_error_table, llm_error_note = chart_llm_error(rows, llm_extra_note)
     # API 重试(fingerprint_dup_v2):归因双栏图 + 洞察文字
     api_retry_img, api_retry_text = chart_api_retry(rows)
+    # 工具错误归因(3.3):分布/量双栏图 + 失败率/归因矩阵图 + 各自文字
+    te_attr_img, te_dist_txt, te_insight_txt = chart_tool_error_attribution(rows)
+    te_matrix_img, te_matrix_txt = chart_tool_error_rate_and_matrix(rows)
 
     # HTML 组装
     quant_html = "<table><tr>" + "".join(f"<th>{k}</th>" for k in quant_rows[0]) + "</tr>"
@@ -1439,25 +1751,20 @@ def main() -> None:
 
     stab_html = (
         '<table class="left"><tr><th>稳定性信号</th><th>命中日志数</th><th>占比</th>'
-        "<th>其中未闭环</th><th>死亡富集</th>"
+        "<th>其中未闭环</th>"
         "<th>定义与举例</th></tr>"
     )
-    for label, count, desc, dead_hits, enrich in stab_signals:
-        # 最后一行「日志未闭环」是其它信号的被解释变量,富集对它无定义
-        enrich_cell = "—(基准)" if enrich is None else f"{enrich:.1f}x"
+    for label, count, desc, dead_hits in stab_signals:
         stab_html += (
             f"<tr><td>{label}</td><td>{count:,}</td><td>{count / n:.1%}</td>"
-            f"<td>{dead_hits:,}</td><td>{enrich_cell}</td>"
+            f"<td>{dead_hits:,}</td>"
             f'<td class="desc">{desc}</td></tr>'
         )
     stab_html += "</table>"
     stab_html += (
         '<p class="note">均为「日志级」信号:只要该条日志里出现过一次,整条计入一次。'
-        "同一条日志可以同时命中多个信号,因此各行不能直接相加,占比之和也不等于 100%。</p>"
-        '<p class="note"><b>死亡富集</b> = P(未闭环 | 命中该信号) ÷ P(未闭环 | 全样本'
-        f"{base_death_rate:.2%})。倍数越高说明该信号对'日志跑不完'的判别力越强,"
-        "与命中日志数是两个维度:例如「上下文压缩>0」命中数最少,富集却最高——"
-        "低频不等于低危,排查时应按富集而非频次排优先级。</p>"
+        "同一条日志可以同时命中多个信号,因此各行不能直接相加,占比之和也不等于 100%。"
+        "「其中未闭环」为该信号命中日志里最终未闭环的条数,是原始计数而非派生倍数。</p>"
     )
 
     def img(b64, alt=""):
@@ -1482,7 +1789,7 @@ table.left th, table.left td {{ text-align: left; vertical-align: top; }}
 table.left td.desc {{ color: #222; font-size: 13px; line-height: 1.6; }}
 </style></head><body>
 <h1>{args.title}</h1>
-<p class="note">数据源: {args.csv.name} · 研究模式全量 {n:,} 条日志 · 生成自 .agents/skills/metric-report/scripts/generate_report.py</p>
+<p class="note"><b>数据日期: {data_range_disp}</b> · 数据源: {args.csv.name} · 研究模式全量 {n:,} 条日志 · 生成自 .agents/skills/metric-report/scripts/generate_report.py</p>
 
 <h2>0. 样本与可计算性</h2>
 {build_sample_summary(rows, args.csv.name)}
@@ -1507,11 +1814,19 @@ table.left td.desc {{ color: #222; font-size: 13px; line-height: 1.6; }}
 {freq_note}
 <h3>3.2 工具使用频率排名</h3>
 {img(charts["tool_freq_rank"], "工具频率")}
-<h3>3.3 模型层错误分类与路由</h3>
+
+<h3>3.3 工具错误归因</h3>
+{img(te_attr_img, "工具错误归因分布与量")}
+{te_dist_txt}
+{te_insight_txt}
+{img(te_matrix_img, "工具失败率与归因矩阵")}
+{te_matrix_txt}
+
+<h3>3.4 模型层错误分类与路由</h3>
 {img(llm_error_img, "模型错误")}
 {llm_error_table}
 {llm_error_note}
-<h3>3.4 框架 API 重试归因(fingerprint_dup_v2)</h3>
+<h3>3.5 框架 API 重试归因</h3>
 {img(api_retry_img, "API重试归因")}
 {api_retry_text}
 
