@@ -13,8 +13,11 @@ Before planning, editing, or running project commands, read these files in order
 4. `docs/arch/code-map.md`
 5. `初步入库评测指标.md`
 
-For metric work, then read only the relevant section of `共性指标.md`. Read
+For metric work, then read only the relevant section of `初步入库评测指标.md`. Read
 `mcp_tool_manual.json` only when tool names, parameters, or schemas are involved.
+
+For operational tasks (log salvage, full wide-table recompute, report generation),
+read the matching manual under `docs/runbooks/` before running scripts.
 
 Always inspect `git status` before editing and preserve unrelated user changes.
 Never implement a concrete metric until its formula, field mapping, boundary behavior,
