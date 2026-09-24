@@ -1405,6 +1405,933 @@ evaluator_version
 单条 Trace Token 消耗 = 100 + 250 = 350
 ```
 
+## 16. 引用可溯率
+
+### 指标定义
+
+引用可溯率衡量最终回答中的 `[n]` 引用编号能否解析到本 Trace 中间检索输出暴露的来源编号
+注册表。比对是纯编号解析：回答侧抽"引用了哪些编号"，中间输出侧抽"存在哪些编号"，交集算
+可溯。弱判定边界——编号存在不代表内容真使用了该来源，内容级对应属 v2/Judge 方向；
+该边界随 `citation_pattern_version`（`cite_v1`）与 `source_registry_version`
+（`source_registry_v1`）共同声明。
+
+```text
+citation_traceability_rate =
+  resolved_citation_count ÷ extracted_citation_count
+
+extracted_citation_count = 正文通道中 [n] 引用的唯一编号数（同 n 多次出现计 1）
+resolved_citation_count  = 其中能解析到注册表的编号数
+```
+
+引用抽取（`cite_v1`）：
+
+- 正文剥离 ``` 围栏代码块后抽取（代码中的数组下标不是引用）。
+- `[图1]`、`[注2]` 天然不命中纯数字正则；`[n](url)` markdown 链接形态计入引用并进入
+  `markdown_link_citation_count` 诊断；`[1,2]`、`[1-3]` 复合形态 v1 不解析，计入
+  `nonstandard_citation_count` 诊断。
+- 注册表为空但有引用时计算为 0 并输出 `source_list_missing` 与
+  `fabrication_risk_signal`（对齐数值锚定率的无中生有信号）。
+
+来源注册表（`source_registry_v1`）：
+
+- 聊天：按消息稳定顺序拼接各成功检索轮的 `doc_id` 序列，注册表为连续位置 1..N；成功
+  判定复用锚定率口径（`traceId+toolId` 关联、失败信号载荷与孤立结果排除、respond 排除）。
+  来源识别靠载荷结构（含 `doc_id` 键），工具名不做白名单。
+- 研究：本回合 completed 工具输出中的 `id: [n]` 与行首 `n. [` 编号清单并集；write/edit
+  交付产物自身不是来源清单，排除防止自我锚定。
+- 无引用回答返回 `NOT_COMPUTABLE / no_extractable_citations`（预期多数）。
+
+诊断计数：`range_exceeded_citation_count`（超界引用）、`numbering_scheme_mixed_suspected`
+（聊天：引用最大值不超过任何单轮 doc 数且序列明显更长时的疑似每轮重排标记，提示超界
+引用不宜一律视为幻觉）、`source_list_missing`、`fabrication_risk_signal`。
+
+### 分模式可计算性与字段映射
+
+聊天模式：`DIRECTLY_COMPUTABLE`。
+
+- 正文：`canvas.answer.answer`；注册表：`canvas.agents[].messages[].content.tool_result[]`
+  的 `doc_id` 载荷（按 `doc_list[].doc_id` 或顶层 `doc_id` 解析）。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 输入契约与锚定率一致：单回合事件序列（入口层按 sessionID 分组、turn.start 切分）。
+- 正文通道：write 产物 > edit 片段 > final text（复用锚定率通道选择）。
+- 注册表：completed 工具 part 的 `state.output` 文本编号清单。
+
+evaluator 版本为 `1.0.0`；结果只保留聚合计数、通道与版本，回答与来源正文不落盘。
+
+### 真实日志基线（2026-09-17 样本）
+
+```text
+聊天（74 条 Trace）: 46 条 computed（28 条 no_extractable_citations）；501 个唯一
+  引用编号、338 个可解析，微平均 68.08%；满分 15 条、低于满分 31 条（最低 0.0）；
+  numbering_scheme_mixed_suspected 9 条（含引用明显小于累积序列的重排疑云样本）
+研究（47 回合）: 15 条 computed（32 条 no_extractable_citations）；175 个唯一引用
+  编号、36 个可解析，微平均 38.67%；满分 5 条、零分 10 条；139 个超界引用分布在
+  10 个回合（skill 计数器疑为 session 级累积，跨回合编号按 v1 口径计超界）
+```
+
+### 模拟计算
+
+```text
+研究回合：检索输出含 "id: [1]"..."id: [139]"（编号集 139）；write 报告含 [12][96][439]
+  extracted = 3；resolved = {12✓, 96✓} = 2
+  citation_traceability_rate = 2 ÷ 3 ≈ 0.66667
+  诊断：range_exceeded_citation_count = 1（439 超本回合上界，疑前序回合编号）
+
+聊天 Trace：3 轮检索（10+30+16=56 个 doc_id）；回答引用 [3][15][60]
+  注册表为位置 1..56；extracted = 3；[60] 超界 → resolved = 2
+  rate = 2 ÷ 3 ≈ 0.66667
+```
+
+### 观测价值
+
+- 引用编号落空是"抄了编号但来源不在场"的直接信号，与数值锚定率（数字有没有出处）、
+  陈述支持率（断言有没有证据）共同构成回答质量三件套。
+- 聊天 `numbering_scheme_mixed_suspected` 与研究超界分布是引用协议本身的健康度指标：
+  前者暴露"编号语义混杂"（累积 vs 每轮重排），后者暴露 skill 计数器跨回合累积导致的
+  引用协议缺口，均为上游提示词/框架可修复项。
+- 与 tool_calls_count 联合观察：有检索轮但回答无引用，说明模型未使用来源标注能力。
+
+2026-09-21 起本指标不再接入统一宽表（应需求剔除，评测器、collector、输出契约与测试
+保留，仅退出 CSV 注册）；指标口径、真实日志基线与观测价值不受影响，后续如需恢复
+接入，按列集变更规则删除旧结果 CSV 重跑。
+
+## 17. 回合完成率
+
+### 指标定义
+
+回合完成率衡量单条日志的工作流是否跑到闭环。单 Trace 主值为二值标记
+`turn_completed ∈ {0, 1}`（需求方 2026-09-21 确认），报告级完成率由聚合层对单
+Trace 值求微平均；评测器不做跨 Trace 聚合。稳定指标名沿用权威口径 7.1 的
+`turn_completion_rate`，evaluator 版本 `1.0.0`。
+
+```text
+研究模式: turn_completed = 1 ⟺ 合并逻辑回合内存在 turn.end
+          （durationMs 缺失/非法不改变闭环判定，只进诊断）
+聊天模式: turn_completed = 1 ⟺ canvas.answer.answer 剥空白后非空
+          且不命中固定服务失败模板目录（failure_template_catalog_v1）
+报告级:   turn_completion_rate = Σ turn_completed ÷ 可计算日志数
+```
+
+聊天模式为显式声明的代理口径（`completion_semantics = answer_presence_proxy`），
+只能捕获"硬失败兜底回答"，无法识别静默截断；研究模式为 `turn_end_event` 事件
+口径。两种语义标签随结果元数据输出，禁止混比。
+
+### 字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`。
+
+- 完成锚点：`canvas.answer.answer`（剥首尾空白后非空）。
+- 失败模板：剥空白后与目录 v1 全文精确匹配；v1 目录仅含
+  "模型服务暂时不可用，请稍后重试"，新增模板必须升版并记录出处 Trace。
+- 回答缺失、空白或非字符串 → 0 分 + `missing_or_empty_answer_count` 诊断
+  （合法失败值，不是不可计算）；模板命中 → 0 分 + `failure_template_hit_count`。
+- canvas 缺失、非对象或 `meta` 非对象 → `ERROR / invalid_chat_trace_structure`。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 输入契约与数值锚定率一致：入口层先按 `sessionID` 分组、按 `turn.start` 切分，
+  同 `userMessageID` 的 `_noquery` 续跑段按时间序合并为单个逻辑回合后送入。
+- 闭环锚点：`type == turn.end` 事件存在；`durationMs` 缺失 → 1 +
+  `missing_duration_ms` 诊断，非法（负数/非数值/布尔）→ 1 + `invalid_duration_ms`。
+- 同 ID 的多个 `turn.start`（续跑重启）不影响闭环判定，重启计量归 7.3。
+- 无 `turn.start`（含仅有孤立 turn.end）→ `NOT_COMPUTABLE / missing_turn_boundary`；
+  有 `turn.start` 无 `turn.end` → 0（合法失败值）。
+- 重复 `turn.end` 观测值完全相同 → 去重 + `duplicate_turn_end_count`；耗时不同 →
+  `ERROR / conflicting_turn_boundary`；`turn.end` 的 session/消息 ID 与回合不符 →
+  忽略 + `mismatched_turn_end_count` 诊断，不证明本回合闭环。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`completion_semantics`、四个诊断计数与
+`duration_diagnostic`；不保留 query、回答正文或模板原文。评测器对规范化输入做
+严格校验：`turn_completed` 仅接受 0/1（拒绝布尔），error 与标记互斥，未知
+`duration_diagnostic` 或负计数返回 `ERROR / invalid_normalized_trace`。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 74/74 computed；73 条 turn_completed=1、1 条 =0
+  （固定失败模板命中 1，missing_or_empty_answer 0），代理完成率 98.6%
+研究（47 逻辑回合，51 turn.start 段合并）: 47/47 computed；43 条 =1、4 条 =0，
+  完成率 91.5%；未闭环: e7b0e1fd（900s 排队超时）、ecfa41e4（2 次续跑仍未闭环）、
+  b094b710、40bab013（76 步后静默截止）；duplicate/mismatch/duration 诊断均为 0
+宽表: 121 行 × 12 指标列，turn_completion_rate 列 121/121 非空；与前一版
+  11 列表按 log_id 对齐逐单元格对比，指标列零差异
+```
+
+## 18. 续跑重启次数
+
+### 指标定义
+
+续跑重启次数计量单条日志内框架级断点续跑的重启次数（权威口径 7.3）。研究模式
+宽表单元格为双因素单元素 JSON 数组（统一 `[]` 包围，2026-09-21 需求方确认）——
+重启计数与 7.1 闭环标记一起输出，未闭环回合同样输出 JSON；零重启是合法值，不是
+不可计算。聊天模式
+无续跑/重启机制，恒返回固定不可计算原因。稳定指标名 `continuation_restart_count`，
+evaluator 版本 `1.1.0`（1.0.0 双因素 JSON 首发口径；2026-09-21 单元格统一 `[]`
+包围升版，内容键序不变）。
+
+```text
+研究模式: 单元格 = [{"continuation_restart_count":N,"turn_completed":B}]
+          continuation_restart_count = 合并回合内去重 turn.start 事件数 − 1
+          turn_completed = 复用 7.1 研究口径（turn.end 事件）的闭环判定
+聊天模式: NOT_COMPUTABLE / no_continuation_mechanism（模式语义事实，与结构无关）
+报告级:   restart_turn_ratio = 重启回合数 ÷ 逻辑回合总数
+          restart_recovery_rate = 重启后最终闭环的回合数 ÷ 重启回合数
+          （两者由单元格两因素直接派生，无需跨指标联查；评测器不做跨 Trace 聚合）
+```
+
+### 字段映射
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 输入契约与回合完成率一致：入口层先按 `sessionID` 分组、按 `turn.start` 切分，
+  同 `userMessageID` 的 `_noquery` 续跑段按时间序合并为单个逻辑回合后送入。
+- 去重键（2026-09-21 需求方确认 ts 方案）：合并回合内 `turn.start` 全部共享
+  `sessionID + userMessageID`，不能按 ID 去重；按解析后的毫秒时间戳区分真重启与
+  同一事件的重复投影（解析口径与端到端时延 collector 一致）。同键重复 →
+  `duplicate_turn_start_count` 诊断。
+- `ts` 缺失/非法的 `turn.start` 无法证明是重复投影：保守计为独立事件（宁可多计
+  重启，不静默吞掉），进 `invalid_ts_turn_start_count` 诊断。
+- 序列内出现不同 `sessionID + userMessageID` 的 `turn.start` → 入口切分违约，
+  `ERROR / conflicting_turn_boundary` 隔离整条。
+- 无任何 `turn.start` → `NOT_COMPUTABLE / missing_turn_boundary`，不得记 0。
+- 非序列输入 → `ERROR / invalid_research_trace_structure`。
+- 闭环因素在同一事件序列上复用 `normalize_research_turn_completion`（7.1 研究
+  口径）；其边界错误（如 turn.end 耗时冲突）连带隔离整条——两因素共享回合边界
+  证据，闭环判定不可靠时重启计数不单独输出。
+
+聊天模式：`NOT_COMPUTABLE / no_continuation_mechanism`。
+
+- 聊天 canvas 无续跑机制，单条 Trace 即完整回合；不做结构校验也不估算，
+  `trace_id` 尽力从 `canvas.meta.traceId` 提取用于结果关联。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`restart_semantics`（turn_start_event /
+no_continuation_mechanism）、计算路径的 `completion_semantics = turn_end_event`
+与三个诊断计数；不保留 query、事件正文或时间戳原值。评测器严格校验规范化输入：
+重启计数为非负整数、闭环标记仅接受 0/1（均拒绝布尔/浮点），error 与两因素互斥
+且两因素必须同时出现，无 error 时必须满足 `restart_count = turn_start_count − 1`
+自洽关系，聊天模式契约上恒携带不可计算原因（无 error 的 chat 结果属违约），
+违反任一条返回 `ERROR / invalid_normalized_trace`。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_continuation_mechanism
+研究（47 逻辑回合，51 turn.start 段合并）: 47/47 computed，全部输出双因素 JSON；
+  重启分布 {0: 44, 1: 2, 2: 1}，合计 4 次、涉及 3 个回合，与实勘逐一吻合:
+  060a7676 {"continuation_restart_count":1,"turn_completed":1}、
+  2a5e8ac2 {"continuation_restart_count":1,"turn_completed":1}、
+  ecfa41e4 {"continuation_restart_count":2,"turn_completed":0}（重启仍死）；
+  单元格 turn_completed 因素与 7.1 独立判定逐回合一致（零差异）；
+  restart_turn_ratio = 3/47 ≈ 6.4%，restart_recovery_rate = 2/3；
+  duplicate_turn_start / invalid_ts 诊断均为 0，turn_start_count 合计 51 与段数自洽
+宽表: 121 行重算，continuation_restart_count 列聊天 74 行空（NOT_COMPUTABLE）、
+  研究 47 行双因素 JSON 非空；与前一版按 log_id 对齐逐单元格对比，其余指标列
+  零差异（本列 int → JSON 为已确认的格式变更）
+```
+
+## 19. 模型层错误数与错误分类
+
+### 指标定义
+
+模型层错误数计量单条日志内 `llm.error` 事件数并按版本化目录分类（权威口径 7.4）。
+研究模式主值为非负整数（零错误是合法值，不是不可计算）；聊天 canvas 无模型层错误
+事件通道，恒返回固定不可计算原因——通道不存在不等于无错误，禁止记 0。稳定指标名
+`llm_error_count`，evaluator 版本 `1.3.0`（1.0.0 首版当日按需求升版 1.1.0：单元格
+增补 `error_models` 出错模型路由；2026-09-21 单元格统一 `[]` 包围升版 1.2.0；
+2026-09-23 增补 `total_call_count` / `model_calls` 模型调用分布并去掉 provider
+升版 1.3.0，前三个键键序与形态不变），分类规则版本 `llm_error_class_v1`。
+
+宽表单元格为单元素 JSON 数组（2026-09-21 需求方确认：整数主值、错误分类与出错
+模型一起放进 JSON，注册一列；统一 `[]` 包围；2026-09-23 需求方确认：模型调用分布
+并入同一 JSON 而不新开列，且 provider 不再参与归因）：
+
+```text
+[{"llm_error_count":3,
+  "error_classes":[{"class":"provider_timeout","count":2},
+                   {"class":"context_overflow","count":1}],
+  "error_models":[{"model":"pro","count":3}],
+  "total_call_count":644,
+  "model_calls":[{"model":"pro","count":640},{"model":"glm-5.3","count":4}]}]
+
+error_classes 按 count 降序、class 升序稳定排序，仅含非零类；
+error_models 按 count 降序、model 升序稳定排序，仅含非零项；
+model_calls 按 count 降序、model 升序稳定排序，仅含非零项（可含零错误模型）；
+零错误 = [{"llm_error_count":0,"error_classes":[],"error_models":[],
+          "total_call_count":5,"model_calls":[{"model":"pro","count":5}]}]
+（COMPUTED 合法零值；零错误 ≠ 零调用，分母照常输出）
+
+报告级: llm_error_turn_ratio = llm_error_count > 0 的回合数 ÷ 回合总数
+        分类分布 = Σ 各回合 error_classes
+        出错模型分布 = Σ 各回合 error_models
+        模型出错率 = Σ error_models.count ÷ Σ model_calls.count（按 model 对齐）
+        （由聚合层解析 JSON 单元格派生，评测器不做跨 Trace 聚合）
+```
+
+分类目录 v1：对 `error.value.error` 的匹配文本做大小写不敏感子串匹配，目录顺序即
+优先级，首个命中即归类，未命中记 `unclassified`（不猜测）。五类特征：
+`context_overflow`（"prompt is too long"）、`provider_timeout`（"timeout awaiting
+response headers" / "net/http: timeout"）、`queue_timeout`（"900-second timeout"）、
+`billing_failure`（"Payment Required"）、`protocol_corruption`（"Invalid `signature`
+in `thinking` block"）。新增类别或修改特征必须升版并重算基线。
+
+### 字段映射
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 错误事件：`type == "llm.error"`，携带 `ts / sessionID / userMessageID /
+  loop(可缺失) / error.value.error`；输入契约与回合完成率一致（session 内切分 +
+  `_noquery` 续跑段合并由入口层负责；回合边界完整性由 7.1 承担，本指标信任单回合
+  契约、不重复校验）。
+- 匹配文本：`error.value.error` 字符串形态取全文；对象形态只取 `name + message`
+  拼接——`stack`/`url` 显式排除（可能携带供应商端点与本地路径，既不参与匹配也不
+  进入任何输出；v1 全部特征在 name/message 内可命中，真实样本 9/9 验证）。
+- 主值按原始事件数计（含重复投影，与 7.5 基线"loop 1×2 计 2 条"口径一致）；
+  同 loop + 同类 + 同文本长度的重复投影进 `duplicate_error_event_count` 诊断。
+- 跨通道投影不计入主值：`message.updated.info.error`（实勘 4 条，全部落在已有
+  llm.error 的回合）与 `llm.response.result.finishReason == "error"`（1 条）是同一
+  底层失败在消息/响应通道的投影，分别进 `message_error_projection_count` 与
+  `finish_reason_error_count` 诊断，防止同一错误重复计数。
+- `loop` 缺失（实勘 2/9）进 `loop_missing_count` 诊断；本指标不依赖 loop 取值，
+  7.5 错误自恢复率的 loop 级重试判定才使用。
+- 出错模型归因（1.1.0 引入，1.3.0 起仅取 model）：`llm.error` 事件不携带模型标识，
+  归因证据取自回合内 `message.updated` 的模型路由字段——顶层 `info.modelID`，或
+  `info.model` 字典形态 `{modelID, ...}`（两种形态互斥出现，均须识别）。仅当回合
+  去重后恰有一个模型时，全部错误归因到该模型；多模型或无模型时逐错误归因不可证明，
+  `error_models` 为空数组、错误数进 `model_unattributed_error_count` 诊断，不猜测
+  （2026-09-17 样本 47/47 回合均单模型）。**providerID 自 1.3.0 起不参与归因**：
+  实勘模型名与 provider 一一对应，按 (model, provider) 分组只会把一个模型拆成多行，
+  且报告侧无法直接算每模型出错率。modelID 为平台自动路由别名（如 "pro"），真实
+  后端模型名不在日志内。
+- 模型调用计数（1.3.0 新增）：`llm.error` 不带模型标识，因此"某模型出错率"的分母
+  必须另有来源。同一通道的 `message.updated` 已逐条携带模型路由，故以**唯一
+  assistant 消息**（`info.role == "assistant"` 且 `info.id` 去重）作为一次模型调用
+  的计量单位——同一条消息的多次流式投影只计一次（实勘：923 唯一消息 vs 962 个
+  llm.response 事件，差额为投影与压缩摘要响应）。归因与调用计数**共用同一路由通道**，
+  保证 `error_models` 里的每个模型必然出现在 `model_calls` 里，两者可直接相除。
+  - `info.id` 缺失或非法时无法去重，保守计为独立调用（宁多计不漏计，与
+    7.3/7.6/7.8 同方向）并进 `missing_message_id_count` 诊断，不猜测其模型。
+  - 同一 id 先后带出不同模型 → 路由证据自相矛盾，保留首次观测并进
+    `conflicting_model_route_count` 诊断。
+  - 无路由的调用仍计入 `total_call_count`，只是不进任何 `model_calls` 分项，
+    进 `model_call_unattributed_count` 诊断——**分母不因归因失败而缩小**。
+  - 非 assistant 消息却带路由 → 口径缺口信号，进
+    `non_assistant_routed_message_count` 诊断以免静默漏计。
+  - 回合内无 assistant 消息 → `total_call_count = 0`，是合法观测值（不是不可计算）。
+- 非序列输入 → `ERROR / invalid_research_trace_structure`。
+
+聊天模式：`NOT_COMPUTABLE / no_model_error_events`。
+
+- canvas 无模型层错误事件通道；硬失败以固定模板回答形态存在，由 7.1 代理口径捕获，
+  不在此重复计量。canvas 结构非法 → `ERROR / invalid_chat_trace_structure`。
+  模型调用数同理不可得：canvas 无逐消息模型路由通道，一并留空。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`error_event_semantics`（llm_error_event /
+no_model_error_channel）、`model_attribution`（single_route_turn / unattributed）、
+`llm_error_class_version` 与十一个诊断计数（duplicate_error_event_count、
+message_error_projection_count、finish_reason_error_count、loop_missing_count、
+unclassified_count、model_route_count、model_unattributed_error_count、
+model_call_unattributed_count、missing_message_id_count、
+conflicting_model_route_count、non_assistant_routed_message_count）；错误正文、
+stack、url 与 sessionID 之外的标识一律不落盘（路由标识 modelID 为结构化元数据，
+允许进入结果）。评测器严格校验规范化输入：主值为非负整数（拒绝布尔/浮点）、
+分类标签必须落在目录白名单内、分类计数为正整数且总和等于主值（分类守恒）、
+归因计数为正整数且已归因 + 未归因等于主值、非空归因必须为单模型全量归因
+（归因守恒）、总调用数为非负整数、调用分项计数为正整数且已归因 + 未归因等于
+总数（调用守恒，分母不因归因失败而缩小）、归因到错误的模型必须同时出现在调用
+分项内（跨段交叉校验）、error 与五者互斥，违约返回
+`ERROR / invalid_normalized_trace`。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.2.0）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_model_error_events
+研究（47 逻辑回合）: 47/47 computed；6 回合非零（合计 9 事件）、41 回合零错误；
+  分类分布 provider_timeout 4、protocol_corruption 2、context_overflow 1、
+  billing_failure 1、queue_timeout 1，unclassified 0——与权威口径 7.4 实勘基线
+  逐项一致；llm_error_turn_ratio = 6/47 ≈ 12.8%
+  诊断合计: duplicate_error_event 1（turn_027 loop=1 重复投影）、
+  message_error_projection 4、finish_reason_error 1、loop_missing 2
+出错模型归因: 47/47 回合单模型，model_unattributed 合计 0；
+  pro 8 条（5 回合）、glm-5.3 1 条（e7b0e1fd，queue_timeout）；
+  全样本模型分布 pro 38 / glm-5.3 6 / deepseek-v4-flash 2 / lite 1（回合数）
+模型调用分布（1.3.0 口径，47 回合本地重建日志）: 唯一 assistant 消息 923 次
+  （原始 message.updated assistant 投影 2,787 行 → 按 info.id 去重 923）；
+  分模型 pro 644 / glm-5.3 270 / deepseek-v4-flash 6 / lite 3，
+  model_call_unattributed 0、missing_message_id 0、conflicting_model_route 0、
+  non_assistant_routed_message 0；出错率 pro 8/644 = 1.24%、
+  glm-5.3 1/270 = 0.37%、deepseek-v4-flash 0/6、lite 0/3，合计 9/923 = 0.98%。
+  口径对账: step-start 按 messageID 去重为 915（较 923 少 8 条，均为有
+  tokens 无 step-start 的真实调用：7 条 orchestrator + 1 条 compaction），
+  llm.response 事件为 962（其中 39 条无对应 assistant 消息，含压缩摘要响应与
+  流式重复），故以唯一 assistant 消息为准（与路由字段同通道）。
+宽表: 121 行重算（重算时 15 指标列，含并行批次 tool_error_rate 列），
+  llm_error_count 列聊天 74 行空（NOT_COMPUTABLE）、研究 47 行非空 JSON；
+  与前一版按 log_id 对齐，除本列 schema 升级外其余指标列逐单元格零差异
+  （4 个研究行 user_id 差异为既知输入切分现象，与本指标无关）
+```
+
+### 全量研究模式样本基线（7,582 条日志，evaluator 1.2.0 形态宽表）
+
+```text
+本节的宽表为 data/processed/metric_table_full.csv（7,663 OSS 前缀 → 7,582 行，
+833 用户 / 4,463 会话，纯 research 模式），与上一节 47 回合小样本是两个不同总体，
+数值禁止混比。
+模型层错误: 178 行非零、错误合计 230；分类 billing_failure 163（70.87%）、
+  unclassified 63（27.39%）、queue_timeout 4（1.74%），其余三类 0；
+  出错模型 pro 96、glm-5.3 52、deepseek-v4-flash 11，
+  model_unattributed 71（30.87%）
+模型调用分布: 该表生成于 evaluator 1.2.0，单元格不含 total_call_count /
+  model_calls，**模型出错率的分母在本表不可得**；报告第 3.3 节据此标注
+  "调用数待补"而不硬算。重跑宽表（需重扫 OSS 32.65 GB）后自动补齐。
+```
+
+## 20. 工具错误率与错误归因
+
+### 指标定义
+
+工具错误率计量单条日志内 error 终态唯一工具调用占有终态唯一调用的比例，并对每个
+error 调用按版本化目录归因（权威口径 7.7）。稳定指标名 `tool_error_rate`，
+evaluator 版本 `1.1.0`（1.0.0 首发；2026-09-21 单元格统一 `[]` 包围升版，内容
+键序不变），归因目录版本 `tool_error_attribution_v1`，聊天失败信号
+规则版本 `chat_failure_signals_v1`（含 7.7 扩展）。终态语义标签
+`terminal_semantics` 随结果声明：聊天为载荷代理口径 `payload_proxy_v1`，研究为
+显式终态口径 `explicit_status_v1`，两种语义禁止混比。
+
+宽表单元格为单元素 JSON 数组（2026-09-21 需求方确认统一 `[]` 包围），键序固定：
+
+```text
+[{"tool_error_rate":0.5,"error_call_count":1,"terminal_call_count":2,
+  "model_misuse_error_count":0,"infrastructure_error_count":1,
+  "data_availability_error_count":0,"degraded_result_count":0,
+  "unclassified_error_count":0}]
+
+tool_error_rate = error 终态唯一调用数 ÷ 有终态唯一调用数
+degraded（业务自检降级）进分母、不进硬失败分子；零错误为合法 COMPUTED 零值。
+
+报告级 = Σ 分子 ÷ Σ 分母（微平均）；"归因类 × 工具名"矩阵由 reporter 批次
+聚合（2026-09-21 确认本批不做），评测器在元数据 error_calls 中保留
+(tool_name, attribution) 明细作为矩阵输入。
+```
+
+归因目录 v1：匹配文本做去空白与小写紧凑化后按目录顺序子串匹配，先命中先得，
+未命中记 `unclassified`（只诊断不猜测）；业务码 11410 优先判 data_availability。
+
+- `model_misuse`："Found multiple matches for oldString"、"INPUT_INTERRUPTED"、
+  "需要非空的 ops 数组"、"Path must be workspace-relative"、"Access denied
+  outside mounted tool roots"、"参数最多支持"；窄正则
+  `tool'<名称>'notfound`（2026-09-21 确认补入：模型调用不存在的工具属模型侧
+  误用；裸 "not found" 会误伤数据侧英文文案，故限定完整形态）。
+- `infrastructure_failure`："MCP error -32001"、"Request timed out"、"socket
+  connection was closed"、"Document API request timed out"、"所有年报提取均失败"。
+- `data_availability`："未找到相关年报数据"、"已被删除或移动"、业务码 11410。
+
+新增/修改模式必须升目录版本并重算基线。
+
+### 字段映射
+
+聊天模式：`CONDITIONALLY_COMPUTABLE`（载荷代理口径）。
+
+- 调用与关联：复用 `traceId + toolId` 跨 Agent/message 关联口径，排除子 Agent
+  委派、`respond` 返回与孤立结果；同调用多结果按最劣终态归并
+  （error > degraded > success），分歧进 `conflicting_terminal_state_count`。
+- 逐结果条目分类顺序（确定性，先命中先得）：
+  1. 降级分流：内层或顶层 `code: 1` 且载荷含"校验说明"与"不受支持/无法完整
+     回答"——2026-09-21 确认严格按规格字面，其余措辞变体（无法完整覆盖/无法
+     提供/不支持/口径错误等 17 条实样本）按成功计，目录升级须重新立项；
+  2. 映射载荷失败信号：`errorcode`/`error_code` 非空且 ∉ {"0","200"}、
+     `success == false`、`status ∈ {failed, timeout, timed_out, error}`
+     （7.7 在锚定率规则上新增 error）；嵌套 `{"tool_result": {...}, "doc_id":
+     ...}` 信封解包一层（实勘：失败/降级信号在内层）；JSON 字符串载荷先解码；
+  3. 入口级 `success: false`（如 "Tool not found"，可无载荷），错误文本取
+     `entry.error`；
+  4. 可解析载荷（映射、顶层结构化列表——检索类工具 chunk 数组、JSON 解码
+     成功）或入口级 `success: true` 且无载荷 → 成功；`code: 2` 异步"执行中"
+     回执无失败信号按成功；
+  5. 纯散文等不可解析载荷 → `undeterminable_payload_count` 诊断，不估算、
+     不进分母。
+- 硬边界：`error_code`/`errorcode` 空串或缺失 = 成功（实勘 41 条误判教训；
+  该字段实际深埋 `debug_trace.nl2sql.nodes[]`，分类只看载荷顶层与一级信封，
+  天然不触碰深层节点码）。
+- 分母 = 有终态的唯一调用；无关联结果或全部载荷不可判定 →
+  `terminal_missing_count` 诊断。
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 输入契约与回合完成率一致：payload 为单回合事件序列，切分/续跑合并由入口层
+  负责。
+- `callID` 生命周期合并（复用 `tool_calls_count` 口径）；终态取
+  `part.state.status`：`error` → 失败进分子，`completed` → 成功，
+  `pending/running` 无终态 → `terminal_missing_count` 诊断不进分母；error 与
+  completed 并存时 error 优先并进冲突诊断。
+- 错误文本：首个非空 `part.state.error`，仅内存归因匹配；无文本记 unclassified。
+- 补强证据 `tool.debug.apiCalls[].response.code` 交叉验证留待 7.8/7.12 批次，
+  本批未接入。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`terminal_semantics`、
+`attribution_catalog_version`、`failure_signal_rules_version`（聊天必须非空、
+研究必须为 None）、`error_call_count`、`terminal_call_count`、13 个诊断计数与
+`error_calls` 明细；错误正文、载荷与参数只在内存流转，一律不落盘。评测器严格
+校验规范化输入：call_id 唯一、`terminal_state` 与 `attribution` 互斥关系
+（error 必须携带目录内归因，非 error 必须为 None）、归因/降级计数与逐项守恒、
+语义标签与模式一致，违约返回 `ERROR / invalid_normalized_trace`；
+`no_tool_calls` / `no_terminal_tool_calls` 为 NOT_COMPUTABLE；结构问题为
+ERROR 并携带稳定原因码。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 54 computed、17 no_tool_calls、3 no_terminal_tool_calls；
+  微平均 6/746 ≈ 0.80%；49/54 零错误 Trace，单 Trace 最高 13.33%；
+  归因 model_misuse 2（get_stock_details 参数约束 1 + searchIndustry_indicators
+  tool not found 1）、infrastructure_failure 1、data_availability 3
+  （均为 annual_report_extract code500）、unclassified 0——与权威口径 7.7
+  实勘 6 次硬失败逐项一致；degraded 5（get_nl2sql_result 4 +
+  finance_query_agent 1，严格字面口径）；空串 error_code 硬边界复核:
+  全文件 50 处深层空码全部判成功，零误判
+研究（47 逻辑回合）: 47/47 computed；微平均 11/1299 ≈ 0.85%；38/47 零错误
+  回合，单回合最高 8.00%；归因 model_misuse 7（INPUT_INTERRUPTED×3、batch
+  空 ops×2、路径越权×2）、infrastructure_failure 4（MCP -32001×2、
+  Document API 超时×1、socket×1）、data_availability 0、unclassified 0；
+  工具分布 grep2/word2/bash2/searchForeignReports2/write1/edit1/
+  searchInternet1 与权威口径 7.7 实勘逐项一致；全文件 error 事件 14 条中
+  3 条（edit/oldString）落在回合窗口外，回合内 11 条 = 分母口径
+宽表: 121 行 × 15 指标列重算，tool_error_rate 列聊天 54 行、研究 47 行非空，
+  20 个空单元格对应 no_tool_calls(17)/no_terminal_tool_calls(3)；与前一版按
+  log_id 对齐，14 个共有指标列逐单元格零差异（4 个研究行 user_id 差异来自
+  上一版生成驱动缺少 OSS 目录名回退提取，与本指标无关，与第 19 节记录同源）
+```
+
+### 宽表独立列 `tool_error_attribution`（2026-09-24 需求方确认）
+
+逐次工具错误的归因明细落在独立列（紧跟 `tool_error_rate`），单元格为单元素
+JSON 数组，键序固定 `by_tool`（{name,count}）+ `by_attribution`（{name,count}）：
+
+```text
+[{"by_tool":[{"name":"excel","count":1}],
+  "by_attribution":[{"name":"unclassified","count":1}]}]
+```
+
+- 只统计 **error 终态** 的调用；degraded（`code:1` 自检降级）继续只进
+  `degraded_result_count`、不带工具名入列——本列与值列的 `error_call_count`
+  **严格一对一**。
+- `by_tool` / `by_attribution` 各自计数之和恒等于 `error_call_count`
+  （缺工具名 / 归因时用 `<unmapped>` / `unclassified` 占位，不丢弃该次错误，
+  否则破坏守恒）。
+- **不做 Top-K 截断**（与 `api_retry_attribution` 的 Top5 口径刻意不同，
+  两列不可按同一口径互相解释）：本样本 `error_call_count` 中位 2、p99 17、
+  最大 59，截断只会砍掉"撞墙最严重"的长尾日志的尾部工具，而定位失败工具
+  正是本列的唯一目的。
+- 只处理 `error_call_count > 0` 的行，零错误行留空——**空 ≠ 零**。
+- 动机：`ToolErrorRateEvaluator` 早已在 metadata 产出 `error_calls`，但
+  `build_metric_table` 只提取 `partial_issues` / `partial_issue_reasons`，
+  逐次失败的工具名在入宽表时被静默丢弃，报告与 bad case 只能看到"发生 N 次
+  工具错误"却定位不到坏在哪个工具。
+- 由 `scripts/backfill_tool_error_attribution.py` 产出（列注册进
+  `build_metric_columns()` 后新的全量重跑亦直接产出）。
+
+全量重跑基线（2026-09-24，7,582 行宽表）：`error_call_count > 0` 的 1,624 行
+全部非空；**遗留**：backfill 未覆盖的 `degraded` 终态若后续要定位，需另立项
+（不在本列范围）。
+
+## 21. 错误自恢复率
+
+### 指标定义
+
+错误自恢复率计量"翻车后能否兜回来"（权威口径 7.5，5.1 `error_recovery_completion_rate`
+的研究侧降级实现）：发生任一层错误的回合中，最终闭环且交付非空正文的比例。稳定指标名
+`error_recovery_rate`，evaluator 版本 `1.1.0`（1.0.0 首发；2026-09-21 单元格
+统一 `[]` 包围升版，内容键序不变），降级语义标签 `recovery_semantics =
+degraded_v1` 随结果声明；判定完全基于现有字段（llm.error 的 loop 序号、
+`part.state.status='error'`、turn.end、最终正文），不依赖埋点 C/D，埋点落地后必须
+对齐升版、不得静默沿用降级口径。
+
+```text
+had_error = 1 ⟺ llm_error_count > 0（7.4 口径）
+             或 存在 status='error' 的工具调用（7.7 口径，callID 合并后）
+
+error_recovered = 1 ⟺ turn_completed = 1（7.1 口径）
+                  且 turn.end 前存在非空最终正文（6.1 正文通道:
+                  write 产物 > edit 片段 > 最后 assistant 文本）
+
+宽表单元格 = [{"error_recovered":1,"had_error":1,"llm_error_count":2,
+               "tool_error_call_count":1,"retry_recovered_error_count":1}]
+（2026-09-21 需求方确认:单元素 JSON 数组、统一 [] 包围、键序固定;had_error=0 →
+ NOT_COMPUTABLE / no_error_events 写空,不进报告级分母、不得记 1）
+
+诊断: retry_recovered_error_count = loop 级恢复的 llm.error 条数
+报告级: error_recovery_rate = Σ error_recovered ÷ Σ had_error
+```
+
+- 恢复仅指**技术完成**（闭环 + 有正文），不判定正文质量；质量由第 6 章指标联查。
+- 工具错误后的恢复不要求"该工具重试成功"，只要求回合兜底交付（与 5.1 口径一致）。
+- loop 级重试配对（唯一新增判定逻辑）：事件时间序中 `llm.error(loop=N)` **之后**
+  出现 `llm.response(loop=N)` 且 `result.finishReason` 为非空文本且 ≠ "error"
+  （实证值域 stop / tool-calls / other / error）→ 该条 error 计入
+  `retry_recovered_error_count`；按原始事件条数计（同 loop 多条 error 各自独立
+  配对，与 7.4 主值口径一致）。error 缺 loop（实勘 2/9）或响应缺 loop/finishReason
+  均不可配对，分别进 `llm_loop_missing_error_count` / `retry_unpaired_error_count`
+  诊断，不估算。换路恢复（如 context_overflow@loop13 经 compaction 于 loop15
+  恢复）不计入 loop 级配对，只体现在回合级 error_recovered。
+
+### 字段映射
+
+聊天模式：`NOT_COMPUTABLE / no_error_events_observable`（固定）。
+
+- 聊天无 llm.error、无工具终态 status（埋点 C 缺口），had_error 不可判定；
+  **禁止以业务失败载荷代理**（载荷失败不等价调用层失败，7.7 的载荷代理口径
+  在此不适用）。只做最小结构校验：canvas/meta 非法 →
+  `ERROR / invalid_chat_trace_structure`。
+
+研究模式：`DIRECTLY_COMPUTABLE`（降级口径声明随结果输出）。
+
+- 输入契约与 7.1/7.4 一致：payload 为单逻辑回合事件序列，session 内切分与
+  `_noquery` 续跑段合并由入口层负责。
+- 组合四个既有规范化函数作为单一事实来源，不重复实现判定：
+  `normalize_research_llm_errors`（7.4）、`normalize_research_tool_error_rate`
+  （7.7）、`normalize_research_turn_completion`（7.1）、
+  `normalize_research_answer_grounding`（6.1，取 body_channel）。
+- loop 级配对读取事件顶层 `loop` 字段（llm.error 7/9 携带、llm.response
+  1025/1104 携带）与 `result.finishReason`。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`recovery_semantics`、`had_error`、
+`turn_completed`、`body_present`、`body_channel` 与五个诊断计数
+（llm_error_event_count、tool_error_call_count、retry_recovered_error_count、
+retry_unpaired_error_count、llm_loop_missing_error_count）；正文与错误文本只在
+组件内部内存流转，不落盘。评测器严格校验：研究可计算路径必须
+`recovery_semantics == degraded_v1`、`had_error == 1`、标志 ∈ {0,1}、
+守恒关系 `had_error == (llm>0 或 tool>0)`，未知原因码在解析层拒绝；
+`no_error_events` / `no_error_events_observable` / `missing_turn_boundary` 为
+NOT_COMPUTABLE；结构问题为 ERROR 并携带稳定原因码。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_error_events_observable
+研究（47 逻辑回合）: 14 computed（had_error=1）、33 no_error_events；
+  报告级 error_recovery_rate = 11/14 ≈ 78.57%；recovered 分布 {1: 11, 0: 3}
+  模型错误回合 6 个、恢复 5/6 ≈ 83.3%——与权威口径 7.5 实勘逐项一致
+  （唯一未恢复 = e7b0e1fd，900s 排队超时后静默中断，closed=0）
+  工具错误回合 9 个（= 实勘"9 个回合段"）、恢复 6/9（首次登记）；未恢复 3 个
+  （e7b0e1fd / ecfa41e4 / b094b710）恰为 7.1 未闭环回合，40bab013 无错误事件
+  不进入本指标分母（静默死亡由 7.2 承接）
+  loop 级配对: retry_recovered 合计 4（35e9abf0 三条 error 同 loop 全部重试
+  成功 + 931da0c5 error@loop 8），与实勘一致；7d8e8f6e 换路恢复正确不计入
+  （retry_rec=0、回合级 recovered=1）；unpaired 3、loop_missing 2（= 实勘 2/9）
+  had_error 构成: 模型错误 6 回合 ∪ 工具错误 9 回合，重叠 1（e7b0e1fd）= 14
+  正文通道: final_text 9、write_artifact 5
+宽表: 现行 data/processed/metric_table.csv（121 行 × 17 指标列）由并行
+  compaction 批次的重算驱动写入，本批列统计与独立基线脚本逐项一致（研究
+  14 行非空 JSON、107 行空 = 聊天 74 + 研究 no_error_events 33）；本批注册
+  时点的旧 19 列表已被该批次按列集变更规则删除，逐单元格零差异对比不可
+  执行，改以评估器独立运行直证列值
+```
+
+## 22. 上下文压缩事件数
+
+### 指标定义
+
+上下文压缩事件数计量单条日志内系统自动触发的上下文压缩次数（权威口径 7.6），
+是上下文溢出的前兆指标。研究模式主值为非负整数（零压缩是合法值，不是不可
+计算）；聊天模式无压缩事件通道，恒返回固定不可计算原因。稳定指标名
+`compaction_event_count`，evaluator 版本 `1.0.0`。
+
+```text
+研究模式: compaction_event_count = 回合内 part.type == "compaction" 且 auto == true
+          的唯一 part 数（按 part.id 去重，重复投影只计一次）
+聊天模式: NOT_COMPUTABLE / no_compaction_events（通道不存在不等于无压缩，禁止记 0）
+报告级:   compaction_turn_ratio = compaction_event_count > 0 的回合数 ÷ 回合总数
+          平均压缩次数 = Σ compaction_event_count ÷ 回合总数（聚合层派生）
+```
+
+明确不采用 "usageTokens 增长" 作聊天代理——该口径属已取消的"上下文膨胀率"，
+不复活。
+
+### 字段映射
+
+研究模式：`DIRECTLY_COMPUTABLE`。
+
+- 输入契约与 7.4 一致：信任入口层单逻辑回合合并序列，不重复校验回合边界
+  （边界完整性由 7.1 负责）；trace_id 尽力从 `turn.start` 提取，缺失时回退到
+  事件级 `sessionID`。
+- 压缩事件：`message.part.updated` 中 `part.type == "compaction"`，实勘载荷为
+  `{id, messageID, sessionID, type, auto}`；按 `part.id` 去重（同一 part 的流式
+  重复投影只计一次，进 `duplicate_compaction_projection_count` 诊断）。
+- 仅 `auto == true`（严格布尔）进入主值；`auto == false` 为手动/显式压缩 →
+  `manual_compaction_count` 诊断（权威口径要求不混入主值）；`auto` 缺失或非
+  布尔无法证明是自动压缩 → `auto_flag_invalid_count` 诊断，不猜测。
+- `part.id` 缺失无法去重：保守计为独立事件（宁多计不漏计，与 7.3 ts 缺失同
+  方向），进 `missing_compaction_part_id_count` 诊断。
+- 同一 `part.id` 出现不同 auto 分类 → `ERROR / conflicting_compaction_definition`
+  隔离整条。
+- `message.updated` 的 `info.mode == "compaction"` 摘要消息是跨通道投影（实勘：
+  压缩 part 之后跟随摘要消息、流式重发多条），只进
+  `message_compaction_projection_count` 诊断，永不进入主值。
+- 非序列输入 → `ERROR / invalid_research_trace_structure`。
+
+聊天模式：`NOT_COMPUTABLE / no_compaction_events`。
+
+- 聊天 canvas 无压缩事件，上下文管理过程不可见；结构非法才是
+  `ERROR / invalid_chat_trace_structure`（与 7.4 聊天侧同一契约边界）。
+
+### 输出字段约束
+
+结果元数据携带 `trace_id`、`mode`、`compaction_semantics`（compaction_part_event /
+no_compaction_channel）与五个诊断计数；不保留事件正文、消息 ID 或时间戳原值。
+评测器严格校验规范化输入：主值为非负整数（拒绝布尔/浮点），error 与主值互斥，
+聊天模式契约上恒携带不可计算原因（无 error 的 chat 结果属违约），违反任一条
+返回 `ERROR / invalid_normalized_trace`。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_compaction_events
+研究（47 逻辑回合，51 turn.start 段合并）: 47/47 computed；去重后压缩事件分布
+  {0: 24, 1: 18, 2: 5}，合计 28 次、涉及 23 个回合（compaction_turn_ratio =
+  23/47 ≈ 48.9%，平均 0.596 次/回合）；与实勘对账：原始 compaction part 事件
+  49 条 = 唯一 28 + 重复投影 21（21 个 part.id 各投影恰 2 次、auto 全为 true、
+  49/49 无手动/无效 auto），实勘"单回合最多 4 次"为未去重原始口径，按 part.id
+  去重后单回合最多 2 次；d426dfff 与 7d8e8f6e 均为唯一 2 次（实勘原始 4 次），
+  7d8e8f6e "压缩后仍 context_overflow" 联动事实不变；message.updated 压缩投影
+  84 条（流式重发，仅诊断）；conflicting / missing_id 均为 0
+宽表: 121 行重算，compaction_event_count 列聊天 74 行空（NOT_COMPUTABLE）、
+  研究 47 行非空整数；重跑确定性验证 21 个共有列零差异（对账中曾见 4 处
+  user_id 差异，属并行批次已登记的驱动 user_id 提取修复，见第 19/20 节，
+  与本指标无关）
+```
+
+## 23. 框架 API 重试率
+
+### 指标定义
+
+框架 API 重试率计量单条日志内工具内部传输/业务层的框架重复请求占比（权威口径
+7.8），重试证据为 `tool.debug` apiCalls 中**同一 `(callID, endpoint+入参指纹)`
+重复出现**。本指标不是埋点 D 定义的模型级重试（retry_of_call_id 决策链），两者
+语义不同，命名与报告必须区分，禁止互相代理。稳定指标名 `api_retry_rate`，
+evaluator 版本 `2.0.0`（1.0.0 首发；1.1.0 单元格统一 `[]` 包围；**2026-09-23
+口径修订升 2.0.0**），`retry_semantics = fingerprint_dup_v2`
+（弃用 `request_id_suffix_v1`，新旧口径**禁止混比**）。
+
+> **2026-09-23 口径修订说明（需求方确认）**：对全量 3,586 条含重试日志实勘发现，
+> requestId 尾序号 `-N` 实为"同一 callID 内第 N 个 API 请求"的**序号**，并非重试
+> 计数（120 条日志 4,787 个相邻 apiCall 对中 83.8% 入参不同，属一次工具调用内的
+> 工作流步骤，如 查路径→建文件→读文档）。旧口径把大量工作流步骤误计为重试，
+> 实测高估约 3 倍（旧 ~35% vs 新 ~11%）。同时修正成功语义：成功响应**不带 code
+> 键**（直接返回业务载荷），仅失败响应带 `code + message`，因此"response 为对象
+> 但缺 code 键"判为成功而非 undeterminable。
+
+```text
+研究模式: api_retry_count = Σ 每组(次数-1)，组 = 同一 (callID, 入参指纹)
+                          指纹 = md5(endpoint + 规范化入参，剔除 requestId/
+                          messageId/sessionId/ownerId)
+          api_retry_rate = api_retry_count ÷ api_call_count
+          缺 callID 的请求只进分母不进分子（无法限定同一次工具调用）
+聊天模式: NOT_COMPUTABLE / no_tool_debug_events（tool_result 无 API 明细通道，
+          通道不存在不等于无重试，禁止记 0）
+报告级:   Σ 分子 ÷ Σ 分母，并按 endpoint / 业务错误码聚合（错误码分布随元数据
+          输出；endpoint 矩阵留 reporter 批次）
+```
+
+### 字段映射
+
+研究模式：`DIRECTLY_COMPUTABLE`（覆盖受限，覆盖率必须随值输出）。
+
+- 输入契约与 7.4/7.6 一致：信任入口层单逻辑回合合并序列；trace_id 尽力从
+  `turn.start` 提取，缺失时回退事件级 `sessionID`。
+- 重试证据（`fingerprint_dup_v2`）：对 `tool.debug.debug.apiCalls[]` 的
+  `request`（剔除 requestId / messageId / sessionId / ownerId 等易变键）与
+  `endpoint` 一起做入参指纹；同一 `(callID, 指纹)` 重复出现即计重试（组内次数-1），
+  组内第 1 次为原始请求。**requestId 尾序号仅作"调用内第 N 个请求"的序号与
+  工作流深度诊断（`api_request_depth_max`），不再单独判定重试。** 去重键
+  `(callID, requestId)`，重复投影进 `duplicate_api_call_projection_count`
+  （2026-09-17 样本实测原始 573 / 唯一 572）。
+- requestId 缺失或无尾序号：无法去重，保守逐条计入分母、不进分子（宁多计不
+  漏计），进 `malformed_request_id_count`；但仍参与指纹去重判定。
+- 业务错误口径：`response` 为对象 ∧ 携带 `code` 键 ∧ code ∉
+  {0, "0", 200, "200", None, ""} ∧ `success` 不为 true 才计业务错误；
+  **`response` 为对象但缺 `code` 键 = 成功**（成功响应直接返回业务载荷，如
+  docNodeId / fullPath），只有 `response` 非对象（list / None）才进
+  `undeterminable_api_count`，不估算。错误码分布（str(code) → 次数，按码升序）
+  随结果输出。
+- 覆盖率：`api_debug_coverage = 有 tool.debug 的 callID ∩ 工具 callID ÷ 全部
+  唯一工具 callID`（工具 callID 取 `part.type == "tool"` 的 `part.callID` 去重）；
+  孤立 debug callID 进 `orphan_tool_debug_count`，缺 callID 的 debug 事件与工具
+  part 分别进 `missing_debug_call_id_count`、`malformed_tool_part_count`；无工具
+  part 时分母为空，覆盖率为 null 不猜测。
+- 两级不可计算：完全无 `tool.debug` 事件 → `no_tool_debug_events`；有事件但
+  apiCalls 全部为空 → `no_observable_api_calls`。
+- 非序列输入 → `ERROR / invalid_research_trace_structure`。
+
+聊天模式：`NOT_COMPUTABLE / no_tool_debug_events`。
+
+- 聊天 `tool_result` 无 API 调用明细；结构非法才是
+  `ERROR / invalid_chat_trace_structure`（与 7.4/7.6 聊天侧同一契约边界）。
+
+### 输出字段约束
+
+值列为单元素 JSON 数组（2026-09-21 需求方确认统一 `[]` 包围，键序固定）：
+`api_retry_rate`、`api_retry_count`、
+`api_call_count`、`api_business_error_count`、`undeterminable_api_count`、
+`api_debug_coverage`（无工具 callID 时为 null）；零重试是合法值。结果元数据携带
+`trace_id`、`mode`、`retry_semantics`（fingerprint_dup_v2 / no_tool_debug_channel）、
+六个诊断计数、`tool_call_id_count`、`debug_call_id_count`、`business_error_codes`
+与 `api_request_depth_max`（调用内最大请求序号，保留工作流深度信号）；
+endpoint 与请求/响应正文不落结果。评测器守恒校验：重试 ≤ 调用、业务错误 +
+不可判定 ≤ 调用、错误码分布之和 = 业务错误数且按码严格升序唯一、覆盖率 ∈
+[0,1] 且与工具 callID 数互证（分母为 0 ⇔ 覆盖率 null）、深度缺省或 < 1 违约、
+error 与计数互斥、聊天模式契约上恒携带原因码；违反任一条返回
+`ERROR / invalid_normalized_trace`。
+
+### 宽表独立列 `api_retry_attribution`（2026-09-24 需求方确认）
+
+框架层归因落在独立列（与 `api_retry_rate` 并列），单元格为单元素 JSON 数组，
+键序固定 `by_tool`（Top5 {name,count}）+ `by_endpoint`（Top5 {name,count}）+
+`retry_after_success`：
+
+- 仅统计**框架层**（同 callID 内同指纹重复），**不含**模型层跨 callID 重复。
+- `retry_after_success` = 组内"前一次已成功、后一次仍重发"的次数，量化框架对
+  已成功请求的无效重发。
+- 只处理 `api_retry_rate > 0` 的行，零重试行留空——**留空表示"没有重试"，
+  不等于零重试不可计算**。
+- endpoint 以聚合 Top-K 计数形式落列（定位用）；原始逐次 endpoint 与请求/响应
+  正文仍不落结果。
+- 由 `scripts/backfill_api_retry_attribution.py` 产出（列注册进
+  `build_metric_columns()` 后新的全量重跑亦直接产出）。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0 / request_id_suffix_v1，已废弃口径）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_tool_debug_events
+研究（47 逻辑回合）: 32 computed、15 no_tool_debug_events、
+  no_observable_api_calls 0；唯一 apiCalls 572（原始 573 含 1 次重复投影）、
+  重试 210、微平均 210/572 ≈ 36.71%（实勘原始口径 210/573 = 36.6%）；
+  malformed requestId 0；业务错误 53 = 9.3%（11410×38、11443×7、11442×6、
+  11430×2，与实勘逐项一致）；undeterminable 唯一 519（实勘原始 520 = 68 非
+  对象 + 452 缺 code，差 1 条为该重复投影）；覆盖率回合级合计 477/1,216 ≈
+  39.2%、孤立 debug 0（实勘 506/1,586 ≈ 31.9% 为原始文件级口径，含回合窗口
+  外事件，两者不得混比）；ecfa41e4 全回合 90/200 = 0.45、续跑段 69/100，
+  重试风暴与死亡回合强相关成立
+```
+
+> 上表为 **request_id_suffix_v1（已废弃）** 口径的历史对照，**不得**与新口径数值混比。
+
+### 真实日志基线（2026-09-23，fingerprint_dup_v2，evaluator 2.0.0）
+
+```text
+验证样本: 60 条含重试日志（OSS 回源，正式 collector + evaluator 2.0.0）
+总调用 6,044 / 总重复 688，微平均重试率 ≈ 11.38%
+单日志重试率: 中位 12.68%、p90 25.49%、max 46.97%
+业务错误 776 条；工作流深度（max 尾序号）集中于 4~9
+对照: 同批旧口径（尾序号≥2）约 35%，新口径约为其 1/3
+```
+
+全量重跑基线（2026-09-24，7,663 任务回源，7,582 行宽表）：
+
+```text
+api_retry_rate 微平均 3,182/61,530 = 5.17%（旧 suffix 口径 mean 34.76%/
+  median 35.71%）；单日志 median 0.00%/p90 14.29%/p99 28.57%/max 46.97%；
+  零重试占 71.1%；可计算 4,125/7,582；业务错误 5,160
+=> 阈值标定影响: >0.4 仅 3 条、>0.6 为 0 条，7.11 旧阈值（0.4/0.6）在新口径下
+   几乎空转，须按新分布重调（见 24 节待办）
+api_retry_attribution（框架层归因，回填完成）:
+  rate>0 的 1,191 行全部非空；框架层重复总数 3,182（与微平均分子一致）
+  其中前置成功仍重发 2,415 = 75.9%，印证框架对已成功请求无效重发
+  by_tool = mkdir 1431 / rm 568 / write 512 / excel 253 / rename 166 / cp 165 / mv 87
+  by_endpoint = node-id-by-full-path 3041（95.6%）/ yjs-context-read 140
+```
+
+## 24. 高危回合画像
+
+### 指标定义
+
+高危回合画像对研究回合输出双条件 0/1 标记（权威口径 7.11，2026-09-21 需求方
+确认双条件阈值），命中语义是"高摩擦/高成本回合筛查"，不等价死亡回合预测。
+报告级组合规则，非单值指标，不进宽表单值列。稳定指标名
+`high_risk_turn_profile`，evaluator 版本 `1.0.0`，规则版本
+`high_risk_profile_v2`（v1 四条件公式实测 47 回合 0 命中已废弃）。
+
+```text
+研究模式: high_risk_turn = (step_count > 30) ∧ (api_retry_rate > 0.4)
+          （冻结阈值，严格不等式；step 数 = step-start 按 part.messageID 去重）
+聊天模式: NOT_COMPUTABLE / no_tool_debug_events（依赖 7.8 聊天侧透传）
+报告级:   高危回合数 ÷ 回合总数，并交叉 7.1 完成率验证区分度（聚合层派生）
+```
+
+### 字段映射
+
+研究模式：`DIRECTLY_COMPUTABLE`（组合式单一事实来源，7.5 范式）。
+
+- 重试率：复用第 23 节 `normalize_research_api_retry`（硬依赖；7.8 不可计算
+  即透传 `no_tool_debug_events` / `no_observable_api_calls`——step 数再高也
+  不可判定，禁止以其他特征替代）。
+- step 数：`message.part.updated` 中 `part.type == "step-start"` 按
+  `part.messageID` 去重计数（与 7.10 同口径，未来 7.10 立项后复用本实现）；
+  缺 messageID 保守计为独立 step（宁多计不漏计），进
+  `missing_step_message_id_count`；重复投影进
+  `duplicate_step_start_projection_count`。
+- 压缩次数：复用 7.6 `normalize_research_compaction_events`（特征清单诊断项，
+  非必要条件）；`conflicting_compaction_definition` 透传隔离。
+- 闭环标记：复用 7.1 `normalize_research_turn_completion`（特征项不是条件：
+  `missing_turn_boundary` 时 `turn_completed` 为 null 不阻断主值；
+  `conflicting_turn_boundary` 属边界证据损坏，透传隔离）。
+- 空结果数特征项本批省略（7.9 未立项，2026-09-21 需求方确认）；7.9 实现后
+  复用其 normalizer 补入并升版，禁止提前内联复制规则。
+- 错误传播优先级：输入非法 > 7.8 依赖不可计算/结构错误 > 闭环边界冲突 >
+  压缩证据冲突 > 可计算。
+
+聊天模式：`NOT_COMPUTABLE`（依赖通道不存在，透传 7.8 原因码）；聊天侧替代
+画像（候选特征 round ≥ 5 ∧ calls ≥ 40 ∧ 降级/失败载荷 ≥ 1）待研究侧验证
+区分度后另行立项，禁止静默替代。
+
+### 输出字段约束
+
+值列为单字段紧凑 JSON（键序固定）：`high_risk_turn`、`step_count`、
+`api_retry_rate`、`api_retry_count`、`api_call_count`、
+`compaction_event_count`、`turn_completed`（可为 null）。结果元数据携带
+`trace_id`、`mode`、`profile_version`、冻结阈值（`step_count_threshold` /
+`api_retry_rate_threshold`）与两个 step 诊断计数。评测器强校验：研究路径
+（含错误路径）恒携带 `high_risk_profile_v2`（版本漂移即口径违约，禁止跨版本
+混比）、`api_retry_rate` 与 `api_retry_count ÷ api_call_count` 自洽、重试 ≤
+调用、`turn_completed ∈ {0,1,null}`、error 与特征互斥、聊天模式契约上恒携带
+原因码；违反任一条返回 `ERROR / invalid_normalized_trace`。
+
+### 真实日志基线（2026-09-17 样本，evaluator 1.0.0）
+
+```text
+聊天（74 条 Trace）: 74/74 NOT_COMPUTABLE / no_tool_debug_events（透传）
+研究（47 逻辑回合）: 32 computed、15 no_tool_debug_events（透传）、
+  no_observable_api_calls 0；命中 4/32（占全部回合 4/47 ≈ 8.5%），与阈值
+  敏感性实勘逐一吻合:
+  ecfa41e4 steps=120、90/200=0.45、comp=0、turn_completed=0（死亡回合，
+    全跨度 95.2 分钟、tokens 55,812,774，全样本最大）
+  40bab013 steps=57、5/12≈0.4167、comp=1、turn_completed=0（死亡回合，
+    跨度 34.9 分钟、tokens 32,700,899）
+  060a7676 steps=60、15/29≈0.5172、comp=2、turn_completed=1（重启 1 次，
+    durationMs 1819s / 全跨度 3930s，tokens ≥35,510,755 为 58/60 步下界，
+    闭环回合中成本最高）
+  f3640858 steps=31、13/22≈0.5909、comp=1、turn_completed=1（durationMs
+    949s、tokens 8,673,614）
+区分度: 命中回合未闭环率 2/4 = 50% vs 全样本 4/47 ≈ 8.5%（5.9 倍富集）；
+  b094b710（重试 0.20/21 步）与 e7b0e1fd（排队超时，0.33/18 步）不在双条件
+  召回面内，由 7.1/7.2 承接
+单元格 turn_completed 特征与宽表 turn_completion_rate 列逐回合一致
+  （47/47 零差异）；compaction 特征为 part.id 去重后计数（060a7676 = 2，
+  实勘原始事件数 4 含重复投影）
+续跑回合时延双视图注意: turn.end.durationMs 只覆盖最后续跑段（060a7676:
+  1819s vs 3930s；2a5e8ac2: 278s vs 2272s），命中回合时延解读须双视图保留
+```
+
 ## 补充字段：工具调用效率观测
 
 本节只定义工具调用次数、同名工具重复调用、工具耗时、工具关联模型步骤 Token，以及用于解释
@@ -1414,7 +2341,10 @@ evaluator_version
 
 ### 统一工具范围与同名聚合
 
-当前批次不依赖额外工具类别目录，直接按日志结构识别调用：
+当前批次不依赖额外工具类别目录，直接按日志结构识别调用。统计范围覆盖全部业务工具类型
+（MCP 工具、文件类 bash/edit/write/read/glob/grep/cp/rm/mkdir/rename、文档类 word/excel、
+skill、task、run_code 等），不按 MCP 手册过滤——2026-09-21 需求方确认范围显式化，其中
+task（研究侧子 Agent 委派）确认保留计入，报告级可按工具名单独切片分析编排开销：
 
 - 聊天模式统计同时具有非空 `toolId` 和 `toolName` 的 `tool_call`；只有 `agentName` 且没有
   `toolId/toolName` 的父 Agent 委派事件不进入统计。
@@ -1545,8 +2475,10 @@ B 重复 1 次、C 不进入重复工具列表，`total_repeat_call_count = 4`�
 没有重复工具时返回 `COMPUTED`，数组为空，两个汇总计数均为 `0`；不得返回不可计算或省略
 字段。
 
-汇总宽表只增加 `per_tool_repeat_call_count` 一个字段，其单元格保存上述紧凑 JSON 数组；
-`repeated_tool_name_count` 和 `total_repeat_call_count` 仅作为表外诊断，不增加 CSV 字段。
+2026-09-20 起本指标不再接入统一宽表（应需求剔除，评测器、输出契约与测试保留）；下述宽表
+字段约定为剔除前历史口径：汇总宽表只增加 `per_tool_repeat_call_count` 一个字段，其单元格
+保存上述紧凑 JSON 数组；`repeated_tool_name_count` 和 `total_repeat_call_count` 仅作为
+表外诊断，不增加 CSV 字段。
 
 跨 Trace 聚合时必须先在每条 Trace 内计算重复次数，再按工具名求和：
 
@@ -1607,6 +2539,8 @@ per_tool_call_latency_ms[tool_name] =
 聊天模式：`DIRECTLY_COMPUTABLE`。
 
 - 按 `traceId + toolId` 关联 `tool_call` 与 `tool_result`。
+- 业务工具范围与统一工具范围一致：排除 `agentName` 委派与 `respond` Agent 返回
+  （1.1.0 修复，见下方版本说明）。
 - 单次耗时：`tool_result.durationSeconds × 1000`。
 - 相同耗时快照去重；同一调用出现不同耗时返回
   `ERROR / conflicting_duration_observation`。
@@ -1626,7 +2560,11 @@ JSON 数组，每项只包含 `tool_name` 和 `per_tool_call_latency_ms`。状�
 `evaluator_version` 仅保留在表外元数据与问题摘要。部分调用缺失时仍对同名工具的有效调用
 求平均；全部缺失时该工具项的值为 `null`，并记录
 `NOT_COMPUTABLE / no_observable_tool_duration`。非法、负时序或冲突耗时只使受影响工具项的值
-为 `null` 并记录 `ERROR`，其他工具继续输出。evaluator 版本为 `1.0.0`。
+为 `null` 并记录 `ERROR`，其他工具继续输出。evaluator 版本为 `1.1.0`（2026-09-21：修复
+聊天 `respond` 泄漏——修复前 2026-09-17 样本聊天列 13 处 respond 进入逐工具时延，与
+per_tool_call_tokens / max_tool_latency_share 的业务工具范围不一致；排除上移至上游逐调用
+规范化，新增 `excluded_agent_delegation_count` / `excluded_agent_return_count` 诊断，
+1.0.0 历史结果与本版本不得混比）。
 
 #### 模拟计算
 
@@ -1702,7 +2640,9 @@ max_tool_latency_share =
 聊天模式排除结构化子 Agent 调用及 `respond` 结果侧 Agent 返回，只统计业务工具。汇总宽表
 只增加 `max_tool_latency_share` 一个字段，单元格保存按 `tool_name` 升序排列的紧凑 JSON
 数组，每项只包含 `tool_name` 和 `max_tool_latency_share`；累计耗时、覆盖与排除计数仅进入
-表外元数据。evaluator 版本为 `1.0.0`。
+表外元数据。evaluator 版本为 `1.1.0`（2026-09-21：`respond` 排除上移至上游逐调用规范化，
+本指标值不变——组合层此前已排除；`excluded_agent_return_count` 改为继承上游计数、组合层
+过滤仅作安全网，新增 `excluded_agent_delegation_count` 诊断）。
 
 #### 模拟计算
 

@@ -341,7 +341,7 @@ Content-Type: application/json
       "trace_id": "stable-trace-id",
       "mode": "chat",
       "metric_name": "statement_support_rate",
-      "evaluator_version": "3.0.0",
+      "evaluator_version": "4.0.0",
       "status": "computed",
       "metric_value": 0.87,
       "reason_code": null,

@@ -10,6 +10,10 @@
   336 条会话执行记录。
 - 研究模式：`data/raw/msg_780b025aaf2a413a9b5d2b82bcdfeceb_*.json`，单次研究任务的
   380 个事件。
+- 研究模式（2026-09-23 补充）：`data/processed/research_logs_rebuilt/`，47 个按
+  `turn.start` 切分并合并续跑段后的逻辑回合，共 13,747 个事件。第 3.8 节的
+  `tool.debug` 层级分析来自该样本（事件量是单条样本的 36 倍，才能观察到跨 callID、
+  跨工具的形态分布）。
 
 `data/raw/` 中的文件包含原始 Trace 和潜在敏感信息，只能用于本地分析，不得提交 Git。
 本文记录的是观察到的结构，不代表上游已经承诺的稳定 schema；新增兼容逻辑时仍需版本化并
@@ -442,8 +446,8 @@ Token 消耗以 Agent message 为模型步骤：4,946 条具有 `durationSeconds
 具有合法 input/output Token，24 条缺失 Token；另有 411 条仅含工具结果的消息，不属于新的
 模型调用。312/336 条 Trace 的模型步骤 Token 覆盖完整。orchestrator 与 worker 是独立模型
 步骤，可以累加；`canvas.answer.usageTokens` 在当前 311 条观测中都能匹配某条 Agent message，
-属于重复快照，不得再次计数。按确认口径只累加 `input_tokens + output_tokens`，不单独处理
-`cache_tokens`。
+属于重复快照，不得再次计数。总 Token 按确认口径只累加 `input_tokens + output_tokens`；缓存
+比率则按已确认的 `cache_tokens / input_tokens` 计算，因为聊天 `input_tokens` 已包含缓存 Token。
 
 ### 2.10 `canvas.answer`
 
@@ -784,6 +788,9 @@ pending -> running -> completed
 
 ### 3.8 `tool.debug`
 
+`tool.debug` 记录**一次工具调用内部的 API 请求明细**。它是研究模式唯一能观察到工具实现的
+通道，也是理解 `callID` 与 `requestId` 两级结构的关键。
+
 ```jsonc
 {
   "type": "tool.debug",
@@ -794,19 +801,115 @@ pending -> running -> completed
   "tool": "<tool-name>",
   "debug": {
     "apiCallCount": 0,
-    "apiCalls": [],
+    "apiCalls": [
+      {
+        "endpoint": "<api-path>",
+        "httpStatus": 200,
+        "request": {"<field>": "<redacted>"},
+        "response": {"<field>": "<redacted>"}
+      }
+    ],
+    "requestIdCount": 0,
     "requestIds": [],
+    "requestId1": "<request-id>",
     "debug": {}
   }
 }
 ```
 
-样本有 22 个 `tool.debug` 事件，全部属于 `excel` 工具；22 个 `callID` 全部能匹配工具 part，
-但并非所有工具调用都有 debug 事件。因此 debug 只能作为可选诊断来源，不能作为工具调用
-分母。
+#### 3.8.1 三级结构与两级标识
 
-`debug` 内含接口地址、请求 ID、文件路径、节点 ID、内部身份和响应元数据，属于高敏感诊断
-内容。规范化结果最多保留白名单计数，例如 `apiCallCount`，不得保留完整对象。
+工具调用不是单次 HTTP 请求，而是"一次逻辑调用 → 多次物理请求"的复合结构：
+
+```text
+assistant 消息 (message.updated.info.id / part.messageID)   ← 模型一次输出
+  └── 工具调用 (part.callID / tool.debug.callID)             ← 模型决定的逻辑单位，工具名在此层
+        └── API 请求 (apiCalls[].request.requestId)          ← 工具实现内部的物理 HTTP
+```
+
+- **`callID` 是"每次工具调用"独立，不是"每条消息"一个。** 一个 `messageID` 可对应多个
+  `callID`（模型一条消息并行发出多个工具调用）；实测 `callID -> tool` 严格一对一。
+  `callID` 形如 `toolu_vrtx_...`（Vertex）/ `toolu_bdrk_...`（Bedrock），是**模型供应商在
+  生成 tool_use 时产生的 ID**，不是应用层编号。
+- **`requestId` 是"该次工具调用内部的第 N 个 HTTP 请求"。** 单次工具调用内部常需要多次
+  REST 往返才能完成；例如 `read` 在 Agent 语义上是"读一个文件"一步，内部却先按路径换节点
+  ID、再读文档内容，共 2 次请求。
+- **`requestId` 格式为 `req-<uuid>-<N>`，其中 uuid 是一次工具调用内部的会话标识。**
+  实测（362 个含 apiCalls 的 callID）：同一 callID 内含多个**不同** uuid 的为 **0**，
+  一个 uuid 对应多个 callID 的也为 **0** —— uuid 与 `callID` **严格一一对应**，
+  可视为 callID 在 HTTP 层的投影；`N` 是该次调用内请求的先后序号，从 1 起递增。
+  实测序号序列形态：`(1,2)` 60 次、`(1,2,3,4)` 36 次、`(1,2,3)` 14 次、`(1,2,3,4,5)` 2 次、
+  `(1..7)` 1 次、`(1,1)` 1 次（后者为同一请求被投影两次，见 3.8.4）。
+
+**`N` 不是重试计数。** 相邻两个请求（同一 callID 内 `N` 与 `N+1`）绝大多数在干不同的事。
+相邻请求入参不同的比例：**本地 47 回合样本实测 80.0%**（210 对相邻请求中 168 对指纹不同），
+权威口径 7.8 记录的全量 3,586 条含重试日志为 **83.8%**——两者是不同总体，量级一致。
+说明多数字号对应**工作流步骤**（查路径 → 建文件 → 读文档），而非重发。任何把 `N ≥ 2`
+当作重试的口径都会显著高估（实测高估约 3 倍），详见权威口径 7.8 与
+`docs/specs/metrics.md` 第 23 节。
+
+注意相邻请求中 endpoint 相同的仍有 32.9%（69/210）——**同一 endpoint 的连续调用不等于重发**，
+这也是指纹必须由"endpoint + 入参"共同决定、不能只看 endpoint 的原因。
+
+#### 3.8.2 endpoint 穷举
+
+样本出现的 endpoint 全部属于同一个内部文档服务，共 9 个：
+
+```text
+   298  /json/inner-research-model/node-id-by-full-path      路径换取节点 ID
+    89  /json/inner-research-model/yjs-context-read          读取文档内容
+    68  /json/inner-research-model/node-path-glob            路径匹配
+    38  /json/inner-research-model/node-upload-by-full-path  上传文件
+    27  /json/inner-research-model/node-delete               删除节点
+    25  /json/inner-research-model/context-read              读取上下文
+    22  /json/inner-research-model/node-create-yjs-file      创建文件
+     4  /json/inner-research-model/node-rename               重命名
+     2  /json/inner-research-model/node-create-folder        创建目录
+```
+
+`endpoint` 必须参与任何"同一请求"的指纹计算，否则同入参不同接口会被误判为重复。
+
+#### 3.8.3 规模与覆盖
+
+47 个重建逻辑回合共 13,747 个事件，其中 `tool.debug` **478 条**：
+
+- 363 条 `debug.apiCalls` 为列表（共 573 条 apiCalls、去重后 572 条唯一 `(callID, requestId)`）。
+- 115 条**无 `apiCalls` 列表**，其 `debug` 只含 `requestIds` / `requestId1..N` /
+  `requestIdCount` 与内层 `debug`（`backend` 为 `cloud` 或 `local`、文档块信息）。这些事件
+  **不携带请求明细**，不能参与重试分子分母；按 7.8 契约属于 `no_observable_api_calls`
+  之外的独立形态，读取器必须区分"有事件无明细"与"无事件"。
+- 出现 `tool.debug` 的工具：`edit` 115、`read` 108、`excel` 57、`word` 57、`cp` 48、
+  `glob` 42、`rm` 28、`write` 10、`grep` 6、`rename` 4、`mkdir` 2、`docdna` 1。
+- 含 `tool.debug` 的 callID 共 477 个，但并非所有工具调用都有 debug 事件（`callID` 全集
+  实测 1,299 个）。**debug 只能作为可选诊断来源，不能作为工具调用分母**；覆盖率必须
+  随指标值输出（7.8 的 `api_debug_coverage`）。
+
+#### 3.8.4 投影与去重
+
+同一条 `tool.debug` 事件可能被投影两次：实测 `turn_036` 事件 625 与 626 的
+`(callID, requestId)` 完全相同。因此 573 条原始 apiCalls 对应 572 条唯一值，
+**必须按 `(callID, requestId)` 去重**，重复投影进诊断计数。
+
+#### 3.8.5 已知缺口：跨 callID 的重发不可判定
+
+现有字段**无法区分**下列两种情况：
+
+```text
+同一工具 + 同一入参，出现在不同 callID
+  ├── 框架整调用重发（真重试）
+  └── 模型在不同步骤合法地重复读同一文件 / 重复 grep 同一 pattern（正常工作）
+```
+
+`tool.debug.tool` 字段存在（478/478 全有）且与 `part.tool` 一致，但按工具名跨 callID 分组
+会把合法重复一并计入（实测该口径给出约 39.8%，明显高于保守下界 7.7%）。要区分二者需要
+联合 `ts` 与 `step-start` 判定"两次请求之间有没有新的模型步骤"，属未立项的新口径。
+
+因此 7.8 当前采用**保守下界**：只统计同一 `callID` 内部的同指纹重复请求。
+
+安全边界：`debug` 内含接口地址、请求 ID、文件路径、节点 ID、内部身份和响应元数据，属于
+高敏感诊断内容。规范化结果最多保留白名单计数（如 `apiCallCount`）与经确认的聚合量
+（如 endpoint 频次、业务错误码），不得保留完整 `request` / `response` 对象。
+
 
 ### 3.9 `turn.end`
 
@@ -856,6 +959,7 @@ tool.debug.callID（仅部分调用存在）
 工具调用：sessionID + callID
 模型循环：sessionID + userMessageID + loop
 研究回合：sessionID + userMessageID
+API 请求：callID + requestId（tool.debug.debug.apiCalls[]，见 3.8）
 ```
 
 ## 4. 双模式字段对应
@@ -945,7 +1049,6 @@ collector 不应让各指标分别理解两套原始结构。建议两种输入�
 
 - `chatId` 与 `recordId` 的正式业务语义，以及为什么存在同值多 Trace。
 - 75 个匿名 Agent 条目的产生条件。
-- `usageTokens.cache_tokens` 是否包含在 `input_tokens` 中。
 - 独立 `tool_result` message 与原请求的官方关联规则。
 
 ### 研究模式
@@ -956,6 +1059,10 @@ collector 不应让各指标分别理解两套原始结构。建议两种输入�
 - `part.time` 与 `part.state.time` 的单位和权威优先级。
 - `turn.end.durationMs` 是否包含排队、网络请求和交付物写入时间。
 - `tool.debug` 的长期保留策略，以及哪些安全计数字段允许进入评测诊断。
+- `tool.debug` 中 115/478 条事件无 `apiCalls` 列表（只有 `requestIds` / `requestIdN`）：
+  这些事件代表"工具内部无 HTTP 调用"还是"明细未上报"？两种语义对应不同的 7.8 分母口径。
+- 跨 `callID` 的"同工具同入参"请求：框架整调用重发与模型合法重复工作，现有字段无法区分
+  （见 3.8.5）；需要上游提供重发标记，或确认可用 `ts` + `step-start` 联合判定。
 
 在这些问题确认前，缺少可靠字段或映射的指标必须返回稳定的 `NOT_COMPUTABLE` 原因，不能
 使用近似值或通过重复事件推测真实调用次数。

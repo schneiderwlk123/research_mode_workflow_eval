@@ -11,6 +11,12 @@ required_fields = true
 message_shape = true
 tool_call_integrity = true
 
+# 陈述支持率默认使用本地 Embedding 召回。生产环境应通过环境变量固定模型 commit：
+# STATEMENT_SUPPORT_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+# STATEMENT_SUPPORT_EMBEDDING_REVISION=<immutable-huggingface-commit>
+# 默认只读取本地模型缓存；显式设为 0 才允许 Hugging Face 下载模型。
+# STATEMENT_SUPPORT_EMBEDDING_LOCAL_ONLY=1
+
 # 示例 SLA 仅展示结构，不代表生产阈值。实际运行前应替换为经服务方确认的版本化配置。
 [tool_timeout_policy]
 policy_version = "example-1"
