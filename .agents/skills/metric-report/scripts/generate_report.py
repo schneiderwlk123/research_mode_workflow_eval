@@ -84,10 +84,16 @@ JSON_SCALAR = {
 }
 
 # 高危日志阈值(2026-09-24 需求方确认):闭环 ∧ (业务错误数 be>=3 ∨ 工具错误数 te>10)。
-# 与 `.tmp/rebuild_badcase_sheet.py` 的同名常量必须一致——报告与 bad case sheet
+# 与 `scripts/build_badcase_workbook.py` 的同名常量必须一致——报告与 bad case sheet
 # 的高危口径不允许分叉。改这里必须同步改那边(以及 SKILL.md 的「关键口径」)。
 HIGH_BE_THRESHOLD = 3
 HIGH_TOOL_ERROR_THRESHOLD = 10
+
+# 高消耗口径(2026-09-29 需求方确认):单条日志总 Token >= 全样本 p90 记为"高消耗"。
+# 该分位是"3.6x"那条论证原本的口径,此前只在结论里以字面量出现、没落成代码,
+# 导致换口径后无法复现;现改为常量 + `build_enrichment_stats` 实时计算。
+# 注意"高消耗富集"与"死亡富集"分母口径不同,文案必须分别标注,禁止混称。
+HIGH_CONSUMPTION_PERCENTILE = 0.90
 
 # 模型错误分类目录(llm_error_class_v1):分类图必须穷举这 6 类,零命中类也要列出。
 # 与 src/collectors/llm_error_count.py 的 _ERROR_CLASS_RULES_V1 同步;目录升版时同步此处。
@@ -221,6 +227,103 @@ def fig_to_b64(fig):
     fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def token_values(rows):
+    """全样本可计算的总 Token 数值列表(供分位数与高消耗阈值共用)。
+
+    `total_token_consumption` 为 0 是合法的可计算值,因此判空用 `is None`
+    而不是判真——`r.get(col)` 对 "0" 返回真,但空串返回假,这里统一走 float 转换。
+    """
+    out = []
+    for r in rows:
+        raw = r.get("total_token_consumption")
+        if not raw:
+            continue
+        try:
+            out.append(float(raw))
+        except ValueError:
+            continue
+    return out
+
+
+def build_enrichment_stats(rows) -> dict:
+    """计算 4.2 需要的实时富集倍数,并把两个不同口径显式分开。
+
+    **两个富集的分母口径不同,禁止混称**(这是 2026-09-29 修正的历史缺陷:
+    旧文案把两者并列写在同一句里却没标注口径,读者无法分辨):
+      high_consumption_share = P(Token >= p90)              → 分位口径
+      enrichment_high        = P(Token >= p90 | 命中) ÷ P(Token >= p90 | 全样本)
+      enrichment_death       = P(未闭环 | 命中) ÷ P(未闭环 | 全样本)  → 死亡率口径
+
+    返回 dict,键:
+      p90 阈值、全样本高消耗占比、以及可按组名查的两个富集体数。
+    组名取 "be" / "te" / "be_or_te",分别对应 be>=3、te>10、闭环∧(be>=3∨te>10)。
+    """
+    toks = token_values(rows)
+    if not toks:
+        return {
+            "p90": 0.0,
+            "all_high_share": 0.0,
+            "base_death_rate": 0.0,
+            "groups": {},
+        }
+    p90 = pct(toks, HIGH_CONSUMPTION_PERCENTILE)
+    n = len(rows)
+    all_high_share = _ratio(sum(1 for r in rows if _tok(r) >= p90), n)
+    base_death = _ratio(sum(1 for r in rows if r.get("turn_completion_rate") == "0"), n)
+
+    def _group(sub):
+        if not sub:
+            return {"n": 0, "high_enrich": 0.0, "death_enrich": 0.0}
+        high_share = _ratio(sum(1 for r in sub if _tok(r) >= p90), len(sub))
+        death_share = _ratio(sum(1 for r in sub if r.get("turn_completion_rate") == "0"), len(sub))
+        return {
+            "n": len(sub),
+            "high_enrich": _ratio(high_share, all_high_share),
+            "death_enrich": _ratio(death_share, base_death),
+        }
+
+    # 组定义与第 4 节高危口径同源:be 与 te 各自全样本统计(不限闭环),
+    # be_or_te 额外要求闭环 —— 与 `high` 列表的构造保持一致。
+    be_rows = [
+        r
+        for r in rows
+        if jnum(r, "api_retry_rate", "api_business_error_count") >= HIGH_BE_THRESHOLD
+    ]
+    te_rows = [
+        r
+        for r in rows
+        if jnum(r, "tool_error_rate", "error_call_count") > HIGH_TOOL_ERROR_THRESHOLD
+    ]
+    # 用 log_id 去重而不是 `r in 列表`:宽表行是 dict,逐行 `in` 列表是 O(n²)。
+    # 同一 log_id 只可能出现一次,故用 id() 也行,但 log_id 更直观且与别处口径一致。
+    in_both = {r.get("log_id") for r in be_rows} | {r.get("log_id") for r in te_rows}
+    both_rows = [r for r in rows if r.get("log_id") in in_both]
+    closed_rows = [r for r in both_rows if r.get("turn_completion_rate") == "1"]
+
+    return {
+        "p90": p90,
+        "all_high_share": all_high_share,
+        "base_death_rate": base_death,
+        "groups": {
+            "be": _group(be_rows),
+            "te": _group(te_rows),
+            "be_or_te": _group(both_rows),
+            "closed": _group(closed_rows),
+        },
+    }
+
+
+def _tok(r) -> float:
+    """单条日志的总 Token;空值按 0 处理,供阈比较使用。"""
+    raw = r.get("total_token_consumption")
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
 
 
 def collect_per_tool(rows, col, value_key):
@@ -598,10 +701,12 @@ def build_stability_signals(rows) -> list[tuple[str, int, str, int]]:
 
     2026-09-24 需求方确认:API 重试信号改用 fingerprint_dup_v2 口径、阈值取
     p90≈0.15(旧 0.6 在新口径下几乎为 0,无判别力);并新增「API业务错误≥3」
-    信号(高消耗/死亡双重富集最强),与第 4 节高危口径对齐——高危口径此后
+    信号(对高消耗与死亡双重富集),与第 4 节高危口径对齐——高危口径此后
     扩展为 be≥3 ∨ te>10,本表的两个信号分行展示,不作高危险替代。
     2026-09-24 后续需求:移除「死亡富集」倍数列(曾为第五元素),2.3 只保留
     命中数与命中中未闭环数两个原始计数,不做派生倍数展示。
+    2026-09-29:信号描述里曾写死的"3.6x / 2.4x"富集体数已删除——倍数统一由
+    第 4.2 节的 `build_enrichment_stats` 实时给出,本节只留定义与举例。
     """
     specs = [
         (
@@ -642,9 +747,10 @@ def build_stability_signals(rows) -> list[tuple[str, int, str, int]]:
         (
             "API业务错误≥3",
             lambda r: jnum(r, "api_retry_rate", "api_business_error_count") >= 3,
-            "该日志内带业务错误码(code∉成功集)的 API 响应 ≥3 次,是'反复撞墙'的最强信号"
-            "(对高消耗 3.6x、死亡 2.4x 双重富集)。例:一条日志对 node-id-by-full-path "
-            "反复查询一个已删除路径,累计 18 次 code=11410,即计入。",
+            "该日志内带业务错误码(code∉成功集)的 API 响应 ≥3 次,是'反复撞墙'的信号"
+            "(它对本表的两个口径都富集,具体倍数见第 4.2 节的实时值——本节不重复给出,"
+            "避免两处口径漂移)。例:一条日志对同一路径反复查询一个已删除节点,"
+            "累计 18 次同类错误码,即计入。",
         ),
     ]
     signals = []
@@ -1295,10 +1401,10 @@ def main() -> None:
     # ---- 洞察计算(第 4/5 节) ----
     dead = [r for r in rows if r.get("turn_completion_rate") == "0"]
     # 高危日志口径(2026-09-24 二次修订): 闭环 ∧ (API业务错误数 be>=3 ∨ 工具错误数 te>10)。
-    # be>=3 由富集分析确认对高消耗(3.6x)与死亡(2.4x)双重富集最强;新口径 rate 对死亡
-    # 无判别力(1.2x),且 be>=3∧rate 反而削弱信号,故弃用旧"压缩>0∨重试>0.6"。
-    # te>10 为同日追加:该分支单独多收 17 条闭环日志(中位 19.1M Token = 全样本 11.8x),
-    # 其中 15 条不同时满足 be>=3,属"错得多且特别贵"的另一类消耗主体,原口径完全漏掉。
+    # 两个条件各自的富集体数由 `build_enrichment_stats` 实时算(见下方 enrich),
+    # 不在本注释里写死——历史上这里记的 "3.6x / 2.4x / 1.2x" 因换了重试口径而失效,
+    # 且 be>=3∧rate>0.4 的交集当前为 0 条,率已不具判别力,故弃用旧"压缩>0∨重试>0.6"。
+    # te>10 补的是"错误分散在多个工具、每条都不重"的场景,be>=3 抓不到;
     # 两条件按 log_id 取并集(同一日志只计一次),与 bad case sheet 口径一致。
     high = [
         r
@@ -1606,6 +1712,12 @@ def main() -> None:
     # 4.2 集中度:be≥3 组承接的框架重试 / 业务错误占比(live 计算)
     be_retry_share = _ratio(_be_retry, _tot)
     be_err_share = _ratio(_be_err, _all_err)
+    # 4.2「为何是这两个条件」的两个富集体数(2026-09-29 起实时计算,取代字面量)。
+    # 两个口径必须分别标注:高消耗看 Token 分位,存活看未闭环率,不可混称。
+    enrich = build_enrichment_stats(rows)
+    _enr_be = enrich["groups"]["be"]
+    _enr_te = enrich["groups"]["te"]
+    _enr_both = enrich["groups"]["be_or_te"]
 
     insight_html = f"""
 <div class="insight">
@@ -1622,7 +1734,7 @@ def main() -> None:
 <ul>
 <li><b>成本富集</b>:高危日志中位单条 {med_tok(high) / 1e6:.1f}M Token,是全局中位的 <b>{med_tok(high) / _median_all:.1f}x</b>,{high_be / n:.1%} 的日志数吃掉 {high_tok / total_tok:.1%} 的总 Token。</li>
 <li><b>两个条件各收到什么</b>:仅 be≥{HIGH_BE_THRESHOLD} 的 {len(high_only_be)} 条(反复撞同一接口/路径)、仅 te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 的 {len(high_only_te)} 条(坏在多个不同工具上)、两者同时命中 {high_both} 条。后一类只占 {len(high_only_te) / n:.1%} 的日志数但中位单条 {med_tok(high_only_te) / 1e6:.1f}M Token,单看工具错误数就能捞出这批原口径漏掉的贵日志。</li>
-<li><b>为何是这两个条件</b>:富集分析显示 be≥{HIGH_BE_THRESHOLD} 对高消耗(3.6x)与死亡(2.4x)双重富集最强;而重试率对死亡仅 1.2x、且 be≥{HIGH_BE_THRESHOLD}∧rate 反而把死亡富集打到 0.4x,故率不宜作门槛(详见 3.5)。te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 补的是"错误分散在多个工具、但每条都不重"的场景,be≥{HIGH_BE_THRESHOLD} 抓不到。</li>
+<li><b>为何是这两个条件</b>(2026-09-29 起全部实时计算,两个口径分别标注):<b>高消耗富集</b>指"Token ≥ 全样本 p90({enrich["p90"] / 1e6:.1f}M)的占比 ÷ 全样本该占比";<b>死亡富集</b>指"未闭环率 ÷ 全样本基线 {enrich["base_death_rate"]:.1%}"。按此口径,be≥{HIGH_BE_THRESHOLD} 组({_enr_be["n"]} 条)高消耗富集 <b>{_enr_be["high_enrich"]:.2f}x</b>、死亡富集 <b>{_enr_be["death_enrich"]:.2f}x</b>;te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 组({_enr_te["n"]} 条)高消耗富集 <b>{_enr_te["high_enrich"]:.2f}x</b>、死亡富集 <b>{_enr_te["death_enrich"]:.2f}x</b>——两个条件各自都对高消耗与死亡双重富集,故取并集。te&gt;{HIGH_TOOL_ERROR_THRESHOLD} 补的是"错误分散在多个工具、但每条都不重"的场景,be≥{HIGH_BE_THRESHOLD} 抓不到。重试率不作门槛的原因见 3.5:新版口径下它已是稀疏信号,旧门槛 rate&gt;0.4 在当前样本上命中过少、失去判别力。</li>
 <li><b>与死亡日志几乎不重叠</b>:两者是独立的两类问题——一个"坏了",一个"贵了",打捞策略应分开。</li>
 </ul>
 

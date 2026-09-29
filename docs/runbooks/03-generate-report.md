@@ -27,7 +27,9 @@ C:\Users\EDY\anaconda3\python.exe -c "import matplotlib, numpy; print(matplotlib
 ## 数据源
 
 单数据源 `data/processed/metric_table_full.csv`，由
-[02-run-wide-table.md](02-run-wide-table.md) 产出。当前 22 列 = 4 身份列 + 18 指标列。
+[02-run-wide-table.md](02-run-wide-table.md) 产出。当前 23 列 = 4 身份列 + 19 指标列
+（列数以 `scripts/summarize_metric_table.py` 的 `build_metric_columns()` 为准，
+`AGENTS.md` 说 25 个指标未进宽表，别把两者混为一谈）。
 
 ## 运行
 
@@ -61,14 +63,25 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
 
 - **计数单位为"日志"**，不用"回合"。例外：指标名保留权威口径原名"回合完成率"。
 - **死亡日志** = `turn_completion_rate == 0`（未闭环）。
-- **高危日志** = 闭环 ∧ 业务错误数 `be >= 3`（`api_retry_rate` 单元格的
-  `api_business_error_count`）。2026-09-24 需求方确认，取代旧口径"压缩>0 ∨ 重试>0.6"。
+- **高危日志** = 闭环 ∧ (业务错误数 `be >= 3`（`api_retry_rate` 单元格的
+  `api_business_error_count`）∨ 工具错误数 `te > 10`（`tool_error_rate` 单元格的
+  `error_call_count`））。2026-09-24 需求方两次确认：先取代旧口径"压缩>0 ∨ 重试>0.6"，
+  同日追加 `te > 10` 分支。阈值常量 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD`
+  与 `scripts/build_badcase_workbook.py` 的同名常量必须一致（后者 2026-09-29 取代了
+  `.tmp/rebuild_badcase_sheet.py`，见 [04-build-badcase-xlsx.md](04-build-badcase-xlsx.md)）。
+  ⚠️ 该阈值的校准基础已过期（见 `AGENTS.md`「Current Actions」首条）：`high_risk_turn_profile`
+  的 `step>30 ∧ api_retry_rate>0.4` 在新口径下研究样本重试率上限仅 0.3333，**结构上恒为 0 命中**。
+  报告 4.2 的富集倍数**已于 2026-09-29 改为实时计算**，但阈值本身尚未重选。
+- **高消耗富集**（2026-09-29 确认口径）= P(Token ≥ 全样本 p90 | 命中) ÷ P(Token ≥ 该分位)。
+  阈值常量 `HIGH_CONSUMPTION_PERCENTILE = 0.90`。它与下面的死亡富集**分母口径不同**
+  （一个是 Token 分位、一个是未闭环率），报告文案里并列出现时必须分别标注量纲。
 - **死亡富集** = P(未闭环 | 命中信号) ÷ P(未闭环 | 全样本)；基线由 `base_death_rate`
   单点计算贯穿全脚本。富集与频次是两个维度——低频信号可能富集最高，排查优先级看富集。
 - **"重试次数"指框架 / 工具传输层 API 重试**（`fingerprint_dup_v2`：同一
   `(callID, endpoint+入参指纹)` 重复），**不是模型级重试**；模型级重试属埋点 D 当前不可观测。
-- 第 3.4 节的 `api_retry_attribution` 归因单元格取 Top5；`tool_error_attribution` 不截断——
-  两者口径刻意不同，不可互相解释。
+- 第 3.5 节的 `api_retry_attribution` 归因单元格按工具取 Top8、按接口取 Top5；
+  `tool_error_attribution` 不截断——两者口径刻意不同，不可互相解释。
+  （`api_retry_attribution` 自 2026-09-24 起展示在第 **3.5** 节，早前版本曾列为 3.4。）
 
 ## 改报告时的维护点
 
@@ -79,12 +92,17 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
 | 增 / 删标量指标列 | `SCALAR_COLS`，并按需同步第 1 节 `EVOLUTION_KEPT` / `EVOLUTION_DELETED` / `EVOLUTION_ADDED` |
 | 增 / 删逐工具 JSON 列 | `PER_TOOL_COLS`（当前只有时延与 Token 两列） |
 | 增 / 删单元素 JSON 标量列 | `JSON_SCALAR`（用于第 0 节可计算性清单） |
-| 新增指标 | 必须补 `ADDED_NOTES` 的"含义与取值举例"一行 |
-| 模型错误分类目录 | `LLM_ERROR_CLASS_CATALOG` 必须与 `src/collectors/llm_error_count.py` 的 `_ERROR_CLASS_RULES_V1` 一致；第 3.3 节按该目录**穷举**（零命中类也列出） |
+| 增 / 删只进第 0 节清单的 JSON 列 | `JSON_EXTRA_COLS`（当前 4 列：max_tool_token_share / max_tool_latency_share / api_retry_attribution / tool_error_attribution） |
+| 新增指标 | 必须补 `ADDED_NOTES` 的"含义与取值举例"一行，行数须等于 `EVOLUTION_ADDED` 长度 |
+| 模型错误分类目录 | `LLM_ERROR_CLASS_CATALOG` 必须与 `src/collectors/llm_error_count.py` 的 `_ERROR_CLASS_RULES_V1` 一致；第 3.4 节按该目录**穷举**（零命中类也列出） |
+| 改任何列数 / 条数 / 分档 | 同批更新 `.agents/skills/metric-report/SKILL.md` 的「报告统计细节速查」与本文件上表 |
 
 其余约定：
 
-- 洞察文案里的数字**一律实时计算**，禁止硬编码；阈值（如 20min、p90）可写死但要在注释里说明。
+- 洞察文案里的数字**一律实时计算**，禁止硬编码；唯一可写死的是**判定规则**本身
+  （高危门槛 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD`、高消耗分位
+  `HIGH_CONSUMPTION_PERCENTILE`、2.3 的 `>0.15`、`STEP_BANDS`），
+  改了要在注释里说明依据。当前仍有 3 处已知违反，逐条见 SKILL.md「已知偏差」。
 - 柱状图数值标签放条尾、**不加白底**（白底框会在柱尾压出留白遮住柱体），留白靠 `xlim` 余量。
 - 写盘前 `_cn_commas` 把 `</style>` 之后的半角逗号转中文逗号（千分位如 `1,234` 受保护）；
   图内文字是内嵌 PNG，须在绘图字符串里直接写中文逗号。
@@ -96,5 +114,7 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
 | `ModuleNotFoundError: matplotlib` | 用了 venv python，改 anaconda |
 | 图表中文变方块 | 系统缺 `Microsoft YaHei`，改 `plt.rcParams["font.sans-serif"]` |
 | 某列为空 / 报 KeyError | 宽表列集与脚本 `*_COLS` 不一致，按上表同步 |
-| 第 3.3 节少一类 | `LLM_ERROR_CLASS_CATALOG` 与 collector 目录漂移 |
-| 报告数字与预期不符 | 先确认宽表本身是否为最新列集（见 02 的断点续跑纪律） |
+| `KeyError: 'scheduler_task'` | 3.3 节文案对 `presence` 直接下标，换样本后该工具缺位即崩；见 SKILL.md「已知偏差」第 2 条 |
+| 第 3.4 节少一类 | `LLM_ERROR_CLASS_CATALOG` 与 collector 目录漂移 |
+| 报告数字与预期不符 | 先确认宽表本身是否为最新列集（见 02 的断点续跑纪律）；4.2 的富集倍数是遗留硬编码，不要按它判断当前样本 |
+| 落款数据日期不对 | `--data-range` 是人工传入、只校验格式，传错不报错；须与 02 步导出清单的实际日期区间核对 |
