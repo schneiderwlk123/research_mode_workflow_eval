@@ -59,13 +59,6 @@ from collectors.exact_duplicate_calls import (
     normalize_chat_exact_duplicates,
     normalize_research_exact_duplicates,
 )
-from collectors.high_risk_turn_profile import (
-    HIGH_RISK_PROFILE_VERSION,
-    HighRiskProfileDiagnostics,
-    NormalizedHighRiskTurnProfileTrace,
-    normalize_chat_high_risk_turn_profile,
-    normalize_research_high_risk_turn_profile,
-)
 from collectors.intent_recognition import (
     IntentEvidenceFragment,
     IntentRecognitionCandidate,
@@ -288,11 +281,6 @@ __all__ = [
     "ToolErrorRateDiagnostics",
     "classify_tool_error",
     "FAILURE_TEMPLATE_CATALOG_VERSION",
-    "HIGH_RISK_PROFILE_VERSION",
-    "HighRiskProfileDiagnostics",
-    "NormalizedHighRiskTurnProfileTrace",
-    "normalize_chat_high_risk_turn_profile",
-    "normalize_research_high_risk_turn_profile",
     "TurnCompletionDiagnostics",
     "OutputTokenRatioDiagnostics",
     "ParameterValueCandidate",

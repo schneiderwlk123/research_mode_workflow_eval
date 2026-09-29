@@ -69,9 +69,9 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
   同日追加 `te > 10` 分支。阈值常量 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD`
   与 `scripts/build_badcase_workbook.py` 的同名常量必须一致（后者 2026-09-29 取代了
   `.tmp/rebuild_badcase_sheet.py`，见 [04-build-badcase-xlsx.md](04-build-badcase-xlsx.md)）。
-  ⚠️ 该阈值的校准基础已过期（见 `AGENTS.md`「Current Actions」首条）：`high_risk_turn_profile`
-  的 `step>30 ∧ api_retry_rate>0.4` 在新口径下研究样本重试率上限仅 0.3333，**结构上恒为 0 命中**。
-  报告 4.2 的富集倍数**已于 2026-09-29 改为实时计算**，但阈值本身尚未重选。
+  本口径**独立于 7.11**：`high_risk_turn_profile` 已于 2026-09-29 因阈值失效退役
+  （`step>30 ∧ api_retry_rate>0.4` 在新口径下恒为 0 命中，全量仅 1 条命中、死亡富集 0.00x），
+  报告不受影响——第 4 节的死亡/高危判定从未依赖该指标。
 - **高消耗富集**（2026-09-29 确认口径）= P(Token ≥ 全样本 p90 | 命中) ÷ P(Token ≥ 该分位)。
   阈值常量 `HIGH_CONSUMPTION_PERCENTILE = 0.90`。它与下面的死亡富集**分母口径不同**
   （一个是 Token 分位、一个是未闭环率），报告文案里并列出现时必须分别标注量纲。

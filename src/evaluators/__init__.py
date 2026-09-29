@@ -16,7 +16,6 @@ from evaluators.embedding_statement_support import (
 from evaluators.end_to_end_latency import EndToEndLatencyEvaluator
 from evaluators.error_recovery import ErrorRecoveryRateEvaluator
 from evaluators.exact_duplicate_tool_calls import ExactDuplicateToolCallEvaluator
-from evaluators.high_risk_turn_profile import HighRiskTurnProfileEvaluator
 from evaluators.intent_recognition import (
     IntentRecognitionAccuracyEvaluator,
     IntentRecognitionJudge,
@@ -102,7 +101,6 @@ __all__ = [
     "EmbeddingProvider",
     "EmbeddingStatementSupportJudge",
     "ExactDuplicateToolCallEvaluator",
-    "HighRiskTurnProfileEvaluator",
     "IntentRecognitionAccuracyEvaluator",
     "InMemoryEmbeddingCache",
     "IntentRecognitionJudge",
