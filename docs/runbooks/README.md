@@ -9,9 +9,11 @@
 | [01-salvage-logs.md](01-salvage-logs.md) | uid + 北京时间日期 + 问题开头 | 本地 jsonl 日志 + `salvage_manifest.json` | `scripts/salvage_oss_logs.py` |
 | [02-run-wide-table.md](02-run-wide-table.md) | 平台导出的 uid/session_id/msg_id 清单（xlsx） | `metric_table_full.csv` 宽表 | `scripts/stream_compute_metrics.py` |
 | [03-generate-report.md](03-generate-report.md) | 宽表 CSV | 自包含 HTML 报告 | `.agents/skills/metric-report/scripts/generate_report.py` |
+| [04-build-badcase-xlsx.md](04-build-badcase-xlsx.md) | 宽表 CSV | bad case Excel（4 sheet） | `scripts/build_badcase_workbook.py` |
 
-三段是接力关系：01 打捞单条异常日志做定因，02 按时间范围全量跑宽表做统计，03 把宽表
-渲染成报告。三者互不依赖，可以单独执行。
+四段是接力关系：01 打捞单条异常日志做定因，02 按时间范围全量跑宽表做统计，
+03 把宽表渲染成报告，04 把宽表渲染成人工复查用的 bad case 表。02 是 03/04 的共同上游，
+01 与其余三者互不依赖，可以单独执行。
 
 ## 共同前置
 
