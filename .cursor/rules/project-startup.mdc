@@ -5,16 +5,17 @@ alwaysApply: true
 
 # Project Startup
 
-Before planning, editing, or running project commands, read these files in order:
+Before planning, editing, or running project commands, restore context from these
+(`AGENTS.md` is already in context — `CLAUDE.md` imports it, or it was read as the rule source — so do not re-read it):
 
-1. `AGENTS.md`
-2. `docs/START_HERE.md`
-3. `docs/PROJECT_STATUS.md`
-4. `docs/arch/code-map.md`
-5. `初步入库评测指标.md`
+- `docs/arch/code-map.md` — module layout, entry points, test locations.
+- `AGENTS.md` "Current Actions and Known Gaps" — action items and known gaps; enough to plan the next step.
+- `docs/PROJECT_STATUS.md` — only when you need the current milestone or verification-baseline numbers.
 
-For metric work, then read only the relevant section of `初步入库评测指标.md`. Read
-`mcp_tool_manual.json` only when tool names, parameters, or schemas are involved.
+Do NOT read `初步入库评测指标.md` at startup — it is 3,000+ lines. It is the single authoritative source
+for every metric caliber; read only the relevant section when actually working on a metric. Its head
+carries a wide-table inclusion index, and its tail appendix holds the wide-table cell contract, the
+cancelled/deferred metric register, the open business-confirmation items, and the full-sample baseline.
 
 For operational tasks (log salvage, full wide-table recompute, report generation),
 read the matching manual under `docs/runbooks/` before running scripts.

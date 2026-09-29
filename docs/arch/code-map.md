@@ -2,12 +2,14 @@
 
 评测流水线方向：`collectors -> evaluators -> reporters`，数据和产物访问由 `storage` 提供。
 
-- `docs/START_HERE.md`：每次新会话的稳定阅读入口和不可破坏约束。
-- `docs/PROJECT_STATUS.md`：当前里程碑、下一动作、已知缺口和验证基线。
+- `docs/PROJECT_STATUS.md`：当前里程碑与验证基线（现行宽表数字）；不承载下一动作，
+  行动项在 `AGENTS.md`「当前动作与已知缺口」。
 - `docs/runbooks/`：日常作业手册目录（索引 + 打捞日志 / 全量跑宽表 / 生成报告三篇），
   记录对应脚本的输入、参数、断点续跑纪律、产出自查点与常见问题；执行作业前阅读。
-- `初步入库评测指标.md`（根目录）：全部评测指标的权威口径来源——指标定义、双模式字段映射、
-  异常边界、真实日志基线与埋点需求；指标确认后的实现细节进入集中规格 `docs/specs/metrics.md`。
+- `初步入库评测指标.md`（根目录）：全部评测指标的**唯一**权威口径来源——指标定义、双模式
+  字段映射、异常边界、判分与可计算性原因码、真实日志基线、埋点需求。其文末附录（2026-09-28
+  自已删除的 `docs/specs/metrics.md` 整体迁入）另含宽表列单元格契约、已取消/暂缓指标登记、
+  业务确认项与全量样本基线。
 - `.agents/skills/metric-report/SKILL.md`：指标报告技能说明——数据源、运行方式、报告六节
   结构、计数单位与高危/死亡/富集口径、列集与错误分类目录的同步维护点。
 - `.agents/skills/metric-report/scripts/generate_report.py`：从
@@ -22,8 +24,12 @@
   （曾有的 3.5.3「冻结抽样基线」静态 OSS 抽样段已按 2026-09-24 需求删除）；
   2.3 稳定性表只展示命中数/占比/其中未闭环三个原始计数，不展示派生的死亡富集倍数
   （该倍数仍作为内部排序/论证用于 4.2/5.1/3.4 的文字）；
+  4.2 的两个富集倍数由 `build_enrichment_stats` 实时计算：**高消耗富集** =
+  P(Token ≥ `HIGH_CONSUMPTION_PERCENTILE`(0.90) 分位 | 命中) ÷ P(Token ≥ 该分位)，
+  **死亡富集** = P(未闭环 | 命中) ÷ P(未闭环 | 全样本)——两者分母口径不同，
+  文案必须分别标注；该函数同时输出 be / te / be∨te / 闭环 be∨te 四组；
   高危口径阈值 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD` 须与
-  `.tmp/rebuild_badcase_sheet.py` 的同名常量一致；
+  `scripts/build_badcase_workbook.py` 的同名常量一致；
   必填参数 `--data-range YYYYMMDD-YYYYMMDD` 渲染进报告表头（宽表不存日期字段，
   无法从 CSV 推导，缺失即报错退出）；
   依赖 matplotlib/numpy，须用 anaconda python 运行。
@@ -190,16 +196,6 @@
   callID 的 debug 事件与工具 part 分流诊断）；有 debug 事件但 apiCalls 为空返回
   `no_observable_api_calls`；错误码分布随结果输出；endpoint 仅以聚合 Top-K 计数
   落归因列，原始逐次 endpoint 与请求/响应正文不落结果。
-- `src/collectors/high_risk_turn_profile.py`：高危回合画像特征规范化（稳定性
-  维度 7.11，规则版本 `high_risk_profile_v2` = 2026-09-21 确认的双条件口径，
-  v1 四条件公式实测 0 命中已废弃）。组合式单一事实来源（7.5 范式）：7.8
-  `normalize_*_api_retry` 提供重试率（硬依赖，不可计算即透传——step 数再高
-  也不可判定）、7.6 压缩计数与 7.1 闭环标记为特征清单诊断项、step 数为
-  step-start 按 messageID 去重计数（与 7.10 同口径，缺 messageID 保守计数）；
-  闭环是特征不是条件（missing_turn_boundary 时 turn_completed 为 None 不阻断，
-  边界/压缩证据冲突透传隔离）；空结果数特征项待 7.9 立项后复用其 normalizer
-  补入（2026-09-21 需求方确认本批省略）；聊天依赖通道不存在透传
-  `no_tool_debug_events`。
 - `src/collectors/__init__.py`：导出各指标的规范化类型与入口。
 - `src/evaluators/base.py`：`BaseEvaluator` 抽象接口、统一结果对象和计算状态；指标值支持有限数值
   或用于单字段结构化输出的非空字符串。
@@ -346,13 +342,6 @@
   `invalid_normalized_trace`；`no_tool_debug_events` / `no_observable_api_calls`
   为 NOT_COMPUTABLE；错误码分布留元数据供 reporter 批次按码聚合，endpoint
   矩阵留 reporter 批次；版本为 `2.0.0`（2026-09-23 fingerprint_dup_v2 修订）。
-- `src/evaluators/high_risk_turn_profile.py`：校验规范化画像特征并输出双条件
-  0/1 标记的单字段紧凑 JSON（固定键序：high_risk_turn + step 数 + 重试率与
-  分子分母 + 压缩次数 + 闭环标记，闭环可为 null）；冻结阈值 steps > 30 ∧
-  rate > 0.4（严格不等式）与规则版本 `high_risk_profile_v2` 随元数据声明，
-  版本不匹配隔离；rate 与 retry/call 商自洽校验；依赖 7.8 不可计算透传
-  NOT_COMPUTABLE（不代表无风险）；报告级组合规则不进宽表单值列，高危回合率
-  由聚合层派生；空结果数特征项待 7.9 补入时须升版；版本为 `1.0.0`。
 - `src/evaluators/__init__.py`：导出公共契约和具体评测器。
 - `src/reporters/metric_table.py`：通用指标宽表引擎；通过 `MetricColumn` 注入独立指标适配器，
   每行对应一条完整日志，固定输出用户、会话、统一日志主键和模式标识；每个指标只输出一个
@@ -389,8 +378,7 @@
   不进分母）、`compaction_event_count`（单元格为非负整数，零压缩合法；聊天无
   压缩事件通道恒空）和 `api_retry_rate`（单元格为比率 + 分子分母 + 业务错误 +
   不可判定 + 覆盖率的单元素 JSON 数组；聊天无 API 明细通道恒空，研究无
-  tool.debug 事件写空不代表无重试；`high_risk_turn_profile` 为报告级组合规则
-  不注册列）和 `api_retry_attribution`（2026-09-24 注册：框架层归因 by_tool /
+  tool.debug 事件写空不代表无重试）和 `api_retry_attribution`（2026-09-24 注册：框架层归因 by_tool /
   by_endpoint Top5 + retry_after_success 的单元素 JSON 数组；复用 api_retry 的
   规范化与评测器，从 metadata 读归因；不可计算留空；与 backfill 脚本共用
   `build_attribution_cell` 单一实现）
@@ -423,6 +411,17 @@
   `ToolErrorRateEvaluator` 读 metadata 的 `error_calls`、不重算其它指标；只统计 error
   终态，degraded（code:1 自检降级）不带工具名入列；by_tool / by_attribution 不截断；
   断点续跑按新列是否非空跳过；原子替换（temp + rename）防半写。
+- `scripts/build_badcase_workbook.py`：从 `data/processed/metric_table_full.csv` 一次构建
+  bad case Excel 的全部 4 个 sheet（`token_top200` / `cache_miss_top200` / `latency_top200` /
+  `badcase`），输出 `data/processed/badcase_top200.xlsx`。取代 `.tmp/` 下四个接力脚本
+  （`make_badcase_top200.py` 建三张 top200、`append_badcase_3dim.py` 与
+  `append_insight_sheets.py` 产中间表、`rebuild_badcase_sheet.py` 读现有文件追加
+  `badcase`），旧链路要求"必须先跑建文件的脚本再跑追加的脚本"、顺序错了不报错只会静默
+  留下混合文件。判定口径与报告第 4 节共用：死亡 = `turn_completion_rate == 0`，
+  高危 = 闭环 ∧（`api_business_error_count >= HIGH_BE_THRESHOLD` ∨
+  `error_call_count > HIGH_TOOL_ERROR_THRESHOLD`），死亡优先、两类互斥；
+  阈值常量与 `generate_report.py` 同名且必须同批修改。原因列由宽表单元格实时推导，
+  不引入宽表外数据。
 - `src/storage/intent_route_mappings.py`：以 JSONL 去重保存不含原始文本和实体的意图签名、
   子任务类型与能力集合，并支持 Jaccard 相似映射检索。
 - `src/storage/__init__.py`：导出安全意图路由映射存储入口。
@@ -593,13 +592,6 @@
   分布排序、覆盖率交集口径与孤立 debug 诊断、缺 callID 的 debug 事件与工具
   part 分流、trace_id 回退、JSON 单元格键序、零重试合法值、覆盖率 null 形态、
   守恒违约隔离、语义标签声明、敏感正文隔离与输入不变测试。
-- `tests/collectors/test_high_risk_turn_profile.py` 与
-  `tests/evaluators/test_high_risk_turn_profile.py`：聊天依赖透传不可计算、
-  研究无 tool.debug 时 step 数再高也不可计算、四组件组合、step-start 按
-  messageID 去重与缺失保守计数、闭环/压缩证据冲突透传隔离、缺回合边界时
-  闭环特征 null 不阻断主值、未闭环回合照常输出、双条件严格不等式阈值边界
-  （steps=30 与 rate=0.4 均不命中）、rate 与分子分母自洽校验、profile_version
-  强校验、error 与特征互斥、非法值隔离与敏感正文隔离测试。
 - `tests/collectors/test_tool_resource_usage.py` 与
   `tests/evaluators/test_tool_resource_usage.py`：双模式逐调用耗时、重复观测、缺失和非法边界、
   敏感正文隔离，以及工具 Token 明确不可计算测试。
@@ -607,6 +599,7 @@
   历史可注入 Judge 的请求结构、JSON 响应解析和供应商异常脱敏测试。
 - `tests/storage/test_intent_route_mappings.py`：映射表字段安全、记录去重、加载和相似签名
   检索测试。
-- `docs/specs/metrics.md`：按开发顺序集中记录已确认并实现指标的定义和原始字段映射。
+- `初步入库评测指标.md` 文末附录：宽表列单元格契约、已取消/暂缓指标登记、业务确认项与埋点
+  阻塞清单、全量样本基线（2026-09-28 自已删除的 `docs/specs/metrics.md` 迁入）。
 - `tests/`：测试包根目录；子目录结构与 `src/` 对应。
 - `configs/evaluation.example.toml`：提交安全的评测配置样例。

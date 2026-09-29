@@ -5,7 +5,7 @@
 当前仓库已建立评测器公共契约、开发工具链与指标宽表流水线，已实现工具调用、成本、时间、
 Agent 解析、容错纠错、回答质量和工作流稳定性七个维度的指标。
 
-新会话开始时先阅读 [Start Here](docs/START_HERE.md) 和 [Project Status](docs/PROJECT_STATUS.md)，再进入具体任务。
+新会话开始时先阅读 [Project Status](docs/PROJECT_STATUS.md) 和 [Code Map](docs/arch/code-map.md)，再进入具体任务。
 
 ## 项目结构
 
@@ -13,8 +13,7 @@ Agent 解析、容错纠错、回答质量和工作流稳定性七个维度的�
 configs/                 评测配置样例
 data/raw/                本地原始 trace（不提交）
 data/processed/          本地规范化数据与指标宽表（不提交）
-docs/arch/               架构设计
-docs/specs/              评测规范和指标定义
+docs/arch/               架构设计、日志 schema 与代码地图
 docs/runbooks/           日常作业手册（打捞日志 / 跑宽表 / 出报告）
 scripts/                 OSS 取数、宽表汇总与归因回填入口
 src/collectors/          数据采集与格式适配
@@ -30,7 +29,7 @@ reports/                 本地评测报告（不提交）
 
 原始 trace 可能包含用户问题、模型输出、工具参数及外部文档内容。仓库默认忽略所有 JSONL 文件，仅允许显式提交 `tests/fixtures/` 下的脱敏数据。日志和报告中不得写入密钥、Cookie 或未脱敏的个人信息。
 
-协作约定见 [AGENTS.md](AGENTS.md)。正式开发前应先在 `docs/arch/` 和 `docs/specs/` 中确认架构、输入 schema、指标口径和验收标准。
+协作约定见 [AGENTS.md](AGENTS.md)。正式开发前应先在 `docs/arch/` 与根目录《初步入库评测指标.md》中确认架构、输入 schema、指标口径和验收标准；后者是全部评测口径的唯一来源，其文末附录含宽表列契约与已取消/暂缓指标登记。
 
 ## 开发命令
 
