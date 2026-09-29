@@ -30,8 +30,9 @@ Next actions:
 
 - **7.11 `high_risk_turn_profile` retired on 2026-09-29** — no action needed unless it is revived. Its frozen
   threshold `steps > 30 ∧ api_retry_rate > 0.4` was calibrated under the retired `request_id_suffix_v1`
-  semantics; under `fingerprint_dup_v2` the research sample's retry rate caps at 0.3333, so `> 0.4` is
-  structurally unreachable (7,582 rows → 1 hit, death enrichment 0.00x). The metric was never registered
+  semantics; under `fingerprint_dup_v2` it lost discriminative power (7,582 rows → 1 hit, death enrichment
+  0.00x; the observed max retry rate is ~0.47 but only 12 rows exceed 1/3, so the `>0.4` branch is populated
+  by rare high-retry/low-step rows rather than by long logs). The metric was never registered
   in the wide table, had zero consumers, and was never accepted. Implementation, tests (22 cases) and the
   two `__init__` exports were deleted; the decision is registered in `初步入库评测指标.md` appendix 2.1.
   Reviving it requires re-selecting the threshold against the current distribution *and* a fresh proposal

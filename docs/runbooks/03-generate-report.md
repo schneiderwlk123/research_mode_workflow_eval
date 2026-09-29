@@ -79,8 +79,11 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
   单点计算贯穿全脚本。富集与频次是两个维度——低频信号可能富集最高，排查优先级看富集。
 - **"重试次数"指框架 / 工具传输层 API 重试**（`fingerprint_dup_v2`：同一
   `(callID, endpoint+入参指纹)` 重复），**不是模型级重试**；模型级重试属埋点 D 当前不可观测。
-- 第 3.5 节的 `api_retry_attribution` 归因单元格按工具取 Top8、按接口取 Top5；
+- 第 3.5 节的 `api_retry_attribution` 归因**图**按工具取 Top8、按接口取 Top5；
   `tool_error_attribution` 不截断——两者口径刻意不同，不可互相解释。
+  注意归因**单元格**产出时已由 `summarize_metric_table.py` 的 `build_attribution_cell`
+  执行 `_topk(k=5)`：单行 `by_tool` 条目数 ≤5 时图表合计与 `api_retry_count` 总量相等，
+  超过 5 个时第 6 名起会被静默丢弃（见 SKILL.md「已知偏差」的归因截断条）。
   （`api_retry_attribution` 自 2026-09-24 起展示在第 **3.5** 节，早前版本曾列为 3.4。）
 
 ## 改报告时的维护点
@@ -101,7 +104,8 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
 
 - 洞察文案里的数字**一律实时计算**，禁止硬编码；唯一可写死的是**判定规则**本身
   （高危门槛 `HIGH_BE_THRESHOLD` / `HIGH_TOOL_ERROR_THRESHOLD`、高消耗分位
-  `HIGH_CONSUMPTION_PERCENTILE`、2.3 的 `>0.15`、`STEP_BANDS`），
+  `HIGH_CONSUMPTION_PERCENTILE`、2.3 的 API 重试率信号阈值（取全可计算口径分位，
+  当前常量值以 `build_stability_signals` 的 `specs` 为准）、`STEP_BANDS`），
   改了要在注释里说明依据。当前仍有 3 处已知违反，逐条见 SKILL.md「已知偏差」。
 - 柱状图数值标签放条尾、**不加白底**（白底框会在柱尾压出留白遮住柱体），留白靠 `xlim` 余量。
 - 写盘前 `_cn_commas` 把 `</style>` 之后的半角逗号转中文逗号（千分位如 `1,234` 受保护）；
@@ -114,7 +118,8 @@ CSV 推导，须按本次清单（02 步导出的 Excel）的实际日期范围�
 | `ModuleNotFoundError: matplotlib` | 用了 venv python，改 anaconda |
 | 图表中文变方块 | 系统缺 `Microsoft YaHei`，改 `plt.rcParams["font.sans-serif"]` |
 | 某列为空 / 报 KeyError | 宽表列集与脚本 `*_COLS` 不一致，按上表同步 |
-| `KeyError: 'scheduler_task'` | 3.3 节文案对 `presence` 直接下标，换样本后该工具缺位即崩；见 SKILL.md「已知偏差」第 2 条 |
+| `KeyError: 'scheduler_task'` | 3.3 节文案对 `presence` 直接下标，换样本后该工具缺位即崩；见 SKILL.md「已知偏差」第 1 条 |
 | 第 3.4 节少一类 | `LLM_ERROR_CLASS_CATALOG` 与 collector 目录漂移 |
-| 报告数字与预期不符 | 先确认宽表本身是否为最新列集（见 02 的断点续跑纪律）；4.2 的富集倍数是遗留硬编码，不要按它判断当前样本 |
+| 第 3.5 节的按工具合计 < `api_retry_count` 总量 | 归因单元格产出时的 `_topk(k=5)` 截断（单行 `by_tool` >5 个条目）；见 SKILL.md「已知偏差」第 4 条 |
+| 报告数字与预期不符 | 先确认宽表本身是否为最新列集（见 02 的断点续跑纪律）；4.2 的富集倍数已改为由 `build_enrichment_stats` 实时计算，不再是硬编码 |
 | 落款数据日期不对 | `--data-range` 是人工传入、只校验格式，传错不报错；须与 02 步导出清单的实际日期区间核对 |

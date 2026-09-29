@@ -41,9 +41,8 @@
 - 不注册宽表的报告级项：bad case 高危口径。
 - 已退役指标（2026-09-29）：`high_risk_turn_profile`（7.11）。冻结阈值
   `step>30 ∧ api_retry_rate>0.4` 的标定基础是已退役的 `request_id_suffix_v1` 口径，
-  切到 `fingerprint_dup_v2` 后全量重试率上限 0.3333，`>0.4` 结构上不可达
-  （7,582 行命中 1 条、死亡富集 0.00x）。代码、测试与 `__init__` 导出已删除，
-  登记见 `初步入库评测指标.md` 附 2.1。
+  切到 `fingerprint_dup_v2` 后失去判别力（全量仅 1 条命中、死亡富集 0.00x）。
+  代码、测试与 `__init__` 导出已删除，登记见 `初步入库评测指标.md` 附 2.1。
 - 已退出 CSV 注册（评测器与测试保留）：`per_tool_repeat_call_count`、
   `mcp_tool_call_inflation_rate`、`citation_traceability_rate`。
 

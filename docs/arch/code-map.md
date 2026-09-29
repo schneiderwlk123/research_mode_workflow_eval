@@ -11,7 +11,10 @@
   自已删除的 `docs/specs/metrics.md` 整体迁入）另含宽表列单元格契约、已取消/暂缓指标登记、
   业务确认项与全量样本基线。
 - `.agents/skills/metric-report/SKILL.md`：指标报告技能说明——数据源、运行方式、报告六节
-  结构、计数单位与高危/死亡/富集口径、列集与错误分类目录的同步维护点。
+  结构、报告统计细节速查表（各节列集/条数/截断/分档的权威清单）、已知偏差清单、
+  计数单位与高危/死亡/富集口径、列集与错误分类目录的同步维护点。
+  **该文件只描述"怎么生成"，不承载任何本样本统计结果**——数字一律以脚本实时渲染与
+  代码常量为准，避免换样本后文档漂移。
 - `.agents/skills/metric-report/scripts/generate_report.py`：从
   `data/processed/metric_table_full.csv` 渲染自包含 HTML 报告（图表内嵌 base64 PNG，零回源）；
   标量/逐工具/JSON 标量列集分别由 `SCALAR_COLS` / `PER_TOOL_COLS` / `JSON_SCALAR` 定义，
